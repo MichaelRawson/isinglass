@@ -1,0 +1,67 @@
+/*
+Read TPTP/TSTP from standard input with read/1, producing
+
+  annotated(Language, Name, Role, Formula, Source)
+
+with formulas normalised into the internal syntax (ops.pl):
+  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, F <~> G, '!'(Xs, F), '?'(Xs, F), S = T
+where S != T becomes ~(S = T), F <= G becomes G => F, F ~| G becomes ~(F | G), F ~& G becomes ~(F & G).
+*/
+:- module(load, [read_tstp/1]).
+:- use_module(ops).
+
+% operators needed to read TPTP (as in tptp.pl)
+% declared only when reading, so as not to affect the parsing of code
+tptp_op(80, fx, '$').
+tptp_op(100, xf, '!').
+tptp_op(400, fy, '!').
+tptp_op(400, fx, '?').
+tptp_op(403, yfx, *).
+tptp_op(405, xfx, '=').
+tptp_op(440, xfy, >).
+tptp_op(450, fy, ~).
+tptp_op(450, xfy, :).
+tptp_op(1102, xfy, '|').
+tptp_op(1102, xfx, '~|').
+tptp_op(1103, xfy, &).
+tptp_op(1103, xfx, ~&).
+tptp_op(1104, xfx, =>).
+tptp_op(1104, xfx, <=).
+tptp_op(1105, xfx, <=>).
+tptp_op(1105, xfx, <~>).
+
+read_tstp(Statements) :-
+  \+ ( tptp_op(P, T, N), \+ op(P, T, N) ),
+  read_statements(Statements).
+
+read_statements(Statements) :-
+  read(Term),
+  (   Term == end_of_file
+  ->  Statements = []
+  ;   statement(Term, Statement),
+      Statements = [Statement|Rest],
+      read_statements(Rest)
+  ).
+
+statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
+  Term =.. [Language, Name, Role, Formula0|Annotations],
+  ( Annotations = [Source|_] -> true ; Source = none ),
+  ( Role == type -> Formula = Formula0 ; normalise(Formula0, Formula) ).
+
+normalise(V, F) :- var(V), !, F = V.
+normalise('$'(false), F) :- !, F = '$false'.
+normalise('$'(true), F) :- !, F = '$true'.
+normalise('!'(S) = T, F) :- !, F = ~(S = T).
+normalise(S = T, F) :- !, F = (S = T).
+normalise(~G, F) :- !, F = ~H, normalise(G, H).
+normalise('!'(Xs) : G, F) :- !, F = '!'(Xs, H), normalise(G, H).
+normalise('?'(Xs) : G, F) :- !, F = '?'(Xs, H), normalise(G, H).
+normalise((G | H), F) :- !, F = (G1 | H1), normalise(G, G1), normalise(H, H1).
+normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
+normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
+normalise('<='(G, H), F) :- !, F = (H1 => G1), normalise(G, G1), normalise(H, H1).
+normalise((G <=> H), F) :- !, F = (G1 <=> H1), normalise(G, G1), normalise(H, H1).
+normalise((G <~> H), F) :- !, F = (G1 <~> H1), normalise(G, G1), normalise(H, H1).
+normalise('~|'(G, H), F) :- !, F = ~(G1 | H1), normalise(G, G1), normalise(H, H1).
+normalise('~&'(G, H), F) :- !, F = ~(G1 & H1), normalise(G, G1), normalise(H, H1).
+normalise(A, A).
