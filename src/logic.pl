@@ -2,6 +2,7 @@
 :- module(logic, [
   clause_form/2,
   clause_formula/2,
+  clause_type/2,
   disjunction/2,
   complement/2,
   flip/2,
@@ -27,6 +28,14 @@ literals(A, [A]) :- atomic_formula(A).
 % and back again
 clause_formula(clause([], Ls), F) :- !, disjunction(Ls, F).
 clause_formula(clause(Xs, Ls), '!'(Xs, F)) :- disjunction(Ls, F).
+
+% the type of proofs of a clause (see ir.pl): '!'(Xs, ~L_0 => ... => ~L_n-1 => '$false')
+clause_type(clause(Xs, Ls), T) :-
+  implications(Ls, F),
+  ( Xs == [] -> T = F ; T = '!'(Xs, F) ).
+
+implications([], '$false').
+implications([L|Ls], (~L => F)) :- implications(Ls, F).
 
 disjunction([], '$false').
 disjunction([L], L) :- !.

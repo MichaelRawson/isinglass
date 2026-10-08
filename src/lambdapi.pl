@@ -1,12 +1,8 @@
 /*
 lambdapi back end, using the encoding of first-order logic in lambdapi's Stdlib.
 
-A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π H_0 → ... → π H_n-1 → π ⊥,
-where the hypothesis H for a positive literal A is ¬ A, and for a negative literal ~A is A.
-
-The IR only provides ¬ ¬ A for some negative literals (see ir.pl): such values are "indirect",
-and are used in continuation-passing style, n (λ a, ...), which is constructive as the goal is ⊥.
-
+A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π (¬ L_0) → ... → π (¬ L_n-1) → π ⊥,
+the type of its proof terms in the IR (see ir.pl), which are printed directly.
 */
 :- module(lambdapi, [emit/0]).
 :- use_module(library(lists)).
@@ -14,7 +10,6 @@ and are used in continuation-passing style, n (λ a, ...), which is constructive
 :- use_module(logic).
 :- use_module(db).
 :- set_prolog_flag(double_quotes, codes).
-:- dynamic(indirect/1).
 
 emit :-
   findall(Name, ir_step(Name, _, _), Names),
@@ -26,8 +21,7 @@ out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
 
 prelude -->
   "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq;\n\n",
-  "opaque symbol neq_sym [a] [x y : τ a] : π (x ≠ y) → π (y ≠ x) ≔ λ neqxy eqyx, neqxy (eq_sym eqyx);\n",
-  "opaque symbol nneq_sym [a] [x y : τ a] : π (¬ (¬ (x = y))) → π (¬ (¬ (y = x))) ≔ λ nn k, nn (λ e, k (eq_sym e));\n",
+  "opaque symbol sym (x y : τ ι) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
   "opaque symbol infer_el [a] : τ a ≔ el a;\n\n".
 
 /********************************************************************************
@@ -57,7 +51,7 @@ sort('$o') --> "Prop".
  ********************************************************************************/
 
 proof_step(Name) -->
-  { ir_step(Name, Conclusion, Justification), retractall(indirect(_)) },
+  { ir_step(Name, Conclusion, Justification) },
   proof_step(Justification, Name, Conclusion).
 
 proof_step(input(_, Input), Name, clause(Xs, Ls)) -->
@@ -66,12 +60,11 @@ proof_step(input(_, Input), Name, clause(Xs, Ls)) -->
   header(Name), statement(clause(Xs, Ls)), " ≔ ",
   { length(Ls, N), numlist_(0, N, Is) },
   lambdas(Xs, Is),
-  cases(Is, Ls, input_instance(Input, Xs)), ";\n".
+  cases(Is, input_instance(Input, Xs)), ";\n".
 proof_step(split_def(Split, Clause), _, _) -->
   "rule ", sym(Split), " ↪ ", clause(Clause), ";\n".
-proof_step(refute(R), Name, clause(Xs, Ls)) -->
-  { length(Ls, N), numlist_(0, N, Is) },
-  header(Name), statement(clause(Xs, Ls)), " ≔ ", lambdas(Xs, Is), refutation(R), ";\n".
+proof_step(proof(M), Name, Conclusion) -->
+  header(Name), conclusion(Conclusion), " ≔ ", proof(M), ";\n".
 
 proof_step(todo(Record, _), Name, Conclusion) -->
   { functor(Record, Rule, _) },
@@ -101,16 +94,11 @@ hypotheses([]) --> [].
 hypotheses([I|Is]) --> " ", hypothesis(h(I)), hypotheses(Is).
 
 % from a proof of the input disjunction, refute each literal by case analysis
-cases([], [], D) --> call(D).
-cases([I], [L], D) --> mate(L, h(I), D).
-cases([I, J|Is], [L|Ls], D) -->
-  "(∨ₑ ", call(D), " (λ l, ", mate(L, h(I), l), ") (λ r", number(I), ", ", cases([J|Is], Ls, r(I)), "))".
+cases([], D) --> call(D).
+cases([I], D) --> "(", hypothesis(h(I)), " ", call(D), ")".
+cases([I, J|Is], D) -->
+  "(∨ₑ ", call(D), " (λ l, ", hypothesis(h(I)), " l) (λ r", number(I), ", ", cases([J|Is], r(I)), "))".
 
-% a proof D of literal L contradicts hypothesis H for L
-mate(~_, H, D) --> !, "(", call(D), " ", hypothesis(H), ")".
-mate(_, H, D) --> "(", hypothesis(H), " ", call(D), ")".
-
-l --> "l".
 r(I) --> "r", number(I).
 
 input_instance(Input, Xs) --> { phrase(variables(Xs), As) }, application(input(Input), As).
@@ -121,83 +109,38 @@ input(Input) --> "{|", atom(Input), "²|}".
  * proof terms
  ********************************************************************************/
 
-/*
-Refutations and values are printed without enclosing parentheses: they occur as binder bodies, which extend rightwards,
-and are parenthesised by operand//1 and head//1 where they are applied.
-*/
+% proof terms are printed bare: they occur as binder bodies, which extend rightwards,
+% and are parenthesised by operand//1 where they are arguments
+proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
+proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
+proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
+proof(X) --> head(X).
 
-% indirect arguments are bound by continuations around the use of the premise
-refutation(use(P, Ts, Args)) -->
-  { arguments(Args, 0, Direct, Continuations) },
-  continuations(Continuations),
-  instance(P, Ts, Direct),
-  closing(Continuations).
-refutation(let(H, L, arg(_, A), E)) -->
-  { value(L, A, Indirect, Cs), name_value(H, Indirect) },
-  "let ", hypothesis(H), " ≔ ", codes(Cs), " in ", refutation(E).
-% H refutes K and A refutes its complement: whichever has a type ¬X is the head
-% K is ~B: A is ¬B; H is B, or ¬¬B if indirect
-refutation(contra(H, ~_, arg(B, A))) --> !,
-  { value(B, A, _, Cs) },
-  ( { indirect(H) } -> hypothesis(H), " ", operand(Cs) ; head(Cs), " ", hypothesis(H) ).
-% K is positive: H is ¬K; A is K, or ¬¬K if indirect
-refutation(contra(H, _, arg(L, A))) -->
-  { value(L, A, Indirect, Cs) },
-  ( { Indirect == true } -> head(Cs), " ", hypothesis(H) ; hypothesis(H), " ", operand(Cs) ).
+% consecutive λs are merged
+binders(lam(X, _, M)) --> !, " ", variable(X), binders(M).
+binders(M) --> ", ", proof(M).
 
-% premise P applied to terms Ts and arguments Direct
-% the premise def(H, _) is H : π split, or π (¬ ¬ split) if H is indirect
-instance(def(H, _), Ts, Direct) --> { indirect(H) }, !,
-  hypothesis(H), " (λ d, d", variables(Ts), direct(Direct), ")".
-instance(def(H, _), Ts, Direct) --> !, hypothesis(H), variables(Ts), direct(Direct).
-instance(Name, Ts, Direct) --> atom(Name), variables(Ts), direct(Direct).
+% lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
+% (without, inference can be very slow, e.g. PUZ017-1)
+value(lam(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(T), ")", binders(M).
+value(M) --> proof(M).
 
-% arguments(Args, N, Direct, Continuations): indirect arguments are replaced by variables cN
-arguments([], _, [], []).
-arguments([arg(L, A)|Args], N, [Cs|Direct], Continuations) :-
-  value(L, A, Indirect, Value),
-  M is N + 1,
-  (   Indirect == true
-  ->  phrase(("c", number(N)), Cs),
-      Continuations = [c(N, Value)|Rest]
-  ;   Cs = Value,
-      Continuations = Rest
-  ),
-  arguments(Args, M, Direct, Rest).
+annotation('$i') --> !, "τ ι".
+annotation(F) --> "π ", formula(F).
 
-direct([]) --> [].
-direct([Cs|Css]) --> " ", operand(Cs), direct(Css).
+head('$sym') --> !, "sym".
+head(Name) --> { atom(Name) }, !, atom(Name).
+head(X) --> variable(X).
 
-continuations([]) --> [].
-continuations([c(N, Value)|Cs]) --> head(Value), " (λ c", number(N), ", ", continuations(Cs).
+variable(h(N)) --> !, hypothesis(h(N)).
+variable(X) --> term(X).
 
-closing([]) --> [].
-closing([_|Cs]) --> ")", closing(Cs).
+operands([]) --> [].
+operands([M|Ms]) --> " ", operand(M), operands(Ms).
 
-% a term in argument position is parenthesised unless atomic, and in head position if it is a λ
-operand(Cs) --> { memberchk(0' , Cs) } -> "(", codes(Cs), ")" ; codes(Cs).
-head(Cs) --> { append("λ", _, Cs) } -> "(", codes(Cs), ")" ; codes(Cs).
-
-% value(L, A, Indirect, Codes): the term refuting L by argument A, and whether it is indirect
-value(L, A, Indirect, Cs) :- phrase(argument(L, A, Indirect), Cs).
-
-% hypothesis H names a value
-name_value(H, true) :- assertz(indirect(H)).
-name_value(_, false).
-
-argument(L, hyp(H), Indirect) --> { L = ~_, indirect(H) -> Indirect = true ; Indirect = false }, hypothesis(H).
-argument(_, sym(L0, H), Indirect) -->
-  { phrase(argument(L0, hyp(H), Indirect), Cs) },
-  ( { L0 \= ~_ } -> "neq_sym " ; { Indirect == true } -> "nneq_sym " ; "eq_sym " ),
-  operand(Cs).
-argument(_, intro(Xs, Gs, E), false) -->
-  "λ", variables(Xs), binders(Gs), ", ", refutation(E).
-argument(L, assume(H, E), Indirect) -->
-  { L = ~_ -> Indirect = true ; Indirect = false },
-  "λ ", hypothesis(H), ", ", refutation(E).
-
-binders([]) --> [].
-binders([H|Hs]) --> " ", hypothesis(H), binders(Hs).
+operand(app(F, [], [])) --> !, head(F).
+operand(M) --> { M = app(_, _, _) ; M = lam(_, _, _) ; M = let(_, _, _, _) }, !, "(", proof(M), ")".
+operand(X) --> head(X).
 
 hypothesis(h(I)) --> "h", number(I).
 
@@ -261,14 +204,10 @@ clause(clause(Xs, Ls)) -->
   formula(0, F).
 
 implications([], '$false').
-implications([L|Ls], (H => F)) :- hypothesis_formula(L, H), implications(Ls, F).
-
+implications([L|Ls], (~L => F)) :- implications(Ls, F).
 
 % the type of hypothesis refuting literal L, as an argument of π
-hypothesis_type(L) --> { hypothesis_formula(L, F) }, formula(F).
-
-hypothesis_formula(~A, A) :- !.
-hypothesis_formula(A, ~A).
+hypothesis_type(L) --> formula(~L).
 
 term(T) --> term(101, T).
 

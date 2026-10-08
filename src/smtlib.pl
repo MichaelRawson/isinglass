@@ -1,13 +1,16 @@
 /*
 SMT-LIB back end, in the manner of "Ground Truth": each step is checked separately,
-by asserting the ground premise instances used in its reconstruction and the negation of its
+by asserting the ground facts used in its proof term and the negation of its
 conclusion (with variables as fresh constants), expecting `unsat`.
+The facts are premise instances, and instances of AVATAR definitions, found using the binder
+types of the proof term.
 
 Unreconstructed steps (todo) are checked with their premises universally quantified.
 Each check is preceded by (echo "name"), so the solver prints the name and then the result.
 */
 :- module(smtlib, [emit/0]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
@@ -45,8 +48,9 @@ sort('$o') --> "Bool".
 
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
-check(refute(R), Name, clause(Xs, Ls)) -->
-  { assertions(R, Fs, []) },
+check(proof(M), Name, clause(Xs, Ls)) -->
+  { empty_assoc(Env),
+    facts(M, Env, Fs, []) },
   scope(Name, clause(Xs, Ls), Fs).
 check(todo(_, Parents), Name, Conclusion) -->
   { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
@@ -75,33 +79,34 @@ constants([V|Vs]) --> "(declare-const ", term(V), " I)\n", constants(Vs).
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
-% assertions(R, Fs0, Fs): the ground facts used in refutation R
-assertions(use(P, Ts, Args), [F|Fs0], Fs) :-
-  (   P = def(_, Split)
-  ->  split_def(Split, clause(Ts, Ls)), disjunction(Ls, D), F = (Split => D)
-  ;   step(P, clause(Ts, Ls), _), disjunction(Ls, F)
-  ),
-  argument_assertions(Args, Fs0, Fs).
-assertions(let(_, _, Arg, E), Fs0, Fs) :-
-  argument_assertions([Arg], Fs0, Fs1),
-  assertions(E, Fs1, Fs).
-assertions(contra(_, _, Arg), Fs0, Fs) :-
-  argument_assertions([Arg], Fs0, Fs).
+% facts(A, Env, Fs0, Fs): the ground facts used in annotated term A; Env maps binders to types
+facts(lam(X, T, A), Env, Fs0, Fs) :- !, put_assoc(X, Env, T, Env1), facts(A, Env1, Fs0, Fs).
+facts(let(X, F, A, B), Env, Fs0, Fs) :- !,
+  facts(A, Env, Fs0, Fs1),
+  put_assoc(X, Env, F, Env1),
+  facts(B, Env1, Fs1, Fs).
+facts(app(F, Ts, As), Env, Fs0, Fs) :- !,
+  fact(F, Ts, As, Env, Fs0, Fs1),
+  foldl_facts(As, Env, Fs1, Fs).
+facts(_, _, Fs, Fs).
 
-argument_assertions([], Fs, Fs).
-argument_assertions([arg(L, A)|Args], Fs0, Fs) :-
-  argument_assertion(A, L, Fs0, Fs1),
-  argument_assertions(Args, Fs1, Fs).
+foldl_facts([], _, Fs, Fs).
+foldl_facts([A|As], Env, Fs0, Fs) :- facts(A, Env, Fs0, Fs1), foldl_facts(As, Env, Fs1, Fs).
 
-% argument_assertion(A, L, Fs0, Fs): the ground facts used in A, refuting L
-argument_assertion(hyp(_), _, Fs, Fs).
-argument_assertion(sym(_, _), _, Fs, Fs).
-argument_assertion(assume(_, E), _, Fs0, Fs) :- assertions(E, Fs0, Fs).
-% for eigenvariables Xs, the definition of Split holds if it holds for Xs (sound by skolemisation)
-argument_assertion(intro(Xs, _, E), ~Split, [(D => Split)|Fs0], Fs) :-
-  split_def(Split, clause(Xs, Ls)),
-  disjunction(Ls, D),
-  assertions(E, Fs0, Fs).
+% a premise instance
+fact(F, Ts, _, _, [D|Fs], Fs) :- atom(F), step(F, clause(Ts, Ls), _), !, disjunction(Ls, D).
+% the definition of Split is used, from F : Split
+fact(F, Ts, _, Env, [(Split => D)|Fs], Fs) :-
+  get_assoc(F, Env, Split), atom(Split), split_def(Split, clause(Ts, Ls)), !,
+  disjunction(Ls, D).
+% the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds (by skolemisation)
+fact(F, [], [A], Env, [(D => Split)|Fs], Fs) :-
+  get_assoc(F, Env, ~Split), atom(Split), split_def(Split, clause(Xs, Ls)), eigenvariables(A, Xs), !,
+  disjunction(Ls, D).
+fact(_, _, _, _, Fs, Fs).
+
+eigenvariables(lam(X, '$i', A), [X|Xs]) :- !, eigenvariables(A, Xs).
+eigenvariables(_, []).
 
 % '$VAR' terms occurring free, i.e. not bound by a quantifier
 free_variables(Fs, Vs) :-

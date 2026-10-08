@@ -6,104 +6,98 @@ The intermediate representation (IR) of proofs, and its checker.
   Conclusion    ::= clause(Xs, Literals) | formula(F)
   Justification ::= input(Role, Source)
                   | split_def(Symbol, Clause)       Symbol is defined as Clause (AVATAR)
-                  | refute(R)                       see below
+                  | proof(M)                        M is a proof term of the conclusion clause
                   | todo(Record, Parents)           not (yet) reconstructed
 
-No particular logic is fixed. A refutation R derives an abstract ⊥ under hypotheses;
-for a conclusion clause with literals L_0, ..., L_n-1, hypothesis h(I) is ¬L_I.
-Here ¬L is "L implies ⊥", so for negative literals ~A, ¬~A is ¬¬A, not A.
-Classically ⊥ is falsity, but in the A-translation ⊥ is the conjecture G.
-Split symbols are interpreted as (the hypothetical reading of) their defining clause.
-Every argument carries the literal L that it refutes, as arg(L, A).
+Proofs are λ-terms, Curry-Howard style, in minimal logic: no particular logic is fixed, and
+⊥ ('$false') is abstract. Classically it is falsity, but in the A-translation it is the conjecture G.
+Types are formulas, where ~F is F → ⊥ and F => G is implication:
 
-  R   ::= use(P, Ts, [arg(L, A)])  instantiate premise clause P with terms Ts, refuting each literal L
-        | let(H, L, arg(L, A), R)  H : ¬L is A (a lemma)
-        | contra(H, K, arg(K', A)) H : ¬K, and A refutes its complement K', so proves K
-  P   ::= Name                     a step
-        | def(H, Split)            the definition of Split, from H : ¬~Split
-  A   ::= hyp(H)                   a proof of ¬L is a hypothesis
-        | sym(F, H)                ...modulo symmetry of equality: H : ¬F, F the flipped L
-        | assume(H, R)             assume the complement of L is false (H : ¬L'), derive ⊥
-        | intro(Xs, Hs, R)         L is ~Split: prove the definition of Split for eigenvariables Xs,
-                                   with hypotheses Hs refuting its literals
+  clause(Xs, [L_0, ..., L_n-1])  has type  '!'(Xs, ~L_0 => ... => ~L_n-1 => '$false')
 
-A definition is used through a hypothesis H : ¬~Split, i.e. ¬¬Split, rather than Split itself.
-This is constructive: the definition reads as Π xs, ¬L_0 → ... → ⊥, which ends in ⊥, so it is
-¬¬-stable in minimal logic: from n : ¬¬D, λ xs hs, n (λ d, d xs hs) proves D.
-Dually, intro refutes ~Split by proving Split, which implies ¬¬Split. A literal ~Split may also be
-refuted propositionally by assume, which treats Split as an atom (as RUP does).
+So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
+A split symbol is a defined proposition: it unfolds to the type of its defining clause.
 
-Tactics produce sketches, refutations without the annotations (see reconstruct.pl):
+  M ::= X                 a hypothesis h(N)
+      | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
+      | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : '$i' for an individual
+      | let(X, F, M, M')  X : F is M, in M' (a lemma)
+  F ::= X | Name          a hypothesis, or a step
+      | '$sym'            built-in: '!'([X, Y], X = Y => Y = X)
 
-  S   ::= use(Name | H, Ts, [Arg]) | let(H, L, Arg, S) | contra(H, Arg)
-  Arg ::= hyp(H) | sym(H) | assume(H, S) | intro(Xs, Hs, S)
+Heads are always variables or constants, so terms are β-normal but for let.
 
-elaborate/3 checks a sketch and annotates it, producing the IR.
+Search produces the same terms, with Prolog variables for binder types (see reconstruct.pl).
+elaborate/2 type-checks a term bidirectionally, instantiating these annotations from the expected
+types of λs as it goes. Annotations are only ever unified with ground types, so an annotation
+that is already present is checked; once elaborated, a term is ground.
 */
-:- module(ir, [elaborate/3]).
+:- module(ir, [elaborate/2]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
 
-% Sketch refutes the conclusion clause, as R
-elaborate(clause(_, Ls), S, R) :-
-  hypotheses(Ls, 0, Hs),
-  list_to_assoc(Hs, Gamma),
-  refutation(Gamma, S, R).
+% M is a closed proof of the conclusion clause, and its binder types are filled in
+elaborate(Conclusion, M) :-
+  clause_type(Conclusion, T),
+  empty_assoc(Gamma),
+  check(Gamma, M, T).
 
-hypotheses([], _, []).
-hypotheses([L|Ls], N, [h(N)-neg(L)|Hs]) :- M is N + 1, hypotheses(Ls, M, Hs).
+% Gamma is an assoc mapping hypotheses to their types, and eigenvariables to '$i'
+check(Gamma, lam(X, A, M), T0) :- !,
+  unfold(T0, T),
+  (   T = '!'([Y|Ys], B)
+  ->  X = '$VAR'(_),
+      \+ occurs(X, Gamma),
+      X = Y,
+      A = '$i',
+      ( Ys == [] -> T1 = B ; T1 = '!'(Ys, B) ),
+      put_assoc(X, Gamma, A, Gamma1),
+      check(Gamma1, M, T1)
+  ;   T = (A => B),
+      ground(A),
+      nonvar(X), X = h(_),
+      put_assoc(X, Gamma, A, Gamma1),
+      check(Gamma1, M, B)
+  ).
+check(Gamma, let(X, F, M, M1), T) :- !,
+  check(Gamma, M, F),
+  nonvar(X), X = h(_),
+  put_assoc(X, Gamma, F, Gamma1),
+  check(Gamma1, M1, T).
+check(Gamma, M, T) :-
+  infer(Gamma, M, T1),
+  T1 == T.
 
-% Gamma is an assoc mapping H to neg(L) (H : ¬L)
-refutation(Gamma, use(P, Ts, Args), use(Q, Ts, Es)) :-
+infer(Gamma, app(F, Ts, Ms), T) :- !,
+  head(Gamma, F, T0),
   ground(Ts),
-  premise(Gamma, P, Q, clause(Ts, Ls)),
-  maplist(argument(Gamma), Ls, Args, Es).
-refutation(Gamma, let(H, L, Arg, S), let(H, L, E, R)) :-
-  argument(Gamma, L, Arg, E),
-  put_assoc(H, Gamma, neg(L), Gamma1),
-  refutation(Gamma1, S, R).
-refutation(Gamma, contra(H, Arg), contra(H, K, E)) :-
-  get_assoc(H, Gamma, neg(K)),
-  complement(K, C),
-  argument(Gamma, C, Arg, E).
+  instantiate(Ts, T0, T1),
+  arguments(Ms, Gamma, T1, T).
+infer(Gamma, X, T) :- head(Gamma, X, T).
 
-% premise(Gamma, P, Q, Clause): a fresh instance of premise clause P, annotated as Q
-premise(_, Name, Name, Clause) :- atom(Name), !, step(Name, Clause, _), Clause = clause(_, _).
-premise(Gamma, H, def(H, Split), Clause) :- get_assoc(H, Gamma, neg(~Split)), split_def(Split, Clause).
+% the type of a head: steps, split definitions and built-ins are fresh instances
+head(Gamma, X, T) :- nonvar(X), X = h(_), !, get_assoc(X, Gamma, T).
+head(_, Name, T) :- atom(Name), builtin(Name, T), !.
+head(_, Name, T) :- atom(Name), step(Name, Clause, _), Clause = clause(_, _), clause_type(Clause, T).
 
-% argument(Gamma, L, Arg, arg(L, A)): Arg is a proof of ¬L, annotated as A
-argument(Gamma, L, Arg, arg(L, A)) :- refutes(Gamma, L, Arg, A).
+builtin('$sym', '!'([X, Y], ((X = Y) => (Y = X)))).
 
-refutes(Gamma, L, hyp(H), hyp(H)) :-
-  get_assoc(H, Gamma, neg(K)),
-  K == L.
-refutes(Gamma, L, sym(H), sym(F, H)) :-
-  flip(L, F),
-  refutes(Gamma, F, hyp(H), _).
-refutes(Gamma, L, assume(H, S), assume(H, R)) :-
-  complement(L, C),
-  put_assoc(H, Gamma, neg(C), Gamma1),
-  refutation(Gamma1, S, R).
-refutes(Gamma, ~Split, intro(Xs, Hs, S), intro(Xs, Hs, R)) :-
-  eigenvariables(Xs, Gamma),
-  split_def(Split, clause(Xs, Ls)),
-  pair_hypotheses(Hs, Ls, Gamma, Gamma1),
-  refutation(Gamma1, S, R).
+instantiate([], T, T) :- !.
+instantiate(Ts, T0, T) :- unfold(T0, '!'(Ts, T)).
 
-% eigenvariables must be distinct and fresh
-eigenvariables(Xs, Gamma) :-
-  sort(Xs, Sorted),
-  same_length(Xs, Sorted),
-  forall(member(X, Xs), X = '$VAR'(_)),
-  forall(member(X, Xs), \+ occurs(X, Gamma)).
+arguments([], _, T, T).
+arguments([M|Ms], Gamma, T0, T) :-
+  unfold(T0, (A => B)),
+  check(Gamma, M, A),
+  arguments(Ms, Gamma, B, T).
+
+% weak head normal form: negation is implication, and split symbols are their definitions
+unfold(~A, (A => '$false')) :- !.
+unfold(S, T) :- atom(S), split_def(S, Clause), !, clause_type(Clause, T).
+unfold(T, T).
 
 occurs(X, T) :- X == T, !.
 occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.
-
-pair_hypotheses([], [], Gamma, Gamma).
-pair_hypotheses([H|Hs], [L|Ls], Gamma0, Gamma) :-
-  put_assoc(H, Gamma0, neg(L), Gamma1),
-  pair_hypotheses(Hs, Ls, Gamma1, Gamma).
