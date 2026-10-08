@@ -20,7 +20,7 @@ emit :-
   findall(Name, ir_step(Name, _, _), Names),
   out(prelude),
   out(signature),
-  \+ ( member(Name, Names), \+ out(proof_step(Name)) ).
+  forall(member(Name, Names), out(proof_step(Name))).
 
 out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
 
@@ -121,23 +121,26 @@ input(Input) --> "{|", atom(Input), "²|}".
  * proof terms
  ********************************************************************************/
 
+/*
+Refutations and values are printed without enclosing parentheses: they occur as binder bodies, which extend rightwards,
+and are parenthesised by operand//1 and head//1 where they are applied.
+*/
+
 % indirect arguments are bound by continuations around the use of the premise
 refutation(use(P, Ts, Args)) -->
   { arguments(Args, 0, Direct, Continuations) },
-  { phrase((variables(Ts), direct(Direct)), As) },
   continuations(Continuations),
-  application(premise(P), As),
+  premise(P), variables(Ts), direct(Direct),
   closing(Continuations).
-% lemmas are β-redexes rather than let, which lambdapi may unfold during type checking
 refutation(let(H, L, arg(_, A), E)) -->
   { value(L, A, Indirect, Cs), name_value(H, Indirect) },
-  "((λ ", hypothesis(H), ", ", refutation(E), ") ", codes(Cs), ")".
+  "let ", hypothesis(H), " ≔ ", codes(Cs), " in ", refutation(E).
 % H refutes K, Pos proves K
 refutation(contra(H, ~B, arg(_, A))) -->
   { value(B, A, _, Cs) },
-  ( { indirect(H) } -> "(", hypothesis(H), " ", codes(Cs), ")" ; "(", codes(Cs), " ", hypothesis(H), ")" ).
+  ( { indirect(H) } -> hypothesis(H), " ", operand(Cs) ; head(Cs), " ", hypothesis(H) ).
 refutation(contra(H, _, intro(Xs, Gs, E))) -->
-  "(", hypothesis(H), " (λ", variables(Xs), binders(Gs), ", ", refutation(E), "))".
+  hypothesis(H), " (λ", variables(Xs), binders(Gs), ", ", refutation(E), ")".
 
 premise(h(I)) --> !, hypothesis(h(I)).
 premise(Name) --> atom(Name).
@@ -156,13 +159,17 @@ arguments([arg(L, A)|Args], N, [Cs|Direct], Continuations) :-
   arguments(Args, M, Direct, Rest).
 
 direct([]) --> [].
-direct([Cs|Css]) --> " ", codes(Cs), direct(Css).
+direct([Cs|Css]) --> " ", operand(Cs), direct(Css).
 
 continuations([]) --> [].
-continuations([c(N, Value)|Cs]) --> "(", codes(Value), " (λ c", number(N), ", ", continuations(Cs).
+continuations([c(N, Value)|Cs]) --> head(Value), " (λ c", number(N), ", ", continuations(Cs).
 
 closing([]) --> [].
-closing([_|Cs]) --> "))", closing(Cs).
+closing([_|Cs]) --> ")", closing(Cs).
+
+% a term in argument position is parenthesised unless atomic, and in head position if it is a λ
+operand(Cs) --> { memberchk(0' , Cs) } -> "(", codes(Cs), ")" ; codes(Cs).
+head(Cs) --> { append("λ", _, Cs) } -> "(", codes(Cs), ")" ; codes(Cs).
 
 % value(L, A, Indirect, Codes): the term refuting L by argument A, and whether it is indirect
 value(L, A, Indirect, Cs) :- phrase(argument(L, A, Indirect), Cs).
@@ -174,13 +181,13 @@ name_value(_, false).
 argument(L, hyp(H), Indirect) --> { L = ~_, indirect(H) -> Indirect = true ; Indirect = false }, hypothesis(H).
 argument(_, sym(L0, A), Indirect) -->
   { phrase(argument(L0, A, Indirect), Cs) },
-  ( { L0 \= ~_ } -> "(neq_sym " ; { Indirect == true } -> "(nneq_sym " ; "(eq_sym " ),
-  codes(Cs), ")".
+  ( { L0 \= ~_ } -> "neq_sym " ; { Indirect == true } -> "nneq_sym " ; "eq_sym " ),
+  operand(Cs).
 argument(L, assume(H, E), Indirect) -->
   { L = ~_ -> Indirect = true ; Indirect = false },
-  "(λ ", hypothesis(H), ", ", refutation(E), ")".
+  "λ ", hypothesis(H), ", ", refutation(E).
 argument(_, unfold(D, _, E), false) -->
-  "(λ ", hypothesis(D), ", ", refutation(E), ")".
+  "λ ", hypothesis(D), ", ", refutation(E).
 
 binders([]) --> [].
 binders([H|Hs]) --> " ", hypothesis(H), binders(Hs).

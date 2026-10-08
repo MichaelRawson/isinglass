@@ -15,7 +15,7 @@ Each check is preceded by (echo "name"), so the solver prints the name and then 
 
 emit :-
   out(header),
-  \+ ( ir_step(Name, Conclusion, Justification), \+ out(check(Justification, Name, Conclusion)) ).
+  forall(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
 
 out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
 

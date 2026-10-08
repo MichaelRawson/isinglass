@@ -50,8 +50,7 @@ tactic(avatar_component_clause, avatar_component).
 tactic(rat, rup).
 
 record_introduced(Source) :-
-  \+ ( introduced_symbol(Source, Kind, Symbol),
-       \+ assertz(introduced(Symbol, Kind)) ).
+  forall(introduced_symbol(Source, Kind, Symbol), assertz(introduced(Symbol, Kind))).
 
 introduced_symbol(new_symbols(Kind, Symbols), Kind, Symbol) :- member(Symbol, Symbols).
 introduced_symbol(inference(_, Info, _), Kind, Symbol) :- member(I, Info), introduced_symbol(I, Kind, Symbol).

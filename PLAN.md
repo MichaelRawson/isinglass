@@ -9,7 +9,7 @@
 - **Reasonably portable Prolog; only SWI must run for now.**
   - Avoid SWI-only features: no SSU `=>`, no `format ~@`, no `sub_term/2`, no `string_*`, no `:- if`.
   - Printing is done with DCGs over code lists, emitted with `phrase/2` and `write/1`.
-  - A few common non-ISO library predicates are used: `msort/2`, `last/2`, `same_length/2`, `foldl/4`, `library(assoc)`.
+  - A few common non-ISO library predicates are used: `forall/2`, `msort/2`, `last/2`, `same_length/2`, `foldl/4`, `library(assoc)`.
 - **Scryer is deferred.** Its strict reader rejects Vampire's SAT lines, e.g. `cnf(s1, plain, spl0_1 | spl0_2, inference(sat_conversion, ...))`. That is an unparenthesised priority-1102 term in argument position, which is invalid ISO even though it is valid TPTP; SWI accepts it. To be fixed upstream in Vampire.
   - Other Scryer findings, for later:
     - A prefix `!` operator breaks cuts.
@@ -53,7 +53,7 @@ Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becom
 - classical falsity, for lambdapi, Lean and SMT;
 - the conjecture `G` of the A-translation, for Agda.
 
-**Checking.** `ir:elaborate/3` is an independent checker, kept separate from the tactics' search. During reconstruction it checks each tactic's sketch and annotates it, producing the stored IR; a sketch that fails to check is a tactic bug, and stops the run with an error. Back ends read the IR directly. `check_all/0` (run by `run(check)`) re-checks the stored IR by erasing the annotations and re-elaborating, reporting all failures.
+**Checking.** `ir:elaborate/3` is an independent checker, kept separate from the tactics' search. During reconstruction it checks each tactic's sketch and annotates it, producing the stored IR; a sketch that fails to check is a tactic bug, and stops the run with an error. Back ends read the IR directly. `run(check)` just loads and reconstructs the proof, which elaborates every step.
 
 **Full formulas (M3).** "Refute a premise literal" generalises to "refute a premise formula". `Arg` then grows connective-level constructors (`and`, `or`, `all(Term, ...)`, `ex(H, R)`, `imp`, `iff`, skolem), each chosen to stay sound under the A-translation.
 
@@ -68,10 +68,10 @@ Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becom
 | `logic.pl` | `clause_form`, `clause_formula`, `complement`, `flip`, `instance` (substitution), `symbols`, `split_def` |
 | `vampire.pl` | Front end: maps Vampire rules to tactics; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
 | `reconstruct.pl` | Generic tactics: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
-| `ir.pl` | IR documentation; elaboration of sketches (the checker) and `check_all` |
+| `ir.pl` | IR documentation; elaboration of sketches (the checker) |
 | `lambdapi.pl` | lambdapi back end |
 | `smtlib.pl` | SMT-LIB back end: one `push`/`check-sat`/`pop` per step, expecting `unsat` |
-| `main.pl` | `run(Backend)`; `run(check)` runs `check_all` and prints a summary of justification kinds |
+| `main.pl` | `run(Backend)`; `run(check)` only loads and reconstructs |
 
 Usage: `swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p`. The back end can be `lambdapi`, `smtlib` or `check`.
 
@@ -93,7 +93,8 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 - **Inputs:** declared as `{|name²|}` with their original formula. The clause is obtained by an `∨ₑ` chain.
 - **AVATAR:** a split symbol is a `Prop` with `rule spl ↪ clause`.
 - **Formulas:** parenthesised only where needed, using the priorities of the Stdlib notations.
-- **Lemmas:** a `let` is printed as a β-redex, because lambdapi's `let` blew up.
+- **Lemmas:** a `let` is printed as lambdapi's `let h ≔ v in …`, for readability (β-redexes were tried for performance, see below).
+- **Parentheses:** refutations and values are printed bare, and parenthesised only as arguments, or as heads when they are λs.
 
 **SMT-LIB.**
 - Each step is checked by asserting the ground premise instances from its `use`s and the negated conclusion, with variables as fresh constants.
@@ -104,13 +105,13 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 ## Status: milestone 1 (CNF, no equality, plus AVATAR)
 - **Corpus:** `test/corpus.sh` collects proofs of `Problems/*/*-*.p` whose Vampire proofs use only the rules above and no equality: 984 proofs.
 - **Checking:** `test/check.sh` checks each proof:
-  1. no `todo` steps, and `check_all` passes;
+  1. no `todo` steps, and `run(check)` succeeds;
   2. z3 and cvc5 report `unsat` for every step;
   3. `lambdapi check` succeeds.
 - **Result:** 975 of 984 pass.
   - The 9 failures are the largest proofs (lambdapi output 4–245 MB, e.g. HWV057, SWV424-1.200 and up). lambdapi times out or runs out of memory on them.
   - SWV424-1.450 also exceeds 60 s in Prolog: about 25 s reconstruction, 11 s checking, plus output.
-- **Sanity check:** deliberately corrupted IR steps (a dropped argument, a wrong annotation, a wrong `contra` literal) are rejected by `check_all`, and a bad sketch stops reconstruction with an error.
+- **Sanity check:** deliberately corrupted IR steps (a dropped argument, a wrong annotation, a wrong `contra` literal) were rejected by the former IR re-check, and a bad sketch stops reconstruction with an error.
 
 ## Known issues / notes for review
 - **lambdapi scaling (upstream?).** Checking cost grows roughly as n⁴ in the number of hypotheses of a single declaration, even flat with all binders typed: n=150 takes 30–50 s. A 451-literal input clause (SWV424-1.450 `f452`) cannot be checked in 4 GB. lambdapi's `let` was also much worse than β-redexes, and a `cut` lemma was worse still.

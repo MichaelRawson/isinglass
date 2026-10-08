@@ -1,0 +1,3 @@
+#!/bin/sh
+
+timeout 10 lambdapi check "$1" > /dev/null || basename $1

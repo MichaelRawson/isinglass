@@ -32,7 +32,7 @@ tptp_op(1105, xfx, <=>).
 tptp_op(1105, xfx, <~>).
 
 read_tstp(Statements) :-
-  \+ ( tptp_op(P, T, N), \+ op(P, T, N) ),
+  forall(tptp_op(P, T, N), op(P, T, N)),
   read_statements(Statements).
 
 read_statements(Statements) :-

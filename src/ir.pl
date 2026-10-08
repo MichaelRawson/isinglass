@@ -35,28 +35,15 @@ Tactics produce sketches, refutations without the annotations (see reconstruct.p
   Pos ::= Arg | intro(Xs, Hs, S)
 
 elaborate/3 checks a sketch and annotates it, producing the IR.
-check_all/0 re-checks the stored IR, by erasing and re-elaborating each refutation.
 */
-:- module(ir, [elaborate/3, check_all/0]).
+:- module(ir, [elaborate/3]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
 
-% check every step, reporting all incorrect ones
-check_all :-
-  findall(Name, (ir_step(Name, Conclusion, refute(R)), \+ checks(Conclusion, R)), Incorrect),
-  \+ ( member(Name, Incorrect),
-       \+ format(user_error, "error: step ~w is incorrect~n", [Name]) ),
-  Incorrect == [].
-
-checks(Conclusion, R) :-
-  erase(R, S),
-  elaborate(Conclusion, S, R1), !,
-  R1 == R.
-
-% elaborate(Conclusion, Sketch, R): Sketch refutes the conclusion clause, as R
+% Sketch refutes the conclusion clause, as R
 elaborate(clause(_, Ls), S, R) :-
   hypotheses(Ls, 0, Hs),
   list_to_assoc(Hs, Gamma),
@@ -113,8 +100,8 @@ positive(Gamma, Split, intro(Xs, Hs, S), intro(Xs, Hs, R)) :-
 eigenvariables(Xs, Gamma) :-
   sort(Xs, Sorted),
   same_length(Xs, Sorted),
-  \+ ( member(X, Xs), \+ X = '$VAR'(_) ),
-  \+ ( member(X, Xs), occurs(X, Gamma) ).
+  forall(member(X, Xs), X = '$VAR'(_)),
+  forall(member(X, Xs), \+ occurs(X, Gamma)).
 
 occurs(X, T) :- X == T, !.
 occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.
@@ -123,16 +110,3 @@ pair_hypotheses([], [], Gamma, Gamma).
 pair_hypotheses([H|Hs], [L|Ls], Gamma0, Gamma) :-
   put_assoc(H, Gamma0, neg(L), Gamma1),
   pair_hypotheses(Hs, Ls, Gamma1, Gamma).
-
-% erase(R, S): the sketch of refutation R
-erase(use(P, Ts, Es), use(P, Ts, Args)) :- maplist(erase_argument, Es, Args).
-erase(let(H, L, E, R), let(H, L, Arg, S)) :- erase_argument(E, Arg), erase(R, S).
-erase(contra(H, _, intro(Xs, Hs, R)), contra(H, intro(Xs, Hs, S))) :- !, erase(R, S).
-erase(contra(H, _, E), contra(H, Arg)) :- erase_argument(E, Arg).
-
-erase_argument(arg(_, A), Arg) :- erase_annotated(A, Arg).
-
-erase_annotated(hyp(H), hyp(H)).
-erase_annotated(sym(_, A), sym(Arg)) :- erase_annotated(A, Arg).
-erase_annotated(assume(H, R), assume(H, S)) :- erase(R, S).
-erase_annotated(unfold(D, _, R), unfold(D, S)) :- erase(R, S).
