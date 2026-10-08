@@ -1,10 +1,10 @@
 /*
-Reconstruct steps into ir_step/3 facts by searching for proof terms (see ir.pl for the IR).
+Reconstruct steps into ir_step/3 facts by searching for proof terms (see db.pl for the IR).
 
 The search procedures below are given hypotheses Hs, a list of X-T pairs where X : T is a
-variable, and build a term of type ⊥, which is then abstracted over the conclusion and elaborated
-by ir:elaborate/2. During search, binders are Prolog variables, and are named h(N) afterwards;
-binder types are left as variables, for elaboration to fill in.
+variable, and build a term of type ⊥, which is then abstracted over the conclusion (checker.pl
+type-checks it). Each λ is annotated with its binder's type when it is built. During search,
+binders are Prolog variables, and are named h(N) afterwards.
 Clauses are stored with Prolog variables (db.pl), so retrieving a premise gives a fresh instance.
 The conclusion is made rigid by numbering its variables, and premise instances are found by
 unification with it, Prolog's backtracking performing the search.
@@ -16,7 +16,6 @@ unification with it, Prolog's backtracking performing the search.
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
-:- use_module(ir).
 
 % reconstruct everything required for the last refutation
 reconstruct :-
@@ -42,36 +41,33 @@ justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Pa
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
   (   Conclusion = clause(Xs, Ls),
-      hypotheses(Ls, Hs, Vs),
+      hypotheses(Ls, Hs),
       call_tactic(Tactic, Fresh, Hs, Parents, Body)
-  ->  append(Xs, Vs, Binders),
+  ->  binders(Xs, Hs, Binders),
       lambdas(Binders, Body, M),
       close_term(M, 0, _),
-      elaborated(Tactic, Conclusion, M),
       Justification = proof(M)
   ;   format(user_error, "warning: ~w failed to reconstruct ~w~n", [Tactic, Conclusion]),
       Justification = todo(Tactic, Parents)
   ).
 
-% a term that fails to elaborate is a bug in the search
-elaborated(_, Conclusion, M) :- elaborate(Conclusion, M), !.
-elaborated(Tactic, Conclusion, _) :-
-  format(user_error, "error: ~w reconstructed an incorrect proof of ~w~n", [Tactic, Conclusion]),
-  fail.
-
 call_tactic(Tactic, Fresh, Hs, Parents, M) :-
   Goal =.. [Tactic, Fresh, Hs, Parents, M],
   call(Goal), !.
 
-% a hypothesis V : ~L for each literal L, with the variables Vs
-hypotheses([], [], []).
-hypotheses([L|Ls], [V-(~L)|Hs], [V|Vs]) :- hypotheses(Ls, Hs, Vs).
+% a hypothesis V : ~L for each literal L
+hypotheses([], []).
+hypotheses([L|Ls], [_-(~L)|Hs]) :- hypotheses(Ls, Hs).
+
+% binders X-T for the eigenvariables Xs, then the hypotheses Hs
+binders(Xs, Hs, Binders) :- maplist(individual, Xs, Is), append(Is, Hs, Binders).
+
+individual(X, X-'$i').
 
 lambdas([], M, M).
-lambdas([X|Xs], M, lam(X, _, N)) :- lambdas(Xs, M, N).
+lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
 
 % after search, binders are named h(N), h(N + 1), ..., and unconstrained term variables become '$any'
-% binder types are left to elaboration
 close_term(V, N, N) :- var(V), !.
 close_term(lam(X, _, M), N0, N) :- !, bind(X, N0, N1), close_term(M, N1, N).
 close_term(let(X, _, M, M1), N0, N) :- !, bind(X, N0, N1), close_term(M, N1, N2), close_term(M1, N2, N).
@@ -96,16 +92,16 @@ matches(Hs, L, M) :-
 % refutes(T, X, L, M): X : T refutes L as M, modulo symmetry of equality
 refutes(~K, X, L, X) :- unify_with_occurs_check(K, L).
 refutes(~K, X, L, M) :- flip(K, F), unify_with_occurs_check(F, L), flipped(L, X, M).
-refutes(A, X, ~B, lam(K, _, app(K, [], [X]))) :- A \= ~_, unify_with_occurs_check(A, B).
-refutes(S = T, X, ~B, lam(K, _, app(K, [], [app('$sym', [S, T], [X])]))) :- unify_with_occurs_check(T = S, B).
+refutes(A, X, ~B, lam(K, ~B, app(K, [], [X]))) :- A \= ~_, unify_with_occurs_check(A, B).
+refutes(S = T, X, ~B, lam(K, ~B, app(K, [], [app('$sym', [S, T], [X])]))) :- unify_with_occurs_check(T = S, B).
 
 % X refutes L with the equation the other way round
-flipped(S = T, X, lam(E, _, app(X, [], [app('$sym', [S, T], [E])]))).
-flipped(~(S = T), X, lam(K, _, app(X, [], [lam(E, _, app(K, [], [app('$sym', [T, S], [E])]))]))).
+flipped(S = T, X, lam(E, S = T, app(X, [], [app('$sym', [S, T], [E])]))).
+flipped(~(S = T), X, lam(K, ~(S = T), app(X, [], [lam(E, T = S, app(K, [], [app('$sym', [T, S], [E])]))]))).
 
 % X : C refutes the complement of C, as M
 assumption(~_, X, X) :- !.
-assumption(_, X, lam(K, _, app(K, [], [X]))).
+assumption(C, X, lam(K, ~C, app(K, [], [X]))).
 
 % a fresh instance of a premise clause, with variables Ts
 premise(Name, Ts, Ls) :- step(Name, clause(Ts, Ls), _).
@@ -130,7 +126,7 @@ resolve(_, Hs, Premises, app(Major, Ts, Ms)) :-
   maplist(resolve_literal(Hs, Minor), Ks, Ms).
 
 resolve_literal(Hs, _, K, M) :- matches(Hs, K, M).
-resolve_literal(Hs, Minor, K, lam(X, _, app(Minor, Ts, Ms))) :-
+resolve_literal(Hs, Minor, K, lam(X, K, app(Minor, Ts, Ms))) :-
   K \= ~_,
   premise(Minor, Ts, Ls),
   maplist(matches([X-K|Hs]), Ls, Ms).
@@ -162,7 +158,7 @@ propagate([P-Ls|Queue], Occurrences, Trail, M) :-
       ->  M = app(P, [], Ms)
       ;   Unit = _-A,
           assumption(C, X, A),
-          M = let(G, ~C, lam(X, _, app(P, [], Ms)), M1),
+          M = let(G, ~C, lam(X, C, app(P, [], Ms)), M1),
           put_assoc(C, Trail, G, Trail1),
           ( get_assoc(C, Occurrences, Cs) -> append(Cs, Queue, Queue1) ; Queue1 = Queue ),
           propagate(Queue1, Occurrences, Trail1, M1)
@@ -177,7 +173,7 @@ unit(Trail, [L|Ls], Unit, [M|Ms]) :-
   unit(Trail, Ls, Unit, Ms).
 
 % AVATAR component clause: C | ~split, where split is defined as C
-avatar_component(_, Hs, [_], app(H, [], [lam(D, _, app(D, Ts, Ms))])) :-
+avatar_component(_, Hs, [_], app(H, [], [lam(D, Split, app(D, Ts, Ms))])) :-
   select(H-(~(~Split)), Hs, Others),
   split_def(Split, clause(Ts, Ls)),
   maplist(matches(Others), Ls, Ms).
@@ -197,9 +193,9 @@ mate(Hs, app(Y, [], [X])) :-
 intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro) :-
   split_def(Split, clause(Xs, Ls)),
   number_vars(Xs, Fresh0, Fresh),
-  hypotheses(Ls, Gs, Vs),
+  hypotheses(Ls, Gs),
   append(Gs, Hs, Hs1),
-  append(Xs, Vs, Binders),
+  binders(Xs, Gs, Binders),
   lambdas(Binders, M, Intro).
 
 % AVATAR split clause: split_1 | ... | split_n from the premise C_1 | ... | C_n
@@ -211,13 +207,13 @@ splits([], _, Hs, Ds, Premise, app(Premise, Ts, Ms)) :-
   maplist(split_literal(Hs, Ds), Ls, Ms).
 splits([H-(~(~Split))|Rest], Fresh, Hs, Ds, Premise, M) :-
   split_def(Split, Clause),
-  splits(Rest, Fresh, Hs, [H-Clause|Ds], Premise, M).
+  splits(Rest, Fresh, Hs, [H-Split-Clause|Ds], Premise, M).
 splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, app(H, [], [Intro])) :-
   intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro),
   splits(Rest, Fresh, Hs1, Ds, Premise, M).
 
 % a premise literal is refuted by a hypothesis, or by a ground unit definition, from H : ~~split
 split_literal(Hs, _, L, M) :- matches(Hs, L, M).
-split_literal(_, Ds, L, lam(X, _, app(H, [], [lam(D, _, app(D, [], [M]))]))) :-
-  member(H-clause([], [K]), Ds),
+split_literal(_, Ds, L, lam(X, L, app(H, [], [lam(D, Split, app(D, [], [M]))]))) :-
+  member(H-Split-clause([], [K]), Ds),
   matches([X-L], K, M).

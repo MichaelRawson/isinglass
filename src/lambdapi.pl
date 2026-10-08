@@ -2,7 +2,7 @@
 lambdapi back end, using the encoding of first-order logic in lambdapi's Stdlib.
 
 A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π (¬ L_0) → ... → π (¬ L_n-1) → π ⊥,
-the type of its proof terms in the IR (see ir.pl), which are printed directly.
+the type of its proof terms in the IR (see db.pl), which are printed directly.
 */
 :- module(lambdapi, [emit/0]).
 :- use_module(library(lists)).

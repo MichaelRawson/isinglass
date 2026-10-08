@@ -2,7 +2,7 @@
 
 `lp.pl` reads Vampire TSTP proofs, reconstructs each inference by backtracking search (literal matching, substitutions, AVATAR, RUP), and prints lambdapi, all in one pass. `src/` splits those jobs apart, so that more provers and more output formats (Lean, SMT-LIB "Ground Truth", Agda with the A-translation) can share one reconstruction:
 
-**TSTP → front end + proof search → λ-term sketch → elaboration (checker) → λ-term IR → back ends**
+**TSTP → front end + proof search → λ-term IR → back ends (including a type checker)**
 
 ## Constraints
 - **Concise, maintainable Prolog.**
@@ -35,7 +35,7 @@
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so each database lookup is a fresh instance and instantiation is unification. When a step is reconstructed, its conclusion is made rigid by numbering its variables `'$VAR'(N)` in binder order; the IR is ground.
 - Vampire's AVATAR clause shape `(! [X] : C) | ~spl` is also recognised as a clause.
 
-## The IR (`src/ir.pl`, `src/db.pl`)
+## The IR (`src/db.pl`)
 ```
 ir_step(Name, Conclusion, Justification)     % in dependency order, reachable from the final $false
 split(Symbol, Clause)                        % index of AVATAR definitions
@@ -60,14 +60,13 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`.
 - `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, for eigenvariables `xs`.
 
-**Elaboration.** `ir:elaborate/2` is an independent, bidirectional type checker (about 60 lines).
-- Search leaves binder types as Prolog variables, and elaboration fills them in from the expected type of each λ.
-- Annotations are only ever unified with ground types, so an annotation that is already present is checked. The stored IR is ground and fully annotated, so back ends get binder types for free.
-- Elaboration is only about types: binder naming and `'$any'` for unconstrained term variables happen after search, in `reconstruct.pl`.
-- A term that fails to elaborate is a search bug, and stops the run with an error.
-- `run(check)` just loads and reconstructs the proof.
+**Checking.** The `checker` back end (`checker.pl`) is an independent type checker (about 60 lines) of each ground, fully annotated proof term against the ground type of its conclusion, step by step in order.
+- The only Prolog variables it binds are the quantifier binders of fresh instances of steps, split definitions and `'$sym'`: to the ground terms `Ts`, or to eigenvariables under the λs of an unfolded split definition.
+- First-order terms must be in scope: every `'$VAR'` is an eigenvariable bound by a λ.
+- A step can only cite steps checked before it, so proofs are well-founded.
+- A term that fails to check is a search bug: `run(checker)` reports the step and fails. Other back ends don't run the checker.
 
-**Search** (`reconstruct.pl`) builds these terms directly, from hypotheses `X-Type`. Binders and their types are Prolog variables during search. Binders are named `h(N)` afterwards, and types are filled in by elaboration. The rule → search-procedure table is unchanged.
+**Search** (`reconstruct.pl`) builds these terms directly, from hypotheses `X-Type`, annotating each λ with its binder's type as it is built. Annotations share variables with premise instances, so they are ground once the term is: binders are named `h(N)` after search, and leftover term variables become `'$any'`. The rule → search-procedure table is unchanged.
 
 **Full formulas (M3).** Connective-level reasoning will add built-ins or term formers (pairs, injections, case analysis, ∃-elimination), each chosen to stay sound under the A-translation.
 
@@ -78,16 +77,16 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 |---|---|
 | `ops.pl` | Operators of the internal syntax, exported as a module |
 | `load.pl` | `read_tstp/1`: `read/1` with run-time TPTP operators, followed by normalisation |
-| `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
+| `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2`; IR documentation |
 | `logic.pl` | `clause_form`, `clause_formula`, `clause_type`, `complement`, `flip`, `number_vars`, `symbols`, `split_def` |
 | `vampire.pl` | Front end: maps Vampire rules to search procedures; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
 | `reconstruct.pl` | Proof search, building λ-terms: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
-| `ir.pl` | IR documentation; elaboration (the type checker) |
+| `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl` | lambdapi back end |
 | `smtlib.pl` | SMT-LIB back end: one `push`/`check-sat`/`pop` per step, expecting `unsat` |
-| `main.pl` | `run(Backend)`; `run(check)` only loads and reconstructs |
+| `main.pl` | `run(Backend)`, where `Backend` is a back-end module |
 
-Usage: `swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p`. The back end can be `lambdapi`, `smtlib` or `check`.
+Usage: `swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p`. The back end can be `lambdapi`, `smtlib` or `checker`.
 
 Vampire rule → search procedure:
 | Vampire rules | Procedure |
@@ -119,19 +118,19 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 ## Status: milestone 1 (CNF, no equality, plus AVATAR)
 - **Corpus:** `test/corpus.sh` collects proofs of `Problems/*/*-*.p` whose Vampire proofs use only the rules above and no equality: 984 proofs.
 - **Checking:** `test/check.sh` checks each proof:
-  1. no `todo` steps, and `run(check)` succeeds;
+  1. no `todo` steps, and `run(checker)` succeeds;
   2. z3 and cvc5 report `unsat` for every step;
   3. `lambdapi check` succeeds.
 - **Result:** 975 of 984 pass.
   - The 9 failures are the largest proofs (lambdapi output 4–245 MB, e.g. HWV057, SWV424-1.200 and up). lambdapi times out or runs out of memory on them.
   - SWV424-1.450 also exceeds 60 s in Prolog: about 25 s reconstruction, 11 s checking, plus output.
 - **λ-term IR (10 s timeouts, all 1245 `solutions/`):**
-  - `run(check)` succeeds on every proof.
+  - `run(checker)` succeeds on every proof.
   - lambdapi times out on 114 proofs, against 132 with the former tactic IR. No proof regressed.
   - The lambdapi output is about 18% larger, because of the `¬¬A` statements and the `λ k, k x` wrappers.
   - z3 reports `unsat` for every step of 40 sampled proofs.
-  - On the three largest proofs (MSC015-1.015, SYN885-1, SWV424-1.200), the stored IR is −6% to +9% the size of the tactic IR, and `run(check)` takes 10–60% longer: at most 5.9 s, for SWV424-1.200.
-- **Sanity check:** every mutant of the elaborated proof terms of SYN015-2, SYN488-1 and small hand-made equality proofs was rejected (dropped or swapped arguments, wrong `'$sym'` order, wrong lemma type, wrong binder annotation). That was over 23000 mutants for SYN488-1. A bad term stops reconstruction with an error.
+  - On the three largest proofs (MSC015-1.015, SYN885-1, SWV424-1.200), the stored IR is −6% to +9% the size of the tactic IR, and `run(checker)` takes 10–60% longer: at most 5.9 s, for SWV424-1.200.
+- **Sanity check:** every mutant of the proof terms of SYN015-2, SYN488-1 and small hand-made equality proofs was rejected (dropped or swapped arguments, wrong `'$sym'` order, wrong lemma type, wrong binder annotation). That was over 23000 mutants for SYN488-1. A bad term makes `run(checker)` fail with an error.
 - **Symmetry:** the corpus has no equality, so `'$sym'` was tested on hand-made proofs covering both polarities, through lambdapi and z3.
 
 ## Known issues / notes for review
