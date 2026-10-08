@@ -2,7 +2,7 @@
 
 `lp.pl` reads Vampire TSTP proofs, reconstructs each inference by backtracking search (literal matching, substitutions, AVATAR, RUP), and prints lambdapi, all in one pass. `src/` splits those jobs apart, so that more provers and more output formats (Lean, SMT-LIB "Ground Truth", Agda with the A-translation) can share one reconstruction:
 
-**TSTP → front end + generic tactics → IR → IR checker → back ends**
+**TSTP → front end + generic tactics → sketch → elaboration (checker) → IR → back ends**
 
 ## Constraints
 - **Concise, maintainable Prolog.**
@@ -23,12 +23,13 @@
 - **Tests must cap memory.** lambdapi can exhaust the machine on big proofs; an uncapped run already caused a memout, and Vampire's default memory limit is 128 GB. The test scripts therefore use `ulimit -v` and Vampire's `-m`.
 
 ## Internal formula syntax (`src/ops.pl`, `src/load.pl`)
-- Connectives: `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, `F <~> G`, plus `'$true'` and `'$false'`.
+- Connectives: `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, plus `'$true'` and `'$false'`.
 - Quantifiers: `'!'(Xs, F)` and `'?'(Xs, F)`.
 - Atoms are Prolog terms, and `S = T` is equality.
 - Normalisation on reading:
   - `S != T` becomes `~(S = T)`;
   - `F <= G` becomes `G => F`;
+  - `F <~> G` becomes `~(F <=> G)`;
   - `~|` and `~&` become a negated `|` or `&`.
 - Clauses are `clause(Xs, Literals)`: a plain list of literals `A` or `~A`. Variables are numbered `'$VAR'(N)` in binder order.
 - Vampire's AVATAR clause shape `(! [X] : C) | ~spl` is also recognised as a clause.
@@ -39,19 +40,20 @@ ir_step(Name, Conclusion, Justification)     % in dependency order, reachable fr
 split(Symbol, Clause)                        % index of AVATAR definitions
 Conclusion    ::= clause(Xs, Lits) | formula(F)
 Justification ::= input(Role, Source) | split_def(Symbol, Clause) | refute(R) | todo(Record, Parents)
-R   ::= use(P, Ts, [Arg])    % instantiate premise clause P (a step, or a local definition) with Ts
-      | let(H, L, Arg, R)    % lemma H : ¬L
-      | contra(H, Pos)       % H : ¬K applied to Pos, a proof of K
-Arg ::= hyp(H) | sym(Arg) | assume(H, R) | unfold(D, R)
-Pos ::= Arg                  % K = ~A: a proof of ¬A
-      | intro(Xs, Hs, R)     % K = split symbol: prove its defining clause for eigenvariables Xs
+R   ::= use(P, Ts, [arg(L, A)])  % instantiate premise clause P (a step, or a local definition) with Ts; A refutes literal L
+      | let(H, L, arg(L, A), R)  % lemma H : ¬L
+      | contra(H, K, Pos)        % H : ¬K applied to Pos, a proof of K
+A   ::= hyp(H) | sym(F, A) | assume(H, R) | unfold(D, Clause, R)
+Pos ::= arg(A0, A)               % K = ~A0: a refutation of A0
+      | intro(Xs, Hs, R)         % K = split symbol: prove its defining clause for eigenvariables Xs
 ```
+Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becomes `A`, `sym(F, A)` becomes `sym(A)`, `contra` drops `K`, `unfold` drops `Clause`).
 
 **Semantics.** A refutation derives an abstract `⊥` from one hypothesis `h(I) : ¬L_I` per conclusion literal, where `¬L` means "L implies ⊥". The IR never uses `¬¬`-elimination. So it is sound under any reading of `⊥`:
 - classical falsity, for lambdapi, Lean and SMT;
 - the conjecture `G` of the A-translation, for Agda.
 
-**Checking.** `ir:elaborate/2` checks a step and annotates every argument with the literal it refutes (`arg(L, A)`); back ends print from this elaborated form. `check_all/0` checks every step and reports all failures.
+**Checking.** `ir:elaborate/3` is an independent checker, kept separate from the tactics' search. During reconstruction it checks each tactic's sketch and annotates it, producing the stored IR; a sketch that fails to check is a tactic bug, and stops the run with an error. Back ends read the IR directly. `check_all/0` (run by `run(check)`) re-checks the stored IR by erasing the annotations and re-elaborating, reporting all failures.
 
 **Full formulas (M3).** "Refute a premise literal" generalises to "refute a premise formula". `Arg` then grows connective-level constructors (`and`, `or`, `all(Term, ...)`, `ex(H, R)`, `imp`, `iff`, skolem), each chosen to stay sound under the A-translation.
 
@@ -66,10 +68,10 @@ Pos ::= Arg                  % K = ~A: a proof of ¬A
 | `logic.pl` | `clause_form`, `clause_formula`, `complement`, `flip`, `instance` (substitution), `symbols`, `split_def` |
 | `vampire.pl` | Front end: maps Vampire rules to tactics; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
 | `reconstruct.pl` | Generic tactics: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
-| `ir.pl` | IR documentation, checker and elaborator |
-| `lambdapi.pl` | lambdapi back end (`gdv` option as in `lp.pl`) |
+| `ir.pl` | IR documentation; elaboration of sketches (the checker) and `check_all` |
+| `lambdapi.pl` | lambdapi back end |
 | `smtlib.pl` | SMT-LIB back end: one `push`/`check-sat`/`pop` per step, expecting `unsat` |
-| `main.pl` | `run(Backend)` / `run(Backend, Options)`; `run(check)` prints a summary of justification kinds |
+| `main.pl` | `run(Backend)`; `run(check)` runs `check_all` and prints a summary of justification kinds |
 
 Usage: `swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p`. The back end can be `lambdapi`, `smtlib` or `check`.
 
@@ -88,9 +90,10 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 **lambdapi.**
 - **Statements:** a clause is stated as `Π xs, π H₀ → … → π ⊥`, using framework-level `Π`/`→` rather than `` `∀ ``/`⇒`. The hypothesis `H` for a positive literal `A` is `¬ A`, and for a negative `~A` it is `A`, as in `lp.pl`.
 - **Indirect values:** an `assume` on a negative literal, and a RUP lemma about one, only provide `¬¬A`. Such values are passed in continuation-passing style, `n (λ (c : π A), P … c …)`, which is constructive because the goal is `⊥`.
-- **Inputs:** declared with their original formula (`{|name²|}` / `F.name`). The clause is obtained by an `∨ₑ` chain with typed binders.
+- **Inputs:** declared as `{|name²|}` with their original formula. The clause is obtained by an `∨ₑ` chain.
 - **AVATAR:** a split symbol is a `Prop` with `rule spl ↪ clause`.
-- **Lemmas:** a `let` is printed as a β-redex, because lambdapi's `let` blew up. A chain of lemmas at the start of a step (RUP) is lifted to top-level symbols `step_hN`, because deep nesting is slow to check.
+- **Formulas:** parenthesised only where needed, using the priorities of the Stdlib notations.
+- **Lemmas:** a `let` is printed as a β-redex, because lambdapi's `let` blew up.
 
 **SMT-LIB.**
 - Each step is checked by asserting the ground premise instances from its `use`s and the negated conclusion, with variables as fresh constants.
@@ -107,7 +110,7 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 - **Result:** 975 of 984 pass.
   - The 9 failures are the largest proofs (lambdapi output 4–245 MB, e.g. HWV057, SWV424-1.200 and up). lambdapi times out or runs out of memory on them.
   - SWV424-1.450 also exceeds 60 s in Prolog: about 25 s reconstruction, 11 s checking, plus output.
-- **Sanity check:** deliberately corrupted IR steps (a dropped literal, a wrong instantiation) are rejected by `check_all`.
+- **Sanity check:** deliberately corrupted IR steps (a dropped argument, a wrong annotation, a wrong `contra` literal) are rejected by `check_all`, and a bad sketch stops reconstruction with an error.
 
 ## Known issues / notes for review
 - **lambdapi scaling (upstream?).** Checking cost grows roughly as n⁴ in the number of hypotheses of a single declaration, even flat with all binders typed: n=150 takes 30–50 s. A 451-literal input clause (SWV424-1.450 `f452`) cannot be checked in 4 GB. lambdapi's `let` was also much worse than β-redexes, and a `cut` lemma was worse still.
@@ -118,7 +121,9 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
   - Ground clauses skip substitution.
 - **Remaining cost:** the remaining reconstruction cost is spread over assoc and database lookups. A cheaper index for repeated `rat` premise sets is possible.
 - **Unexercised tactic:** `avatar_component`'s second clause (`~L | split`, closed by `mate`) is untested by the corpus as far as I know.
-- **Resolution search:** `resolve` allows either polarity of resolved literal. `lp.pl` restricted this to positive ones.
+- **Resolution search:** as in `lp.pl`, `resolve` lets the minor premise refute only positive literals of the major; both premises are tried as major, so this is complete.
+  - Allowing either polarity made the search exponential on wide, mostly-negative clauses: SYO656-1 (27-literal premises, 6 variables) did not finish, and SYO673-1 took 12 s instead of 0.5 s.
+  - Literal matching is still naive, in a fixed literal order; matching the most constrained literal first would help if wider clauses blow up again.
 - **Proof assistants installed:** lambdapi 3.0.0 + Stdlib, z3, cvc5 and Agda. Lean is not installed yet.
 
 ## Next

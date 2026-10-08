@@ -43,7 +43,6 @@ connective(_ | _).
 connective(_ & _).
 connective(_ => _).
 connective(_ <=> _).
-connective(_ <~> _).
 connective('!'(_, _)).
 connective('?'(_, _)).
 

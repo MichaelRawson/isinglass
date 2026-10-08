@@ -6,17 +6,16 @@ conclusion (with variables as fresh constants), expecting `unsat`.
 Unreconstructed steps (todo) are checked with their premises universally quantified.
 Each check is preceded by (echo "name"), so the solver prints the name and then the result.
 */
-:- module(smtlib, [emit/1]).
+:- module(smtlib, [emit/0]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
-:- use_module(ir).
 :- set_prolog_flag(double_quotes, codes).
 
-emit(_) :-
+emit :-
   out(header),
-  \+ ( ir_step(Name, Conclusion, _), \+ out(check(Name, Conclusion)) ).
+  \+ ( ir_step(Name, Conclusion, Justification), \+ out(check(Justification, Name, Conclusion)) ).
 
 out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
 
@@ -44,14 +43,10 @@ sort('$o') --> "Bool".
  * checks
  ********************************************************************************/
 
-check(Name, Conclusion) -->
-  { elaborate(Name, E) },
-  check(E, Name, Conclusion).
-
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
-check(refute(_, E), Name, clause(Xs, Ls)) -->
-  { assertions(E, [], Fs, []) },
+check(refute(R), Name, clause(Xs, Ls)) -->
+  { assertions(R, [], Fs, []) },
   scope(Name, clause(Xs, Ls), Fs).
 check(todo(_, Parents), Name, Conclusion) -->
   { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
@@ -81,7 +76,7 @@ asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
 /*
-assertions(E, Ds, Fs0, Fs): the ground facts used in elaborated refutation E
+assertions(R, Ds, Fs0, Fs): the ground facts used in refutation R
 Ds maps local definitions to their split symbols
 */
 assertions(use(P, Ts, Args), Ds, [F|Fs0], Fs) :-
@@ -143,7 +138,6 @@ formula((F | G)) --> !, "(or ", formula(F), " ", formula(G), ")".
 formula((F & G)) --> !, "(and ", formula(F), " ", formula(G), ")".
 formula((F => G)) --> !, "(=> ", formula(F), " ", formula(G), ")".
 formula((F <=> G)) --> !, "(= ", formula(F), " ", formula(G), ")".
-formula((F <~> G)) --> !, "(xor ", formula(F), " ", formula(G), ")".
 formula('!'(Xs, F)) --> !, "(forall (", binders(Xs), ") ", formula(F), ")".
 formula('?'(Xs, F)) --> !, "(exists (", binders(Xs), ") ", formula(F), ")".
 formula(S = T) --> !, "(= ", term(S), " ", term(T), ")".

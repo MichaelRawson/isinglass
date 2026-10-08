@@ -1,8 +1,9 @@
 /*
 Reconstruct steps into ir_step/3 facts using generic tactics (see ir.pl for the IR).
 
-Tactics search for a refutation term R of the conclusion clause. They work with
-hypotheses Hs, a list of H-L pairs where H is the name of a hypothesis that literal L is false.
+Tactics search for a sketch R of a refutation of the conclusion clause, which ir:elaborate/3
+then checks and annotates. They work with hypotheses Hs, a list of H-L pairs where H is
+the name of a hypothesis that literal L is false.
 Premise instances are found by unification with the (ground) conclusion, Prolog's
 backtracking performing the search.
 */
@@ -13,6 +14,7 @@ backtracking performing the search.
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(ir).
 
 % reconstruct everything required for the last refutation
 reconstruct :-
@@ -34,15 +36,22 @@ justify(tactic(Tactic, Parents), Conclusion, Justification) :-
   (   Conclusion = clause(Xs, Ls),
       hypotheses(Ls, 0, Hs),
       length(Xs, Fresh),
-      call_tactic(Tactic, Fresh, Hs, Parents, R)
+      call_tactic(Tactic, Fresh, Hs, Parents, S)
   ->  length(Ls, N),
-      name_binders(R, N, _),
-      term_variables(R, Unused),
+      name_binders(S, N, _),
+      term_variables(S, Unused),
       maplist(=('$any'), Unused),
+      checked(Tactic, Conclusion, S, R),
       Justification = refute(R)
   ;   format(user_error, "warning: ~w failed to reconstruct ~w~n", [Tactic, Conclusion]),
       Justification = todo(Tactic, Parents)
   ).
+
+% a sketch that fails to check is a bug in the tactic
+checked(_, Conclusion, S, R) :- elaborate(Conclusion, S, R), !.
+checked(Tactic, Conclusion, _, _) :-
+  format(user_error, "error: ~w reconstructed an incorrect refutation of ~w~n", [Tactic, Conclusion]),
+  fail.
 
 call_tactic(Tactic, Fresh, Hs, Parents, R) :-
   Goal =.. [Tactic, Fresh, Hs, Parents, R],
@@ -99,6 +108,8 @@ variant(_, Hs, [Premise], use(Premise, Ts, Args)) :-
 
 % binary resolution: literals of the major premise are either in the conclusion,
 % or refuted by (an instance of) the minor premise
+% only positive literals are refuted by the minor: one resolved literal is positive, and either premise
+% may be the major, so this is complete, and avoids an exponential search on wide negative clauses
 resolve(_, Hs, Premises, use(Major, Ts, Args)) :-
   select(Major, Premises, [Minor]),
   premise(Major, Ts, Ks),
@@ -106,6 +117,7 @@ resolve(_, Hs, Premises, use(Major, Ts, Args)) :-
 
 resolve_literal(Hs, _, K, Arg) :- matches(Hs, K, Arg).
 resolve_literal(Hs, Minor, K, assume(H, use(Minor, Ts, Args))) :-
+  K \= ~_,
   complement(K, C),
   premise(Minor, Ts, Ls),
   maplist(matches([H-C|Hs]), Ls, Args).

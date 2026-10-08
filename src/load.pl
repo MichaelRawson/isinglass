@@ -4,8 +4,9 @@ Read TPTP/TSTP from standard input with read/1, producing
   annotated(Language, Name, Role, Formula, Source)
 
 with formulas normalised into the internal syntax (ops.pl):
-  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, F <~> G, '!'(Xs, F), '?'(Xs, F), S = T
-where S != T becomes ~(S = T), F <= G becomes G => F, F ~| G becomes ~(F | G), F ~& G becomes ~(F & G).
+  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'(Xs, F), '?'(Xs, F), S = T
+where S != T becomes ~(S = T), F <= G becomes G => F, F <~> G becomes ~(F <=> G),
+F ~| G becomes ~(F | G), F ~& G becomes ~(F & G).
 */
 :- module(load, [read_tstp/1]).
 :- use_module(ops).
@@ -36,12 +37,12 @@ read_tstp(Statements) :-
 
 read_statements(Statements) :-
   read(Term),
-  (   Term == end_of_file
-  ->  Statements = []
-  ;   statement(Term, Statement),
-      Statements = [Statement|Rest],
-      read_statements(Rest)
-  ).
+  read_statement(Term, Statements).
+
+read_statement(end_of_file, []) :- !.
+read_statement(Term, [Statement|Rest]) :-
+  statement(Term, Statement),
+  read_statements(Rest).
 
 statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
   Term =.. [Language, Name, Role, Formula0|Annotations],
@@ -61,7 +62,7 @@ normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
 normalise('<='(G, H), F) :- !, F = (H1 => G1), normalise(G, G1), normalise(H, H1).
 normalise((G <=> H), F) :- !, F = (G1 <=> H1), normalise(G, G1), normalise(H, H1).
-normalise((G <~> H), F) :- !, F = (G1 <~> H1), normalise(G, G1), normalise(H, H1).
+normalise('<~>'(G, H), F) :- !, F = ~(G1 <=> H1), normalise(G, G1), normalise(H, H1).
 normalise('~|'(G, H), F) :- !, F = ~(G1 | H1), normalise(G, G1), normalise(H, H1).
 normalise('~&'(G, H), F) :- !, F = ~(G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise(A, A).

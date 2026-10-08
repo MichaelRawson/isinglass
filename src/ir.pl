@@ -14,29 +14,30 @@ for a conclusion clause with literals L_0, ..., L_n-1, hypothesis h(I) is ¬L_I.
 Here ¬L is "L implies ⊥", so for negative literals ~A, ¬~A is ¬¬A, not A.
 Classically ⊥ is falsity, but in the A-translation ⊥ is the conjecture G.
 Split symbols are interpreted as (the hypothetical reading of) their defining clause.
+Every argument carries the literal L that it refutes, as arg(L, A).
 
-  R   ::= use(P, Ts, Args)    instantiate premise clause P with terms Ts, refute each literal with Args
-        | let(H, L, Arg, R)   H : ¬L is Arg (a lemma)
-        | contra(H, Pos)      H : ¬K applied to Pos, a proof of K
-  Arg ::= hyp(H)              a proof of ¬L is a hypothesis
-        | sym(Arg)            ...modulo symmetry of equality
-        | assume(H, R)        assume the complement of L is false (H : ¬L'), derive ⊥
-        | unfold(D, R)        L is a split symbol: assume its definition D, derive ⊥
-  Pos ::= Arg                 if K is ~A, a proof of K is a proof of ¬A
-        | intro(Xs, Hs, R)    if K is a split symbol, a proof of its definition for eigenvariables Xs
+  R   ::= use(P, Ts, [arg(L, A)])  instantiate premise clause P with terms Ts, refuting each literal L
+        | let(H, L, arg(L, A), R)  H : ¬L is A (a lemma)
+        | contra(H, K, Pos)        H : ¬K applied to Pos, a proof of K
+  A   ::= hyp(H)                   a proof of ¬L is a hypothesis
+        | sym(F, A)                ...modulo symmetry of equality: A refutes F, the flipped L
+        | assume(H, R)             assume the complement of L is false (H : ¬L'), derive ⊥
+        | unfold(D, Clause, R)     L is a split symbol: assume its definition D : Clause, derive ⊥
+  Pos ::= arg(A0, A)               if K is ~A0, a proof of K is a refutation A of A0
+        | intro(Xs, Hs, R)         if K is a split symbol, a proof of its definition for eigenvariables Xs
 
-P is either the name of a step or a definition D introduced by unfold/2.
+P is either the name of a step or a definition D introduced by unfold/3.
 
-elaborate/2 checks a justification and produces an elaborated version that is
-easier for back ends to print, in which every argument carries the literal it refutes:
+Tactics produce sketches, refutations without the annotations (see reconstruct.pl):
 
-  E   ::= use(P, Ts, [arg(L, A)]) | let(H, L, arg(L, A), E) | contra(H, K, Pos)
-  A   ::= hyp(H) | sym(L, A) | assume(H, E) | unfold(D, Clause, E)
-  Pos ::= arg(L, A) | intro(Xs, [H-L], E)
+  S   ::= use(P, Ts, [Arg]) | let(H, L, Arg, S) | contra(H, Pos)
+  Arg ::= hyp(H) | sym(Arg) | assume(H, S) | unfold(D, S)
+  Pos ::= Arg | intro(Xs, Hs, S)
 
-where in sym(L, A), A refutes L, so sym(L, A) refutes the flipped L.
+elaborate/3 checks a sketch and annotates it, producing the IR.
+check_all/0 re-checks the stored IR, by erasing and re-elaborating each refutation.
 */
-:- module(ir, [elaborate/2, check_all/0]).
+:- module(ir, [elaborate/3, check_all/0]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
@@ -45,23 +46,21 @@ where in sym(L, A), A refutes L, so sym(L, A) refutes the flipped L.
 
 % check every step, reporting all incorrect ones
 check_all :-
-  findall(Name, (ir_step(Name, _, _), \+ elaborate(Name, _)), Incorrect),
+  findall(Name, (ir_step(Name, Conclusion, refute(R)), \+ checks(Conclusion, R)), Incorrect),
   \+ ( member(Name, Incorrect),
        \+ format(user_error, "error: step ~w is incorrect~n", [Name]) ),
   Incorrect == [].
 
-% elaborate(Name, Elaborated)
-elaborate(Name, E) :-
-  ir_step(Name, Conclusion, Justification),
-  elaborate(Justification, Conclusion, E), !.
+checks(Conclusion, R) :-
+  erase(R, S),
+  elaborate(Conclusion, S, R1), !,
+  R1 == R.
 
-elaborate(input(Role, Source), _, input(Role, Source)).
-elaborate(split_def(Symbol, Clause), _, split_def(Symbol, Clause)).
-elaborate(todo(Record, Parents), _, todo(Record, Parents)).
-elaborate(refute(R), clause(_, Ls), refute(Hs, E)) :-
+% elaborate(Conclusion, Sketch, R): Sketch refutes the conclusion clause, as R
+elaborate(clause(_, Ls), S, R) :-
   hypotheses(Ls, 0, Hs),
   list_to_assoc(Hs, Gamma),
-  refutation(Gamma, R, E).
+  refutation(Gamma, S, R).
 
 hypotheses([], _, []).
 hypotheses([L|Ls], N, [h(N)-neg(L)|Hs]) :- M is N + 1, hypotheses(Ls, M, Hs).
@@ -72,10 +71,10 @@ refutation(Gamma, use(P, Ts, Args), use(P, Ts, Es)) :-
   premise(Gamma, P, Clause),
   instance(Clause, Ts, Ls),
   maplist(argument(Gamma), Ls, Args, Es).
-refutation(Gamma, let(H, L, Arg, R), let(H, L, E, ER)) :-
+refutation(Gamma, let(H, L, Arg, S), let(H, L, E, R)) :-
   argument(Gamma, L, Arg, E),
   put_assoc(H, Gamma, neg(L), Gamma1),
-  refutation(Gamma1, R, ER).
+  refutation(Gamma1, S, R).
 refutation(Gamma, contra(H, Pos), contra(H, K, E)) :-
   get_assoc(H, Gamma, neg(K)),
   positive(Gamma, K, Pos, E).
@@ -83,7 +82,7 @@ refutation(Gamma, contra(H, Pos), contra(H, K, E)) :-
 premise(Gamma, D, Clause) :- get_assoc(D, Gamma, def(Clause)), !.
 premise(_, Name, Clause) :- atom(Name), ir_step(Name, Clause, _), Clause = clause(_, _).
 
-% argument(Gamma, L, Arg, arg(L, A)): Arg is a proof of ¬L
+% argument(Gamma, L, Arg, arg(L, A)): Arg is a proof of ¬L, annotated as A
 argument(Gamma, L, Arg, arg(L, A)) :- refutes(Gamma, L, Arg, A).
 
 refutes(Gamma, L, hyp(H), hyp(H)) :-
@@ -92,23 +91,23 @@ refutes(Gamma, L, hyp(H), hyp(H)) :-
 refutes(Gamma, L, sym(Arg), sym(F, A)) :-
   flip(L, F),
   refutes(Gamma, F, Arg, A).
-refutes(Gamma, L, assume(H, R), assume(H, E)) :-
+refutes(Gamma, L, assume(H, S), assume(H, R)) :-
   complement(L, C),
   put_assoc(H, Gamma, neg(C), Gamma1),
-  refutation(Gamma1, R, E).
-refutes(Gamma, Split, unfold(D, R), unfold(D, Clause, E)) :-
+  refutation(Gamma1, S, R).
+refutes(Gamma, Split, unfold(D, S), unfold(D, Clause, R)) :-
   split_def(Split, Clause),
   put_assoc(D, Gamma, def(Clause), Gamma1),
-  refutation(Gamma1, R, E).
+  refutation(Gamma1, S, R).
 
-% positive(Gamma, K, Pos, E): Pos is a proof of K
+% positive(Gamma, K, Pos, E): Pos is a proof of K, annotated as E
 positive(Gamma, ~A, Arg, E) :- argument(Gamma, A, Arg, E).
-positive(Gamma, Split, intro(Xs, Hs, R), intro(Xs, HLs, E)) :-
+positive(Gamma, Split, intro(Xs, Hs, S), intro(Xs, Hs, R)) :-
   split_def(Split, Clause),
   eigenvariables(Xs, Gamma),
   instance(Clause, Xs, Ls),
-  pair_hypotheses(Hs, Ls, Gamma, Gamma1, HLs),
-  refutation(Gamma1, R, E).
+  pair_hypotheses(Hs, Ls, Gamma, Gamma1),
+  refutation(Gamma1, S, R).
 
 % eigenvariables must be distinct and fresh
 eigenvariables(Xs, Gamma) :-
@@ -120,7 +119,20 @@ eigenvariables(Xs, Gamma) :-
 occurs(X, T) :- X == T, !.
 occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.
 
-pair_hypotheses([], [], Gamma, Gamma, []).
-pair_hypotheses([H|Hs], [L|Ls], Gamma0, Gamma, [H-L|HLs]) :-
+pair_hypotheses([], [], Gamma, Gamma).
+pair_hypotheses([H|Hs], [L|Ls], Gamma0, Gamma) :-
   put_assoc(H, Gamma0, neg(L), Gamma1),
-  pair_hypotheses(Hs, Ls, Gamma1, Gamma, HLs).
+  pair_hypotheses(Hs, Ls, Gamma1, Gamma).
+
+% erase(R, S): the sketch of refutation R
+erase(use(P, Ts, Es), use(P, Ts, Args)) :- maplist(erase_argument, Es, Args).
+erase(let(H, L, E, R), let(H, L, Arg, S)) :- erase_argument(E, Arg), erase(R, S).
+erase(contra(H, _, intro(Xs, Hs, R)), contra(H, intro(Xs, Hs, S))) :- !, erase(R, S).
+erase(contra(H, _, E), contra(H, Arg)) :- erase_argument(E, Arg).
+
+erase_argument(arg(_, A), Arg) :- erase_annotated(A, Arg).
+
+erase_annotated(hyp(H), hyp(H)).
+erase_annotated(sym(_, A), sym(Arg)) :- erase_annotated(A, Arg).
+erase_annotated(assume(H, R), assume(H, S)) :- erase(R, S).
+erase_annotated(unfold(D, _, R), unfold(D, S)) :- erase(R, S).

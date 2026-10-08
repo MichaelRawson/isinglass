@@ -4,8 +4,6 @@ Translate a Vampire TSTP proof on standard input, e.g.
   swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p
   swipl -g 'run(smtlib)' -t halt src/main.pl < proof.p
   swipl -g 'run(check)' -t halt src/main.pl < proof.p
-
-run(Backend, Options) passes options to the back end, e.g. run(lambdapi, [gdv]).
 */
 :- use_module(load).
 :- use_module(vampire).
@@ -15,21 +13,20 @@ run(Backend, Options) passes options to the back end, e.g. run(lambdapi, [gdv]).
 :- use_module(lambdapi, []).
 :- use_module(smtlib, []).
 
-run(Backend) :- run(Backend, []).
-
-run(Backend, Options) :-
+run(Backend) :-
   read_tstp(Statements),
   load_vampire(Statements),
   reconstruct,
-  check_all,
-  emit(Backend, Options).
+  emit(Backend).
 
-emit(check, _) :- !,
+% re-check the stored IR, and summarise the kinds of justification
+emit(check) :- !,
+  check_all,
   findall(Kind, (ir_step(_, _, J), functor(J, Kind, _)), Kinds),
   msort(Kinds, Sorted),
   clumped_pairs(Sorted, Counts),
   format("~w~n", [Counts]).
-emit(Backend, Options) :- Backend:emit(Options).
+emit(Backend) :- Backend:emit.
 
 clumped_pairs([], []).
 clumped_pairs([X|Xs], [X-N|Counts]) :- clump(X, Xs, 1, N, Rest), clumped_pairs(Rest, Counts).

@@ -9,6 +9,9 @@ load_vampire(Statements) :-
   maplist(load_statement, Statements),
   default_signature.
 
+load_statement(annotated(_, Name, type, _, _)) :- !,
+  format(user_error, "error: type declaration ~w is not supported~n", [Name]),
+  fail.
 load_statement(annotated(_, Name, Role, Formula, Source)) :-
   conclusion(Formula, Conclusion),
   how(Role, Source, Conclusion, How),
