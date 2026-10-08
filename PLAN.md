@@ -31,7 +31,8 @@
   - `F <= G` becomes `G => F`;
   - `F <~> G` becomes `~(F <=> G)`;
   - `~|` and `~&` become a negated `|` or `&`.
-- Clauses are `clause(Xs, Literals)`: a plain list of literals `A` or `~A`. Variables are numbered `'$VAR'(N)` in binder order.
+- Clauses are `clause(Xs, Literals)`: a plain list of literals `A` or `~A`.
+- Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so each database lookup is a fresh instance and instantiation is unification. When a step is reconstructed, its conclusion is made rigid by numbering its variables `'$VAR'(N)` in binder order; the IR is ground.
 - Vampire's AVATAR clause shape `(! [X] : C) | ~spl` is also recognised as a clause.
 
 ## The IR (`src/ir.pl`, `src/db.pl`)
@@ -40,18 +41,21 @@ ir_step(Name, Conclusion, Justification)     % in dependency order, reachable fr
 split(Symbol, Clause)                        % index of AVATAR definitions
 Conclusion    ::= clause(Xs, Lits) | formula(F)
 Justification ::= input(Role, Source) | split_def(Symbol, Clause) | refute(R) | todo(Record, Parents)
-R   ::= use(P, Ts, [arg(L, A)])  % instantiate premise clause P (a step, or a local definition) with Ts; A refutes literal L
+R   ::= use(P, Ts, [arg(L, A)])  % instantiate premise clause P with Ts; A refutes literal L
       | let(H, L, arg(L, A), R)  % lemma H : ¬L
-      | contra(H, K, Pos)        % H : ¬K applied to Pos, a proof of K
-A   ::= hyp(H) | sym(F, A) | assume(H, R) | unfold(D, Clause, R)
-Pos ::= arg(A0, A)               % K = ~A0: a refutation of A0
-      | intro(Xs, Hs, R)         % K = split symbol: prove its defining clause for eigenvariables Xs
+      | contra(H, K, arg(K', A)) % H : ¬K, and A refutes its complement K'
+P   ::= Name                     % a step
+      | def(H, Split)            % the definition of Split, from H : ¬~Split
+A   ::= hyp(H) | sym(F, H) | assume(H, R)   % sym: H : ¬F, F the flipped L
+      | intro(Xs, Hs, R)         % L = ~Split: prove Split's defining clause for eigenvariables Xs
 ```
-Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becomes `A`, `sym(F, A)` becomes `sym(A)`, `contra` drops `K`, `unfold` drops `Clause`).
+Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becomes `A`, `sym(F, H)` becomes `sym(H)`, `contra` drops `K`, `def(H, Split)` becomes `H`).
 
 **Semantics.** A refutation derives an abstract `⊥` from one hypothesis `h(I) : ¬L_I` per conclusion literal, where `¬L` means "L implies ⊥". The IR never uses `¬¬`-elimination. So it is sound under any reading of `⊥`:
 - classical falsity, for lambdapi, Lean and SMT;
 - the conjecture `G` of the A-translation, for Agda.
+
+**Split definitions.** A split symbol is read as its defining clause, `Π xs, ¬L₀ → … → ⊥`. A hypothesis `H : ¬~Split` gives only `¬¬Split`, but formulas ending in `⊥` are `¬¬`-stable in minimal logic, so `use(def(H, Split), …)` is constructive. Dually, `intro` refutes `~Split` by proving `Split`. `~Split` can also be refuted propositionally by `assume`, treating `Split` as an atom, as RUP does.
 
 **Checking.** `ir:elaborate/3` is an independent checker, kept separate from the tactics' search. During reconstruction it checks each tactic's sketch and annotates it, producing the stored IR; a sketch that fails to check is a tactic bug, and stops the run with an error. Back ends read the IR directly. `run(check)` just loads and reconstructs the proof, which elaborates every step.
 
@@ -65,7 +69,7 @@ Tactics produce a *sketch*: the same term without annotations (`arg(L, A)` becom
 | `ops.pl` | Operators of the internal syntax, exported as a module |
 | `load.pl` | `read_tstp/1`: `read/1` with run-time TPTP operators, followed by normalisation |
 | `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
-| `logic.pl` | `clause_form`, `clause_formula`, `complement`, `flip`, `instance` (substitution), `symbols`, `split_def` |
+| `logic.pl` | `clause_form`, `clause_formula`, `complement`, `flip`, `number_vars`, `symbols`, `split_def` |
 | `vampire.pl` | Front end: maps Vampire rules to tactics; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
 | `reconstruct.pl` | Generic tactics: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
 | `ir.pl` | IR documentation; elaboration of sketches (the checker) |
@@ -119,9 +123,9 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
   - `rup` uses an assoc trail plus occurrence lists, re-checking only clauses containing a newly falsified literal.
   - `split/2` indexes AVATAR definitions.
   - The checker context is an assoc.
-  - Ground clauses skip substitution.
+  - Clauses are stored with Prolog variables, so premise instances are database copies rather than substitutions (about 1.5–2× faster reconstruction).
 - **Remaining cost:** the remaining reconstruction cost is spread over assoc and database lookups. A cheaper index for repeated `rat` premise sets is possible.
-- **Unexercised tactic:** `avatar_component`'s second clause (`~L | split`, closed by `mate`) is untested by the corpus as far as I know.
+- **`avatar_component`'s second clause** (`~L | split`, closed by `mate`) is exercised by the corpus, e.g. SYN488-1 `f614`. It produces `contra` with `hyp`; nothing produces `contra` with `sym` or `assume` yet.
 - **Resolution search:** as in `lp.pl`, `resolve` lets the minor premise refute only positive literals of the major; both premises are tried as major, so this is complete.
   - Allowing either polarity made the search exponential on wide, mostly-negative clauses: SYO656-1 (27-literal premises, 6 variables) did not finish, and SYO673-1 took 12 s instead of 0.5 s.
   - Literal matching is still naive, in a fixed literal order; matching the most constrained literal first would help if wider clauses blow up again.

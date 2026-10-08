@@ -2,7 +2,8 @@
 :- module(db, [step/3, symbol/3, introduced/2, ir_step/3, split/2]).
 
 % step(Name, Conclusion, How): a proof step, as understood by a front end
-% Conclusion is clause(Xs, Literals) or formula(F), with variables numbered as '$VAR'(N)
+% Conclusion is clause(Xs, Literals) or formula(F), with Prolog variables:
+% each retrieval is a fresh instance
 % How is input(Role, Source), split_def(Symbol, Clause), tactic(Tactic, Parents) or todo(Record, Parents)
 :- dynamic(step/3).
 
@@ -13,8 +14,9 @@
 :- dynamic(introduced/2).
 
 % ir_step(Name, Conclusion, Justification): reconstructed steps, in dependency order
+% ground: variables are numbered as '$VAR'(N), in binder order
 % see ir.pl for the language of justifications
 :- dynamic(ir_step/3).
 
-% split(Symbol, Clause): AVATAR split definitions among ir_step/3, indexed by symbol
+% split(Symbol, Clause): AVATAR split definitions, indexed by symbol, with Prolog variables
 :- dynamic(split/2).

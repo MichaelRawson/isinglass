@@ -18,21 +18,25 @@ Every argument carries the literal L that it refutes, as arg(L, A).
 
   R   ::= use(P, Ts, [arg(L, A)])  instantiate premise clause P with terms Ts, refuting each literal L
         | let(H, L, arg(L, A), R)  H : ¬L is A (a lemma)
-        | contra(H, K, Pos)        H : ¬K applied to Pos, a proof of K
+        | contra(H, K, arg(K', A)) H : ¬K, and A refutes its complement K', so proves K
+  P   ::= Name                     a step
+        | def(H, Split)            the definition of Split, from H : ¬~Split
   A   ::= hyp(H)                   a proof of ¬L is a hypothesis
-        | sym(F, A)                ...modulo symmetry of equality: A refutes F, the flipped L
+        | sym(F, H)                ...modulo symmetry of equality: H : ¬F, F the flipped L
         | assume(H, R)             assume the complement of L is false (H : ¬L'), derive ⊥
-        | unfold(D, Clause, R)     L is a split symbol: assume its definition D : Clause, derive ⊥
-  Pos ::= arg(A0, A)               if K is ~A0, a proof of K is a refutation A of A0
-        | intro(Xs, Hs, R)         if K is a split symbol, a proof of its definition for eigenvariables Xs
+        | intro(Xs, Hs, R)         L is ~Split: prove the definition of Split for eigenvariables Xs,
+                                   with hypotheses Hs refuting its literals
 
-P is either the name of a step or a definition D introduced by unfold/3.
+A definition is used through a hypothesis H : ¬~Split, i.e. ¬¬Split, rather than Split itself.
+This is constructive: the definition reads as Π xs, ¬L_0 → ... → ⊥, which ends in ⊥, so it is
+¬¬-stable in minimal logic: from n : ¬¬D, λ xs hs, n (λ d, d xs hs) proves D.
+Dually, intro refutes ~Split by proving Split, which implies ¬¬Split. A literal ~Split may also be
+refuted propositionally by assume, which treats Split as an atom (as RUP does).
 
 Tactics produce sketches, refutations without the annotations (see reconstruct.pl):
 
-  S   ::= use(P, Ts, [Arg]) | let(H, L, Arg, S) | contra(H, Pos)
-  Arg ::= hyp(H) | sym(Arg) | assume(H, S) | unfold(D, S)
-  Pos ::= Arg | intro(Xs, Hs, S)
+  S   ::= use(Name | H, Ts, [Arg]) | let(H, L, Arg, S) | contra(H, Arg)
+  Arg ::= hyp(H) | sym(H) | assume(H, S) | intro(Xs, Hs, S)
 
 elaborate/3 checks a sketch and annotates it, producing the IR.
 */
@@ -52,22 +56,23 @@ elaborate(clause(_, Ls), S, R) :-
 hypotheses([], _, []).
 hypotheses([L|Ls], N, [h(N)-neg(L)|Hs]) :- M is N + 1, hypotheses(Ls, M, Hs).
 
-% Gamma is an assoc mapping H to neg(L) (H : ¬L) and D to def(Clause) (D : Clause)
-refutation(Gamma, use(P, Ts, Args), use(P, Ts, Es)) :-
+% Gamma is an assoc mapping H to neg(L) (H : ¬L)
+refutation(Gamma, use(P, Ts, Args), use(Q, Ts, Es)) :-
   ground(Ts),
-  premise(Gamma, P, Clause),
-  instance(Clause, Ts, Ls),
+  premise(Gamma, P, Q, clause(Ts, Ls)),
   maplist(argument(Gamma), Ls, Args, Es).
 refutation(Gamma, let(H, L, Arg, S), let(H, L, E, R)) :-
   argument(Gamma, L, Arg, E),
   put_assoc(H, Gamma, neg(L), Gamma1),
   refutation(Gamma1, S, R).
-refutation(Gamma, contra(H, Pos), contra(H, K, E)) :-
+refutation(Gamma, contra(H, Arg), contra(H, K, E)) :-
   get_assoc(H, Gamma, neg(K)),
-  positive(Gamma, K, Pos, E).
+  complement(K, C),
+  argument(Gamma, C, Arg, E).
 
-premise(Gamma, D, Clause) :- get_assoc(D, Gamma, def(Clause)), !.
-premise(_, Name, Clause) :- atom(Name), ir_step(Name, Clause, _), Clause = clause(_, _).
+% premise(Gamma, P, Q, Clause): a fresh instance of premise clause P, annotated as Q
+premise(_, Name, Name, Clause) :- atom(Name), !, step(Name, Clause, _), Clause = clause(_, _).
+premise(Gamma, H, def(H, Split), Clause) :- get_assoc(H, Gamma, neg(~Split)), split_def(Split, Clause).
 
 % argument(Gamma, L, Arg, arg(L, A)): Arg is a proof of ¬L, annotated as A
 argument(Gamma, L, Arg, arg(L, A)) :- refutes(Gamma, L, Arg, A).
@@ -75,24 +80,16 @@ argument(Gamma, L, Arg, arg(L, A)) :- refutes(Gamma, L, Arg, A).
 refutes(Gamma, L, hyp(H), hyp(H)) :-
   get_assoc(H, Gamma, neg(K)),
   K == L.
-refutes(Gamma, L, sym(Arg), sym(F, A)) :-
+refutes(Gamma, L, sym(H), sym(F, H)) :-
   flip(L, F),
-  refutes(Gamma, F, Arg, A).
+  refutes(Gamma, F, hyp(H), _).
 refutes(Gamma, L, assume(H, S), assume(H, R)) :-
   complement(L, C),
   put_assoc(H, Gamma, neg(C), Gamma1),
   refutation(Gamma1, S, R).
-refutes(Gamma, Split, unfold(D, S), unfold(D, Clause, R)) :-
-  split_def(Split, Clause),
-  put_assoc(D, Gamma, def(Clause), Gamma1),
-  refutation(Gamma1, S, R).
-
-% positive(Gamma, K, Pos, E): Pos is a proof of K, annotated as E
-positive(Gamma, ~A, Arg, E) :- argument(Gamma, A, Arg, E).
-positive(Gamma, Split, intro(Xs, Hs, S), intro(Xs, Hs, R)) :-
-  split_def(Split, Clause),
+refutes(Gamma, ~Split, intro(Xs, Hs, S), intro(Xs, Hs, R)) :-
   eigenvariables(Xs, Gamma),
-  instance(Clause, Xs, Ls),
+  split_def(Split, clause(Xs, Ls)),
   pair_hypotheses(Hs, Ls, Gamma, Gamma1),
   refutation(Gamma1, S, R).
 

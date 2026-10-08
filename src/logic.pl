@@ -6,8 +6,6 @@
   complement/2,
   flip/2,
   number_vars/3,
-  instance/3,
-  fresh_instance/3,
   split_def/2,
   symbols/3
 ]).
@@ -57,30 +55,7 @@ flip(~(S = T), ~(T = S)).
 number_vars([], N, N).
 number_vars(['$VAR'(N0)|Vs], N0, N) :- N1 is N0 + 1, number_vars(Vs, N1, N).
 
-% instance(clause(Xs, Ls), Ts, Ks): Ks is Ls with Xs replaced by Ts
-instance(clause([], Ls), [], Ks) :- !, Ks = Ls.
-instance(clause(Xs, Ls), Ts, Ks) :-
-  pairs(Xs, Ts, Map),
-  subst(Map, Ls, Ks).
-
-% instance with fresh variables
-fresh_instance(clause(Xs, Ls), Ts, Ks) :-
-  same_length(Xs, Ts),
-  instance(clause(Xs, Ls), Ts, Ks).
-
-pairs([], [], []).
-pairs([X|Xs], [T|Ts], [X-T|Map]) :- pairs(Xs, Ts, Map).
-
-subst(_, T, R) :- var(T), !, R = T.
-subst(Map, T, R) :- lookup(Map, T, R), !.
-subst(Map, T, R) :- T =.. [F|Ts], subst_list(Map, Ts, Rs), R =.. [F|Rs].
-
-subst_list(_, [], []).
-subst_list(Map, [T|Ts], [R|Rs]) :- subst(Map, T, R), subst_list(Map, Ts, Rs).
-
-lookup([X-V|Map], T, R) :- ( X == T -> R = V ; lookup(Map, T, R) ).
-
-% the definition of an AVATAR split symbol
+% the definition of an AVATAR split symbol, a fresh instance
 split_def(Symbol, Clause) :- split(Symbol, Clause), !.
 
 % function and predicate symbols of a formula, as Name/Arity lists

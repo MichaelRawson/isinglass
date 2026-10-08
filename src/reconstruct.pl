@@ -4,8 +4,9 @@ Reconstruct steps into ir_step/3 facts using generic tactics (see ir.pl for the 
 Tactics search for a sketch R of a refutation of the conclusion clause, which ir:elaborate/3
 then checks and annotates. They work with hypotheses Hs, a list of H-L pairs where H is
 the name of a hypothesis that literal L is false.
-Premise instances are found by unification with the (ground) conclusion, Prolog's
-backtracking performing the search.
+Clauses are stored with Prolog variables (db.pl), so retrieving a premise gives a fresh instance.
+The conclusion is made rigid by numbering its variables, and premise instances are found by
+unification with it, Prolog's backtracking performing the search.
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
@@ -18,6 +19,7 @@ backtracking performing the search.
 
 % reconstruct everything required for the last refutation
 reconstruct :-
+  forall(step(_, _, split_def(Symbol, Clause)), assertz(split(Symbol, Clause))),
   findall(Name, step(Name, clause([], []), _), Refutations),
   last(Refutations, Refutation),
   prove(Refutation).
@@ -25,17 +27,21 @@ reconstruct :-
 prove(Name) :- ir_step(Name, _, _), !.
 prove(Name) :-
   step(Name, Conclusion, How),
-  justify(How, Conclusion, Justification),
+  rigid(Conclusion, Fresh),
+  justify(How, Conclusion, Fresh, Justification),
   assertz(ir_step(Name, Conclusion, Justification)).
 
-justify(input(Role, Source), _, input(Role, Source)).
-justify(split_def(Symbol, Clause), _, split_def(Symbol, Clause)) :- assertz(split(Symbol, Clause)).
-justify(todo(Record, Parents), _, todo(Record, Parents)) :- maplist(prove, Parents).
-justify(tactic(Tactic, Parents), Conclusion, Justification) :-
+% number the variables of a conclusion, in binder order; Fresh is the next index
+rigid(clause(Xs, _), Fresh) :- number_vars(Xs, 0, Fresh).
+rigid(formula(F), Fresh) :- term_variables(F, Vs), number_vars(Vs, 0, Fresh).
+
+justify(input(Role, Source), _, _, input(Role, Source)).
+justify(split_def(Symbol, Clause), _, _, split_def(Symbol, Clause)).
+justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
+justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
-  (   Conclusion = clause(Xs, Ls),
+  (   Conclusion = clause(_, Ls),
       hypotheses(Ls, 0, Hs),
-      length(Xs, Fresh),
       call_tactic(Tactic, Fresh, Hs, Parents, S)
   ->  length(Ls, N),
       name_binders(S, N, _),
@@ -67,9 +73,8 @@ name_binders(let(H, _, A, R), N0, N) :- !, bind(H, N0, N1), name_binders(A, N1, 
 name_binders(contra(_, P), N0, N) :- !, name_binders(P, N0, N).
 name_binders(intro(_, Hs, R), N0, N) :- !, name_list(Hs, N0, N1), name_binders(R, N1, N).
 name_binders(hyp(_), N, N) :- !.
-name_binders(sym(A), N0, N) :- !, name_binders(A, N0, N).
+name_binders(sym(_), N, N) :- !.
 name_binders(assume(H, R), N0, N) :- !, bind(H, N0, N1), name_binders(R, N1, N).
-name_binders(unfold(H, R), N0, N) :- !, bind(H, N0, N1), name_binders(R, N1, N).
 
 name_binders_list([], N, N).
 name_binders_list([A|As], N0, N) :- name_binders(A, N0, N1), name_binders_list(As, N1, N).
@@ -86,15 +91,14 @@ name_list([H|Hs], N0, N) :- bind(H, N0, N1), name_list(Hs, N1, N).
 % a hypothesis refutes premise literal L, modulo symmetry of equality
 matches(Hs, L, Arg) :-
   member(H-K, Hs),
-  oriented(K, L, hyp(H), Arg).
+  oriented(K, L, H, Arg).
 
-oriented(K, L, Arg, Arg) :- unify_with_occurs_check(K, L).
-oriented(K, L, Arg, sym(Arg)) :- flip(K, F), unify_with_occurs_check(F, L).
+% oriented(K, L, H, Arg): H : ¬K refutes L, as Arg
+oriented(K, L, H, hyp(H)) :- unify_with_occurs_check(K, L).
+oriented(K, L, H, sym(H)) :- flip(K, F), unify_with_occurs_check(F, L).
 
-premise(Name, Ts, Ls) :-
-  ir_step(Name, Clause, _),
-  Clause = clause(_, _),
-  fresh_instance(Clause, Ts, Ls).
+% a fresh instance of a premise clause, with variables Ts
+premise(Name, Ts, Ls) :- step(Name, clause(Ts, Ls), _).
 
 /********************************************************************************
  * tactics: tactic(Fresh, Hypotheses, Parents, Refutation)
@@ -163,16 +167,15 @@ unit(Trail, [L|Ls], Unit, [hyp(H)|Args]) :-
   unit(Trail, Ls, Unit, Args).
 
 % AVATAR component clause: C | ~split, where split is defined as C
-avatar_component(_, Hs, [_], contra(H, unfold(D, use(D, Ts, Args)))) :-
+avatar_component(_, Hs, [_], use(H, Ts, Args)) :-
   select(H-(~Split), Hs, Others),
-  split_def(Split, Clause),
-  fresh_instance(Clause, Ts, Ls),
+  split_def(Split, clause(Ts, Ls)),
   maplist(matches(Others), Ls, Args).
 % ...or ~L | split, where split is defined as L
 avatar_component(Fresh, Hs, [_], contra(H, intro(Xs, Gs, R))) :-
   select(H-Split, Hs, Others),
-  split_def(Split, Clause),
-  eigenvariables(Clause, Fresh, _, Xs, Ls),
+  split_def(Split, clause(Xs, Ls)),
+  number_vars(Xs, Fresh, _),
   hypotheses_for(Ls, Gs, GHs),
   append(GHs, Others, All),
   mate(All, R).
@@ -190,29 +193,22 @@ avatar_split(Fresh, Hs, [Premise|_], R) :-
 splits([], _, Hs, Ds, Premise, use(Premise, Ts, Args)) :-
   premise(Premise, Ts, Ls),
   maplist(split_literal(Hs, Ds), Ls, Args).
-splits([H-(~Split)|Rest], Fresh, Hs, Ds, Premise, contra(H, unfold(D, R))) :-
+splits([H-(~Split)|Rest], Fresh, Hs, Ds, Premise, R) :-
   split_def(Split, Clause),
-  splits(Rest, Fresh, Hs, [D-Clause|Ds], Premise, R).
+  splits(Rest, Fresh, Hs, [H-Clause|Ds], Premise, R).
 splits([H-Split|Rest], Fresh0, Hs, Ds, Premise, contra(H, intro(Xs, Gs, R))) :-
-  split_def(Split, Clause),
-  eigenvariables(Clause, Fresh0, Fresh, Xs, Ls),
+  split_def(Split, clause(Xs, Ls)),
+  number_vars(Xs, Fresh0, Fresh),
   hypotheses_for(Ls, Gs, GHs),
   append(GHs, Hs, Hs1),
   splits(Rest, Fresh, Hs1, Ds, Premise, R).
 
-% a premise literal is refuted by a hypothesis, or by a ground unit definition
+% a premise literal is refuted by a hypothesis, or by a ground unit definition, from H : ¬~split
 split_literal(Hs, _, L, Arg) :- matches(Hs, L, Arg).
-split_literal(_, Ds, L, assume(G, use(D, [], [Arg]))) :-
-  member(D-clause([], [K]), Ds),
+split_literal(_, Ds, L, assume(G, use(H, [], [Arg]))) :-
+  member(H-clause([], [K]), Ds),
   complement(L, C),
-  oriented(C, K, hyp(G), Arg).
-
-eigenvariables(Clause, Fresh0, Fresh, Xs, Ls) :-
-  Clause = clause(Ys, _),
-  length(Ys, N),
-  length(Xs, N),
-  number_vars(Xs, Fresh0, Fresh),
-  instance(Clause, Xs, Ls).
+  oriented(C, K, G, Arg).
 
 hypotheses_for([], [], []).
 hypotheses_for([L|Ls], [G|Gs], [G-L|GHs]) :- hypotheses_for(Ls, Gs, GHs).

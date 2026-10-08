@@ -18,14 +18,9 @@ load_statement(annotated(_, Name, Role, Formula, Source)) :-
   record_introduced(Source),
   assertz(step(Name, Conclusion, How)).
 
-% clause-shaped formulas become clauses, variables numbered in binder order
-conclusion(F, C) :-
-  clause_form(F, clause(Xs, Ls)), !,
-  number_vars(Xs, 0, _),
-  C = clause(Xs, Ls).
-conclusion(F, formula(F)) :-
-  term_variables(F, Vs),
-  number_vars(Vs, 0, _).
+% clause-shaped formulas become clauses; variables are kept as Prolog variables
+conclusion(F, C) :- clause_form(F, C), !.
+conclusion(F, formula(F)).
 
 how(Role, file(_, Input), _, input(Role, Input)) :- !.
 how(_, introduced(definition, _, [avatar_definition]), formula(Symbol <=> Component), split_def(Symbol, C)) :-

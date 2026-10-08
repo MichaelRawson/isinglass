@@ -130,20 +130,27 @@ and are parenthesised by operand//1 and head//1 where they are applied.
 refutation(use(P, Ts, Args)) -->
   { arguments(Args, 0, Direct, Continuations) },
   continuations(Continuations),
-  premise(P), variables(Ts), direct(Direct),
+  instance(P, Ts, Direct),
   closing(Continuations).
 refutation(let(H, L, arg(_, A), E)) -->
   { value(L, A, Indirect, Cs), name_value(H, Indirect) },
   "let ", hypothesis(H), " ≔ ", codes(Cs), " in ", refutation(E).
-% H refutes K, Pos proves K
-refutation(contra(H, ~B, arg(_, A))) -->
+% H refutes K and A refutes its complement: whichever has a type ¬X is the head
+% K is ~B: A is ¬B; H is B, or ¬¬B if indirect
+refutation(contra(H, ~_, arg(B, A))) --> !,
   { value(B, A, _, Cs) },
   ( { indirect(H) } -> hypothesis(H), " ", operand(Cs) ; head(Cs), " ", hypothesis(H) ).
-refutation(contra(H, _, intro(Xs, Gs, E))) -->
-  hypothesis(H), " (λ", variables(Xs), binders(Gs), ", ", refutation(E), ")".
+% K is positive: H is ¬K; A is K, or ¬¬K if indirect
+refutation(contra(H, _, arg(L, A))) -->
+  { value(L, A, Indirect, Cs) },
+  ( { Indirect == true } -> head(Cs), " ", hypothesis(H) ; hypothesis(H), " ", operand(Cs) ).
 
-premise(h(I)) --> !, hypothesis(h(I)).
-premise(Name) --> atom(Name).
+% premise P applied to terms Ts and arguments Direct
+% the premise def(H, _) is H : π split, or π (¬ ¬ split) if H is indirect
+instance(def(H, _), Ts, Direct) --> { indirect(H) }, !,
+  hypothesis(H), " (λ d, d", variables(Ts), direct(Direct), ")".
+instance(def(H, _), Ts, Direct) --> !, hypothesis(H), variables(Ts), direct(Direct).
+instance(Name, Ts, Direct) --> atom(Name), variables(Ts), direct(Direct).
 
 % arguments(Args, N, Direct, Continuations): indirect arguments are replaced by variables cN
 arguments([], _, [], []).
@@ -179,15 +186,15 @@ name_value(H, true) :- assertz(indirect(H)).
 name_value(_, false).
 
 argument(L, hyp(H), Indirect) --> { L = ~_, indirect(H) -> Indirect = true ; Indirect = false }, hypothesis(H).
-argument(_, sym(L0, A), Indirect) -->
-  { phrase(argument(L0, A, Indirect), Cs) },
+argument(_, sym(L0, H), Indirect) -->
+  { phrase(argument(L0, hyp(H), Indirect), Cs) },
   ( { L0 \= ~_ } -> "neq_sym " ; { Indirect == true } -> "nneq_sym " ; "eq_sym " ),
   operand(Cs).
+argument(_, intro(Xs, Gs, E), false) -->
+  "λ", variables(Xs), binders(Gs), ", ", refutation(E).
 argument(L, assume(H, E), Indirect) -->
   { L = ~_ -> Indirect = true ; Indirect = false },
   "λ ", hypothesis(H), ", ", refutation(E).
-argument(_, unfold(D, _, E), false) -->
-  "λ ", hypothesis(D), ", ", refutation(E).
 
 binders([]) --> [].
 binders([H|Hs]) --> " ", hypothesis(H), binders(Hs).

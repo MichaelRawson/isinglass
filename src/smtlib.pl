@@ -46,7 +46,7 @@ sort('$o') --> "Bool".
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 check(refute(R), Name, clause(Xs, Ls)) -->
-  { assertions(R, [], Fs, []) },
+  { assertions(R, Fs, []) },
   scope(Name, clause(Xs, Ls), Fs).
 check(todo(_, Parents), Name, Conclusion) -->
   { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
@@ -75,37 +75,33 @@ constants([V|Vs]) --> "(declare-const ", term(V), " I)\n", constants(Vs).
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
-/*
-assertions(R, Ds, Fs0, Fs): the ground facts used in refutation R
-Ds maps local definitions to their split symbols
-*/
-assertions(use(P, Ts, Args), Ds, [F|Fs0], Fs) :-
-  (   memberchk(P-(Split-Clause), Ds)
-  ->  instance(Clause, Ts, Ls), disjunction(Ls, D), F = (Split => D)
-  ;   ir_step(P, Clause, _), instance(Clause, Ts, Ls), disjunction(Ls, F)
+% assertions(R, Fs0, Fs): the ground facts used in refutation R
+assertions(use(P, Ts, Args), [F|Fs0], Fs) :-
+  (   P = def(_, Split)
+  ->  split_def(Split, clause(Ts, Ls)), disjunction(Ls, D), F = (Split => D)
+  ;   step(P, clause(Ts, Ls), _), disjunction(Ls, F)
   ),
-  argument_assertions(Args, Ds, Fs0, Fs).
-assertions(let(_, _, Arg, E), Ds, Fs0, Fs) :-
-  argument_assertions([Arg], Ds, Fs0, Fs1),
-  assertions(E, Ds, Fs1, Fs).
-assertions(contra(_, _, arg(L, A)), Ds, Fs0, Fs) :-
-  argument_assertions([arg(L, A)], Ds, Fs0, Fs).
+  argument_assertions(Args, Fs0, Fs).
+assertions(let(_, _, Arg, E), Fs0, Fs) :-
+  argument_assertions([Arg], Fs0, Fs1),
+  assertions(E, Fs1, Fs).
+assertions(contra(_, _, Arg), Fs0, Fs) :-
+  argument_assertions([Arg], Fs0, Fs).
+
+argument_assertions([], Fs, Fs).
+argument_assertions([arg(L, A)|Args], Fs0, Fs) :-
+  argument_assertion(A, L, Fs0, Fs1),
+  argument_assertions(Args, Fs1, Fs).
+
+% argument_assertion(A, L, Fs0, Fs): the ground facts used in A, refuting L
+argument_assertion(hyp(_), _, Fs, Fs).
+argument_assertion(sym(_, _), _, Fs, Fs).
+argument_assertion(assume(_, E), _, Fs0, Fs) :- assertions(E, Fs0, Fs).
 % for eigenvariables Xs, the definition of Split holds if it holds for Xs (sound by skolemisation)
-assertions(contra(_, Split, intro(Xs, _, E)), Ds, [(D => Split)|Fs0], Fs) :-
-  split_def(Split, Clause),
-  instance(Clause, Xs, Ls),
+argument_assertion(intro(Xs, _, E), ~Split, [(D => Split)|Fs0], Fs) :-
+  split_def(Split, clause(Xs, Ls)),
   disjunction(Ls, D),
-  assertions(E, Ds, Fs0, Fs).
-
-argument_assertions([], _, Fs, Fs).
-argument_assertions([arg(L, A)|Args], Ds, Fs0, Fs) :-
-  argument_assertion(A, L, Ds, Fs0, Fs1),
-  argument_assertions(Args, Ds, Fs1, Fs).
-
-argument_assertion(hyp(_), _, _, Fs, Fs).
-argument_assertion(sym(L, A), _, Ds, Fs0, Fs) :- argument_assertion(A, L, Ds, Fs0, Fs).
-argument_assertion(assume(_, E), _, Ds, Fs0, Fs) :- assertions(E, Ds, Fs0, Fs).
-argument_assertion(unfold(D, Clause, E), Split, Ds, Fs0, Fs) :- assertions(E, [D-(Split-Clause)|Ds], Fs0, Fs).
+  assertions(E, Fs0, Fs).
 
 % '$VAR' terms occurring free, i.e. not bound by a quantifier
 free_variables(Fs, Vs) :-
