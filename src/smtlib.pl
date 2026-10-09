@@ -94,6 +94,7 @@ skolem_constants(lam('$VAR'(N), S, M)) --> !, ['$VAR'(N):S], skolem_constants(M)
 skolem_constants(lam(_, _, M)) --> !, skolem_constants(M).
 skolem_constants(let(_, _, M, N)) --> !, skolem_constants(M), skolem_constants(N).
 skolem_constants(app(_, _, Ms)) --> !, foldl(skolem_constants, Ms).
+skolem_constants(rewrite(_, _, E, M)) --> !, skolem_constants(E), skolem_constants(M).
 skolem_constants(_) --> [].
 
 conclusion_constants(clause(Bs, _), Bs).
@@ -106,6 +107,7 @@ asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 facts(Env, lam(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
 facts(Env, let(X, F, M, N)) --> !, facts(Env, M), { put_assoc(X, Env, F, Env1) }, facts(Env1, N).
 facts(Env, app(F, Ts, Ms)) --> !, fact(Env, F, Ts, Ms), foldl(facts(Env), Ms).
+facts(Env, rewrite(_, _, E, M)) --> !, facts(Env, E), facts(Env, M).
 facts(_, _) --> [].
 
 % a premise instance

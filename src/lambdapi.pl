@@ -22,6 +22,8 @@ emit :-
 prelude -->
   "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq;\n\n",
   "opaque symbol sym (x y : τ ι) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
+  "opaque symbol refl (x : τ ι) : π (x = x) ≔ eq_refl x;\n",
+  "opaque symbol rw [x y : τ ι] (p : τ ι → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
   "opaque symbol infer_el [a] : τ a ≔ el a;\n\n".
 
 /********************************************************************************
@@ -111,6 +113,9 @@ input(Input) --> "{|", atom(Input), "²|}".
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
 proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
+% rw, as rewrite is a lambdapi keyword
+proof(rewrite(X, A, E, M)) --> !,
+  "rw (λ (", term(X), " : ", sort('$i'), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
 
@@ -129,6 +134,7 @@ annotation(_, F) --> "π ", formula(F).
 
 % a head is a built-in, a hypothesis or a step
 head('$sym') --> !, "sym".
+head('$refl') --> !, "refl".
 head(h(N)) --> !, hypothesis(h(N)).
 head(Name) --> { atom(Name) }, atom(Name).
 
@@ -139,7 +145,7 @@ operands([]) --> [].
 operands([M|Ms]) --> " ", operand(M), operands(Ms).
 
 operand(app(F, [], [])) --> !, head(F).
-operand(M) --> { M = app(_, _, _) ; M = lam(_, _, _) ; M = let(_, _, _, _) }, !, "(", proof(M), ")".
+operand(M) --> { M = app(_, _, _) ; M = lam(_, _, _) ; M = let(_, _, _, _) ; M = rewrite(_, _, _, _) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
 hypothesis(h(I)) --> "h", number(I).

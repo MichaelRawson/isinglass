@@ -22,6 +22,12 @@ close_term(app(_, Ts, Ms), N0, N) :- !,
   term_variables(Ts, Vs),
   maplist(=('$inhabited'), Vs),
   foldl(close_term, Ms, N0, N).
+% the motive's variables are normally bound already, through the premise instances
+close_term(rewrite(_, A, E, M), N0, N) :- !,
+  term_variables(A, Vs),
+  maplist(=('$inhabited'), Vs),
+  close_term(E, N0, N1),
+  close_term(M, N1, N).
 close_term(_, N, N).
 
 % binders of eigenvariables are already named '$VAR'(N)

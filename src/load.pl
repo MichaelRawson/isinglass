@@ -58,7 +58,8 @@ source([Source|_], Source).
 normalise(V, F) :- var(V), !, F = V.
 normalise('$'(false), F) :- !, F = '$false'.
 normalise('$'(true), F) :- !, F = '$true'.
-normalise('!'(S) = T, F) :- !, F = ~(S = T).
+% S != T is read as '!'(S) = T, but a variable S must not be unified with '!'(_)
+normalise(S0 = T, F) :- nonvar(S0), S0 = '!'(S), !, F = ~(S = T).
 normalise(S = T, F) :- !, F = (S = T).
 normalise(~G, F) :- !, F = ~H, normalise(G, H).
 normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).

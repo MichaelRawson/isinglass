@@ -71,10 +71,12 @@ lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
  * literal matching
  ********************************************************************************/
 
-% a hypothesis refutes premise literal L, as M : ~L
+% a hypothesis refutes premise literal L, as M : ~L, or L is a trivial inequality S != S
 matches(Hs, L, M) :-
   member(X-T, Hs),
   refutes(T, X, L, M).
+matches(_, ~(S = T), lam(K, ~(S = S), app(K, [], [app('$refl', [S], [])]))) :-
+  unify_with_occurs_check(S, T).
 
 % refutes(T, X, L, M): X : T refutes L as M, modulo symmetry of equality
 refutes(~K, X, L, X) :- unify_with_occurs_check(K, L).
@@ -113,6 +115,72 @@ resolve_literal(Hs, Minor, K, lam(X, K, app(Minor, Ts, Ms))) :-
   K \= ~_,
   premise(Minor, Ts, Ls),
   maplist(matches([X-K|Hs]), Ls, Ms).
+
+% paramodulation: literals of the Into premise are either in the conclusion, or rewritten by an
+% equation of (an instance of) the From premise, the rest of which is in the conclusion
+paramodulate(Fresh, Hs, Premises, app(Into, Ts, Ms)) :-
+  select(Into, Premises, [From]),
+  premise(Into, Ts, Ks),
+  maplist(paramodulate_literal(Fresh, Hs, From), Ks, Ms).
+
+paramodulate_literal(_, Hs, _, K, M) :- matches(Hs, K, M).
+paramodulate_literal(Fresh, Hs, From, K, lam(Y, K, app(From, Ts, Ms))) :-
+  premise(From, Ts, Ls),
+  append(Before, [A = B|After], Ls),
+  rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body),
+  maplist(matches(Hs), Before, Ms0),
+  maplist(matches(Hs), After, Ms1),
+  append(Ms0, [lam(E, A = B, Body)|Ms1], Ms).
+
+% equality factoring: as paramodulation, but the equation is a hypothesis for a literal A != B
+equality_factor(Fresh, Hs, [Premise], app(Premise, Ts, Ms)) :-
+  premise(Premise, Ts, Ks),
+  maplist(factor_literal(Fresh, Hs), Ks, Ms).
+
+factor_literal(_, Hs, K, M) :- matches(Hs, K, M).
+factor_literal(Fresh, Hs, K, lam(Y, K, app(H, [], [lam(E, A = B, Body)]))) :-
+  member(H-(~(~(A = B))), Hs),
+  rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body).
+
+% Body : ⊥ from Y : K and E : A = B: K rewritten one way or the other is refuted by a hypothesis
+rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body) :-
+  orientation(A = B, E, L, R, Equation),
+  member(X-(~K1), Hs),
+  ( Target = K1 ; flip(K1, Target) ),
+  rewritten(K, Target, L, R, '$VAR'(Fresh), Motive),
+  refutes(~K1, X, Target, M),
+  applied(M, rewrite('$VAR'(Fresh), Motive, Equation, Y), Body).
+
+orientation(A = B, E, A, B, E).
+orientation(A = B, E, B, A, app('$sym', [A, B], [E])).
+
+% M : ~T applied to W : T; a λ is β-reduced to a let, so that heads stay variables or constants
+applied(M, W, app(M, [], [W])) :- var(M), !.
+applied(lam(V, T, B), W, let(V, T, W, B)).
+
+% literal K becomes K1 by rewriting L to R at some occurrences, which are Z in Motive
+rewritten(~A, ~A1, L, R, Z, ~Motive) :- !, rewritten_atom(A, A1, L, R, Z, Motive).
+rewritten(A, A1, L, R, Z, Motive) :- A1 \= ~_, rewritten_atom(A, A1, L, R, Z, Motive).
+
+rewritten_atom(A, A1, L, R, Z, Motive) :-
+  nonvar(A),
+  A1 =.. [P|Us1],
+  A =.. [P|Us],
+  maplist(rewritten_term(L, R, Z), Us, Us1, Vs),
+  Motive =.. [P|Vs].
+
+rewritten_term(_, _, _, U, U1, U) :- U == U1, !.
+rewritten_term(L, R, Z, U, U1, Z) :-
+  unify_with_occurs_check(U, L),
+  unify_with_occurs_check(U1, R).
+rewritten_term(_, _, _, U, U1, U1) :- var(U), unify_with_occurs_check(U, U1).
+rewritten_term(L, R, Z, U, U1, V) :-
+  nonvar(U),
+  compound(U1),
+  U1 =.. [F|Us1],
+  U =.. [F|Us],
+  maplist(rewritten_term(L, R, Z), Us, Us1, Vs),
+  V =.. [F|Vs].
 
 % reverse unit propagation (see rup.pl) over ground premises: premises with variables are ignored,
 % which is enough for Vampire's rat, over AVATAR's propositional clauses

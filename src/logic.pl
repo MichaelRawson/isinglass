@@ -7,9 +7,11 @@
   complement/2,
   flip/2,
   number_vars/3,
+  substitute/4,
   formula_symbol/3
 ]).
 :- use_module(library(lists)).
+:- use_module(library(apply)).
 :- use_module(ops).
 
 % a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
@@ -59,6 +61,14 @@ flip(~(S = T), ~(T = S)).
 % bind variables Vs to '$VAR'(N0), '$VAR'(N0 + 1), ...
 number_vars([], N, N).
 number_vars(['$VAR'(N0)|Vs], N0, N) :- N1 is N0 + 1, number_vars(Vs, N1, N).
+
+% B is A with every occurrence of the term X replaced by S
+substitute(X, S, A, B) :- A == X, !, B = S.
+substitute(_, _, A, B) :- \+ compound(A), !, B = A.
+substitute(X, S, A, B) :-
+  A =.. [F|As],
+  maplist(substitute(X, S), As, Bs),
+  B =.. [F|Bs].
 
 % a symbol Name/Arity of a formula, one at a time, in Position function or predicate
 formula_symbol(F, P, S) :- connective(F, Gs), !, member(G, Gs), formula_symbol(G, P, S).

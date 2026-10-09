@@ -24,8 +24,13 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
       | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort
       | let(X, F, M, M')  X : F is M, in M' (a lemma)
+      | rewrite(X, A, E, M)
+                          E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
+                          '$VAR'(N) of sort '$i' bound only in the motive A, and E's type is
+                          inferred (a hypothesis or an application)
   F ::= X | Name          a hypothesis, or a step
       | '$sym'            built-in: '!'([X:'$i', Y:'$i'], X = Y => Y = X)
+      | '$refl'           built-in: '!'([X:'$i'], X = X)
 
 Heads are always variables or constants, so terms are β-normal but for let.
 First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited', an

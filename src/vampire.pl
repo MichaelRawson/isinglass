@@ -41,6 +41,13 @@ tactic(avatar_sat_refutation, variant).
 tactic(avatar_split_clause, avatar_split).
 tactic(avatar_component_clause, avatar_component).
 tactic(rat, rup).
+tactic(reorient_equations, variant).
+tactic(trivial_inequality_removal, variant).
+tactic(equality_resolution, variant).
+tactic(superposition, paramodulate).
+tactic(forward_demodulation, paramodulate).
+tactic(backward_demodulation, paramodulate).
+tactic(equality_factoring, equality_factor).
 
 record_introduced(Source) :-
   forall(introduced_symbol(Source, Kind, Symbol), assertz(introduced(Symbol, Kind))).

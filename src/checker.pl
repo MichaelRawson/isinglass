@@ -61,6 +61,15 @@ check(Steps, Gamma, let(X, F, M, M1), T) :- !,
   check(Steps, Gamma, M, F),
   put_assoc(X, Gamma, F, Gamma1),
   check(Steps, Gamma1, M1, T).
+% E : S = U and M : A[X:=S] give A[X:=U], where X is bound in the motive A only
+check(Steps, Gamma, rewrite(X, A, E, M), T) :- !,
+  eigenvariable(X),
+  \+ get_assoc(X, Gamma, _),
+  type(Steps, Gamma, E, (S = U)),
+  substitute(X, S, A, AS),
+  check(Steps, Gamma, M, AS),
+  substitute(X, U, A, AU),
+  AU == T.
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
   T1 == T.
@@ -85,6 +94,7 @@ head(Steps, _, Name, T) :-
   clause_type(Clause, T).
 
 builtin('$sym', '!'([X:'$i', Y:'$i'], ((X = Y) => (Y = X)))).
+builtin('$refl', '!'([X:'$i'], (X = X))).
 
 % first-order terms are in scope: every variable is an eigenvariable of Gamma
 terms(_, []).
