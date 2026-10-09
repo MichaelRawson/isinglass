@@ -1,7 +1,7 @@
 /*
 SMT-LIB back end, in the manner of "Ground Truth": each step is checked separately,
 by asserting the ground facts used in its proof term and the negation of its
-conclusion (with variables as fresh constants), expecting `unsat`.
+conclusion (with its variables as Skolem constants), expecting `unsat`.
 The facts are premise instances, and instances of AVATAR definitions, found using the binder
 types of the proof term.
 
@@ -52,22 +52,25 @@ check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 check(proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
-    phrase(facts(Env, M), Fs) },
-  scope(Name, clause(Bs, Ls), Fs).
+    phrase(facts(Env, M), Fs),
+    phrase(skolem_constants(M), Cs0),
+    sort(Cs0, Cs) },
+  scope(Name, clause(Bs, Ls), Cs, Fs).
 check(todo(_, Parents), Name, Conclusion) -->
-  { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
+  { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs),
+    conclusion_constants(Conclusion, Cs) },
   "; TODO\n",
-  scope(Name, Conclusion, Fs).
+  scope(Name, Conclusion, Cs, Fs).
 
 quantified(clause(Bs, Ls), F) :- clause_formula(clause(Bs, Ls), F).
 quantified(formula(F), F).
 
-scope(Name, Conclusion, Fs) -->
+% the facts Fs and the negated conclusion, with Skolem constants Cs
+scope(Name, Conclusion, Cs, Fs) -->
   { negated(Conclusion, Ns),
-    append(Fs, Ns, All),
-    free_variables(All, Vs) },
+    append(Fs, Ns, All) },
   "(push 1)\n",
-  constants(Vs),
+  constants(Cs),
   asserts(All),
   "(echo \"", atom(Name), "\")\n(check-sat)\n(pop 1)\n".
 
@@ -78,7 +81,21 @@ negated(formula(F), [~F]).
 negation(L, ~L).
 
 constants([]) --> [].
-constants([V|Vs]) --> "(declare-const ", term(V), " I)\n", constants(Vs).
+constants([X:S|Cs]) --> "(declare-const ", term(X), " ", sort(S), ")\n", constants(Cs).
+
+/*
+Variables are Skolem constants in a check, shared by its assertions: the conclusion's variables,
+from negating it, and the eigenvariables of split definitions proved in the term (see fact//4).
+Both are bound by the λs of the proof term, with their sorts; a todo step has the conclusion's.
+*/
+skolem_constants(lam('$VAR'(N), S, M)) --> !, ['$VAR'(N):S], skolem_constants(M).
+skolem_constants(lam(_, _, M)) --> !, skolem_constants(M).
+skolem_constants(let(_, _, M, N)) --> !, skolem_constants(M), skolem_constants(N).
+skolem_constants(app(_, _, Ms)) --> !, foldl(skolem_constants, Ms).
+skolem_constants(_) --> [].
+
+conclusion_constants(clause(Bs, _), Bs).
+conclusion_constants(formula(_), []).
 
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
@@ -108,26 +125,6 @@ fact(_, _, _, _) --> [].
 
 eigenvariables(lam('$VAR'(N), _, M), ['$VAR'(N)|Xs]) :- !, eigenvariables(M, Xs).
 eigenvariables(_, []).
-
-% '$VAR' terms occurring free, i.e. not bound by a quantifier
-free_variables(Fs, Vs) :-
-  foldl(free_variables([]), Fs, [], Vs0),
-  sort(Vs0, Vs).
-
-free_variables(Bound, '$VAR'(N), Vs0, Vs) :- !,
-  ( memberchk('$VAR'(N), Bound) -> Vs = Vs0 ; Vs = ['$VAR'(N)|Vs0] ).
-free_variables(Bound, '!'(Bs, F), Vs0, Vs) :- !, quantified_variables(Bound, Bs, F, Vs0, Vs).
-free_variables(Bound, '?'(Bs, F), Vs0, Vs) :- !, quantified_variables(Bound, Bs, F, Vs0, Vs).
-free_variables(Bound, T, Vs0, Vs) :-
-  compound(T), !,
-  T =.. [_|Ts],
-  foldl(free_variables(Bound), Ts, Vs0, Vs).
-free_variables(_, _, Vs, Vs).
-
-quantified_variables(Bound, Bs, F, Vs0, Vs) :-
-  binder_variables(Bs, Xs),
-  append(Xs, Bound, Bound1),
-  free_variables(Bound1, F, Vs0, Vs).
 
 /********************************************************************************
  * formulas and terms

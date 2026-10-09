@@ -127,9 +127,10 @@ value(M) --> proof(M).
 annotation('$VAR'(_), S) --> !, sort(S).
 annotation(_, F) --> "π ", formula(F).
 
+% a head is a built-in, a hypothesis or a step
 head('$sym') --> !, "sym".
-head(Name) --> { atom(Name) }, !, atom(Name).
-head(X) --> variable(X).
+head(h(N)) --> !, hypothesis(h(N)).
+head(Name) --> { atom(Name) }, atom(Name).
 
 variable(h(N)) --> !, hypothesis(h(N)).
 variable(X) --> term(X).
