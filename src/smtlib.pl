@@ -6,7 +6,9 @@ The facts are premise instances, and instances of AVATAR definitions, found usin
 types of the proof term.
 
 Unreconstructed steps (todo) are checked with their premises universally quantified.
-Each check is preceded by (echo "name"), so the solver prints the name and then the result.
+Each check is preceded by (echo "name"), so the solver prints the name and then the result,
+and by (set-info :status unsat), so that a solver fails loudly on any other result: z3 reports an
+error and exits 1 at the end, and cvc5 aborts at once.
 */
 :- module(smtlib, [emit/0]).
 :- use_module(library(lists)).
@@ -72,7 +74,7 @@ scope(Name, Conclusion, Cs, Fs) -->
   "(push 1)\n",
   constants(Cs),
   asserts(All),
-  "(echo \"", atom(Name), "\")\n(check-sat)\n(pop 1)\n".
+  "(echo \"", atom(Name), "\")\n(set-info :status unsat)\n(check-sat)\n(pop 1)\n".
 
 % the negated conclusion, with free variables
 negated(clause(_, Ls), Ns) :- maplist(negation, Ls, Ns).

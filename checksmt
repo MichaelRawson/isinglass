@@ -1,0 +1,3 @@
+#!/bin/sh
+
+timeout 10 cvc5 --incremental "$1" > /dev/null || basename "$1"
