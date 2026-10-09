@@ -4,11 +4,13 @@ Read TPTP/TSTP from standard input with read/1, producing
   annotated(Language, Name, Role, Formula, Source)
 
 with formulas normalised into the internal syntax (ops.pl):
-  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'(Xs, F), '?'(Xs, F), S = T
-where S != T becomes ~(S = T), F <= G becomes G => F, F <~> G becomes ~(F <=> G),
+  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'(Bs, F), '?'(Bs, F), S = T
+where the binders Bs of a quantifier are X : Sort, with sort '$i' if TPTP gives none, and
+S != T becomes ~(S = T), F <= G becomes G => F, F <~> G becomes ~(F <=> G),
 F ~| G becomes ~(F | G), F ~& G becomes ~(F & G).
 */
 :- module(load, [read_tstp/1]).
+:- use_module(library(apply)).
 :- use_module(ops).
 
 % operators needed to read TPTP (as in tptp.pl)
@@ -59,8 +61,8 @@ normalise('$'(true), F) :- !, F = '$true'.
 normalise('!'(S) = T, F) :- !, F = ~(S = T).
 normalise(S = T, F) :- !, F = (S = T).
 normalise(~G, F) :- !, F = ~H, normalise(G, H).
-normalise('!'(Xs) : G, F) :- !, F = '!'(Xs, H), normalise(G, H).
-normalise('?'(Xs) : G, F) :- !, F = '?'(Xs, H), normalise(G, H).
+normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).
+normalise('?'(Xs) : G, F) :- !, F = '?'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).
 normalise((G | H), F) :- !, F = (G1 | H1), normalise(G, G1), normalise(H, H1).
 normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
@@ -70,3 +72,10 @@ normalise('<~>'(G, H), F) :- !, F = ~(G1 <=> H1), normalise(G, G1), normalise(H,
 normalise('~|'(G, H), F) :- !, F = ~(G1 | H1), normalise(G, G1), normalise(H, H1).
 normalise('~&'(G, H), F) :- !, F = ~(G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise(A, A).
+
+% a quantified variable X or X : Sort, as X : Sort
+binder(B, X:S) :- nonvar(B), B = (X : T), !, sort_name(T, S).
+binder(X, X:'$i').
+
+sort_name('$'(A), S) :- !, atom_concat('$', A, S).
+sort_name(S, S).

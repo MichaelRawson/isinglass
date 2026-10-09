@@ -40,14 +40,14 @@ justified(_, _, _).
 
 % M : T, where M and T are ground, but for the binders of an unfolded split definition, which the
 % λs name; heads are closed instances, so their types are ground once instantiated
-% Gamma is an assoc mapping hypotheses to their types, and eigenvariables to '$i'
+% Gamma is an assoc mapping hypotheses to their types, and eigenvariables to their sorts
 check(Steps, Gamma, lam(X, A, M), T0) :- !,
   unfold(T0, T),
-  (   T = '!'([Y|Ys], B)
+  (   T = '!'([Y:S|Ys], B)
   ->  eigenvariable(X),
       \+ occurs(X, Gamma),
       X = Y,
-      A = '$i',
+      A = S,
       ( Ys == [] -> T1 = B ; T1 = '!'(Ys, B) ),
       put_assoc(X, Gamma, A, Gamma1),
       check(Steps, Gamma1, M, T1)
@@ -84,19 +84,19 @@ head(Steps, _, Name, T) :-
   Clause = clause(_, _),
   clause_type(Clause, T).
 
-builtin('$sym', '!'([X, Y], ((X = Y) => (Y = X)))).
+builtin('$sym', '!'([X:'$i', Y:'$i'], ((X = Y) => (Y = X)))).
 
 % first-order terms are in scope: every variable is an eigenvariable of Gamma
 terms(_, []).
 terms(Gamma, [T|Ts]) :- term(Gamma, T), terms(Gamma, Ts).
 
-term(Gamma, '$VAR'(N)) :- !, get_assoc('$VAR'(N), Gamma, '$i').
+term(Gamma, '$VAR'(N)) :- !, get_assoc('$VAR'(N), Gamma, _).
 term(Gamma, T) :- T =.. [_|Ts], terms(Gamma, Ts).
 
 % instantiation is unification, so T0 must be a fresh instance: a hypothesis of quantified type
 % (not yet possible) would need substitution instead
 instantiate([], T, T) :- !.
-instantiate(Ts, T0, T) :- unfold(T0, '!'(Ts, T)).
+instantiate(Ts, T0, T) :- unfold(T0, '!'(Bs, T)), binder_variables(Bs, Ts).
 
 arguments([], _, _, T, T).
 arguments([M|Ms], Steps, Gamma, T0, T) :-
@@ -110,7 +110,7 @@ unfold(~A, (A => '$false')) :- !.
 unfold(S, T) :- atom(S), split(S, Clause), !, closed(Clause), clause_type(Clause, T).
 unfold(T, T).
 
-closed(clause(Xs, Ls)) :- \+ \+ ( number_vars(Xs, 0, _), ground(Ls) ).
+closed(clause(Bs, Ls)) :- \+ \+ ( binder_variables(Bs, Xs), number_vars(Xs, 0, _), ground(Ls) ).
 
 hypothesis(h(N)) :- integer(N).
 eigenvariable('$VAR'(N)) :- integer(N).

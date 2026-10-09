@@ -24,14 +24,14 @@
 
 ## Internal formula syntax (`src/ops.pl`, `src/load.pl`)
 - Connectives: `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, plus `'$true'` and `'$false'`.
-- Quantifiers: `'!'(Xs, F)` and `'?'(Xs, F)`.
+- Quantifiers: `'!'(Bs, F)` and `'?'(Bs, F)`, whose binders `Bs` are `X : Sort`, as in TPTP (`ops.pl` declares `:` with SWI's priority). The sort is `'$i'` when TPTP gives none.
 - Atoms are Prolog terms, and `S = T` is equality.
 - Normalisation on reading:
   - `S != T` becomes `~(S = T)`;
   - `F <= G` becomes `G => F`;
   - `F <~> G` becomes `~(F <=> G)`;
   - `~|` and `~&` become a negated `|` or `&`.
-- Clauses are `clause(Xs, Literals)`: a plain list of literals `A` or `~A`.
+- Clauses are `clause(Bs, Literals)`: binders `X : Sort` as in quantifiers, and a plain list of literals `A` or `~A` over the variables `X`. Where a clause's binders serve as the instance terms of a premise, `binder_variables/2` takes the variables, so the first-order arguments of proof terms stay untyped.
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so each database lookup is a fresh instance and instantiation is unification. When a step is reconstructed, its conclusion is made rigid by numbering its variables `'$VAR'(N)` in binder order; the IR is ground.
 - Vampire's AVATAR clause shape `(! [X] : C) | ~spl` is also recognised as a clause.
 
@@ -39,7 +39,7 @@
 ```
 ir_step(Name, Conclusion, Justification)     % in dependency order, reachable from the final $false
 split(Symbol, Clause)                        % index of AVATAR definitions
-Conclusion    ::= clause(Xs, Lits) | formula(F)
+Conclusion    ::= clause(Bs, Lits) | formula(F)
 Justification ::= input(Role, Source) | split_def(Symbol, Clause) | proof(M) | todo(Record, Parents)
 M ::= h(N)                 % a hypothesis
     | app(F, Ts, Ms)       % F applied to first-order terms Ts, then to proofs Ms
@@ -48,7 +48,7 @@ M ::= h(N)                 % a hypothesis
 F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 ```
 **Proofs are λ-terms**, Curry–Howard style, in minimal logic with an abstract `⊥`.
-- A clause `clause(Xs, [L₀…Lₙ₋₁])` has the type `Π xs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`. `M` is a closed term of that type.
+- A clause `clause(Bs, [L₀…Lₙ₋₁])` has the type `Π xs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`. `M` is a closed term of that type.
 - The hypothesis for a negative literal `~A` is honestly `¬¬A`, so `¬¬`-elimination is never needed, and the IR is sound under any reading of `⊥`:
   - classical falsity, for lambdapi, Lean and SMT;
   - the conjecture `G` of the A-translation, for Agda.
@@ -161,5 +161,6 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
   - FOF preprocessing (negated_conjecture, ennf/nnf/cnf_transformation, skolemisation, definitions).
   - Port Agda with the A-translation.
   - Another prover front end.
+- **Typed input (`tff`):** read type declarations into the signature; sort-check first-order terms in the checker (needs argument sorts); a `'$inhabited'` per sort; SMT-LIB `declare-sort` and sorted constants; lambdapi `τ` for user sorts. Sorts already flow through quantifier and clause binders.
 - **Scryer:** revisit once Vampire parenthesises its SAT lines.
 - **Possibly:** a standalone lambdapi reproducer for the scaling issue.

@@ -2,7 +2,7 @@
 :- module(db, [step/3, symbol/3, introduced/2, ir_step/3, split/2]).
 
 % step(Name, Conclusion, How): a proof step, as understood by a front end
-% Conclusion is clause(Xs, Literals) or formula(F), with Prolog variables:
+% Conclusion is clause(Binders, Literals) or formula(F), with Prolog variables:
 % each retrieval is a fresh instance
 % How is input(Role, Source), split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents)
 :- dynamic(step/3).

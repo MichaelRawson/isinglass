@@ -1,6 +1,7 @@
 % utilities for formulas and clauses in the internal syntax (see ops.pl)
 :- module(logic, [
   formula_clause/2,
+  binder_variables/2,
   clause_formula/2,
   disjunction/2,
   complement/2,
@@ -11,10 +12,10 @@
 :- use_module(library(lists)).
 :- use_module(ops).
 
-% a formula is a clause: clause(Xs, Literals)
-formula_clause('!'(Xs, F), C) :- !, C = clause(Xs, Ls), literals(F, Ls).
+% a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
+formula_clause('!'(Bs, F), C) :- !, C = clause(Bs, Ls), literals(F, Ls).
 % AVATAR clauses are printed as (! [X] : C) | ~split
-formula_clause(('!'(Xs, F) | G), C) :- !, C = clause(Xs, Ls), literals((F | G), Ls).
+formula_clause(('!'(Bs, F) | G), C) :- !, C = clause(Bs, Ls), literals((F | G), Ls).
 formula_clause(F, clause([], Ls)) :- literals(F, Ls).
 
 literals('$false', []) :- !.
@@ -24,7 +25,12 @@ literals(A, [A]) :- atomic_formula(A).
 
 % and back again
 clause_formula(clause([], Ls), F) :- !, disjunction(Ls, F).
-clause_formula(clause(Xs, Ls), '!'(Xs, F)) :- disjunction(Ls, F).
+clause_formula(clause(Bs, Ls), '!'(Bs, F)) :- disjunction(Ls, F).
+
+% the variables of quantifier binders X : Sort
+binder_variables(Bs, Xs) :- maplist(binder_variable, Bs, Xs).
+
+binder_variable(X:_, X).
 
 disjunction([], '$false').
 disjunction([L], L) :- !.

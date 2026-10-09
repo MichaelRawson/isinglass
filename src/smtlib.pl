@@ -49,16 +49,16 @@ sort('$o') --> "Bool".
 
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
-check(proof(M), Name, clause(Xs, Ls)) -->
+check(proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
     facts(M, Env, Fs, []) },
-  scope(Name, clause(Xs, Ls), Fs).
+  scope(Name, clause(Bs, Ls), Fs).
 check(todo(_, Parents), Name, Conclusion) -->
   { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
   "; TODO\n",
   scope(Name, Conclusion, Fs).
 
-quantified(clause(Xs, Ls), F) :- clause_formula(clause(Xs, Ls), F).
+quantified(clause(Bs, Ls), F) :- clause_formula(clause(Bs, Ls), F).
 quantified(formula(F), F).
 
 scope(Name, Conclusion, Fs) -->
@@ -95,18 +95,21 @@ foldl_facts([], _, Fs, Fs).
 foldl_facts([A|As], Env, Fs0, Fs) :- facts(A, Env, Fs0, Fs1), foldl_facts(As, Env, Fs1, Fs).
 
 % a premise instance
-fact(F, Ts, _, _, [D|Fs], Fs) :- atom(F), step(F, clause(Ts, Ls), _), !, disjunction(Ls, D).
+fact(F, Ts, _, _, [D|Fs], Fs) :-
+  atom(F), step(F, clause(Bs, Ls), _), binder_variables(Bs, Ts), !,
+  disjunction(Ls, D).
 % the definition of Split is used, from F : Split
 fact(F, Ts, _, Env, [(Split => D)|Fs], Fs) :-
-  get_assoc(F, Env, Split), atom(Split), split(Split, clause(Ts, Ls)), !,
+  get_assoc(F, Env, Split), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts), !,
   disjunction(Ls, D).
 % the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds (by skolemisation)
 fact(F, [], [A], Env, [(D => Split)|Fs], Fs) :-
-  get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Xs, Ls)), eigenvariables(A, Xs), !,
+  get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
+  binder_variables(Bs, Xs), eigenvariables(A, Xs), !,
   disjunction(Ls, D).
 fact(_, _, _, _, Fs, Fs).
 
-eigenvariables(lam(X, '$i', A), [X|Xs]) :- !, eigenvariables(A, Xs).
+eigenvariables(lam('$VAR'(N), _, A), ['$VAR'(N)|Xs]) :- !, eigenvariables(A, Xs).
 eigenvariables(_, []).
 
 % '$VAR' terms occurring free, i.e. not bound by a quantifier
@@ -116,13 +119,18 @@ free_variables(Fs, Vs) :-
 
 free_variables('$VAR'(N), Bound, Vs0, Vs) :- !,
   ( memberchk('$VAR'(N), Bound) -> Vs = Vs0 ; Vs = ['$VAR'(N)|Vs0] ).
-free_variables('!'(Xs, F), Bound, Vs0, Vs) :- !, append(Xs, Bound, Bound1), free_variables(F, Bound1, Vs0, Vs).
-free_variables('?'(Xs, F), Bound, Vs0, Vs) :- !, append(Xs, Bound, Bound1), free_variables(F, Bound1, Vs0, Vs).
+free_variables('!'(Bs, F), Bound, Vs0, Vs) :- !, quantified_variables(Bs, F, Bound, Vs0, Vs).
+free_variables('?'(Bs, F), Bound, Vs0, Vs) :- !, quantified_variables(Bs, F, Bound, Vs0, Vs).
 free_variables(T, Bound, Vs0, Vs) :-
   compound(T), !,
   T =.. [_|Ts],
   free_variables_list(Ts, Bound, Vs0, Vs).
 free_variables(_, _, Vs, Vs).
+
+quantified_variables(Bs, F, Bound, Vs0, Vs) :-
+  binder_variables(Bs, Xs),
+  append(Xs, Bound, Bound1),
+  free_variables(F, Bound1, Vs0, Vs).
 
 free_variables_list([], _, Vs, Vs).
 free_variables_list([T|Ts], Bound, Vs0, Vs) :-
@@ -146,8 +154,10 @@ formula(S = T) --> !, "(= ", term(S), " ", term(T), ")".
 formula(A) --> term(A).
 
 binders([]) --> [].
-binders([X]) --> !, "(", term(X), " I)".
-binders([X|Xs]) --> "(", term(X), " I) ", binders(Xs).
+binders([B]) --> !, binder(B).
+binders([B|Bs]) --> binder(B), " ", binders(Bs).
+
+binder(X:S) --> "(", term(X), " ", sort(S), ")".
 
 term('$VAR'(N)) --> !, "x", number(N).
 term('$inhabited') --> !, "|$inhabited|".

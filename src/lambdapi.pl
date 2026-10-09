@@ -56,11 +56,11 @@ proof_step(Name) -->
   { ir_step(Name, Conclusion, Justification) },
   proof_step(Justification, Name, Conclusion).
 
-proof_step(input(_, Input), Name, clause(Xs, Ls)) -->
-  { clause_formula(clause(Xs, Ls), F) },
+proof_step(input(_, Input), Name, clause(Bs, Ls)) -->
+  { clause_formula(clause(Bs, Ls), F) },
   "constant symbol ", input(Input), " : π ", formula(F), ";\n",
-  header(Name), statement(clause(Xs, Ls)), " ≔ ",
-  { length(Ls, N), numlist_(0, N, Is) },
+  header(Name), statement(clause(Bs, Ls)), " ≔ ",
+  { binder_variables(Bs, Xs), length(Ls, N), numlist_(0, N, Is) },
   lambdas(Xs, Is),
   cases(Is, input_instance(Input, Xs)), ";\n".
 proof_step(split_def(Split, Clause), _, _) -->
@@ -74,14 +74,14 @@ proof_step(todo(Record, _), Name, Conclusion) -->
 
 header(Name) --> "opaque symbol ", atom(Name), " : ".
 
-conclusion(clause(Xs, Ls)) --> statement(clause(Xs, Ls)).
+conclusion(clause(Bs, Ls)) --> statement(clause(Bs, Ls)).
 conclusion(formula(F)) --> "π ", formula(F).
 
 % step statements use framework-level Π and →, rather than `∀ and ⇒ which must be rewritten
-statement(clause(Xs, Ls)) --> pis(Xs), arrows_to(Ls).
+statement(clause(Bs, Ls)) --> pis(Bs), arrows_to(Ls).
 
 pis([]) --> [].
-pis([X|Xs]) --> "Π (", term(X), " : τ ι), ", pis(Xs).
+pis([X:S|Bs]) --> "Π (", term(X), " : ", sort(S), "), ", pis(Bs).
 
 arrows_to([]) --> "π ⊥".
 arrows_to([L|Ls]) --> "π ", hypothesis_type(L), " → ", arrows_to(Ls).
@@ -195,10 +195,10 @@ formula_(S = T) --> !, term(11, S), " = ", term(11, T).
 formula_(A) --> term_(A).
 
 foralls([]) --> [].
-foralls([X|Xs]) --> "`∀ (", term(X), " : τ ι), ", foralls(Xs).
+foralls([X:S|Bs]) --> "`∀ (", term(X), " : ", sort(S), "), ", foralls(Bs).
 
 exists([]) --> [].
-exists([X|Xs]) --> "`∃ (", term(X), " : τ ι), ", exists(Xs).
+exists([X:S|Bs]) --> "`∃ (", term(X), " : ", sort(S), "), ", exists(Bs).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
 clause(C) --> { clause_type(C, F) }, formula(0, F).

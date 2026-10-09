@@ -34,7 +34,7 @@ prove(Name) :-
   assertz(ir_step(Name, Conclusion, Justification)).
 
 % number the variables of a conclusion, in binder order; Fresh is the next index
-rigid(clause(Xs, _), Fresh) :- number_vars(Xs, 0, Fresh).
+rigid(clause(Bs, _), Fresh) :- binder_variables(Bs, Xs), number_vars(Xs, 0, Fresh).
 rigid(formula(F), Fresh) :- term_variables(F, Vs), number_vars(Vs, 0, Fresh).
 
 justify(input(Role, Source), _, _, input(Role, Source)).
@@ -45,10 +45,10 @@ justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   search(Tactic, Parents, Conclusion, Fresh, Justification).
 
 % the tactic finds a term of type ⊥ from hypotheses for the literals, abstracted over the conclusion
-search(Tactic, Parents, clause(Xs, Ls), Fresh, proof(M)) :-
+search(Tactic, Parents, clause(Bs, Ls), Fresh, proof(M)) :-
   hypotheses(Ls, Hs),
   once(call(Tactic, Fresh, Hs, Parents, Body)), !,
-  binders(Xs, Hs, Binders),
+  binders(Bs, Hs, Binders),
   lambdas(Binders, Body, M),
   close_term(M).
 % ...or it fails, and the step is left to do
@@ -59,10 +59,10 @@ search(Tactic, Parents, Conclusion, _, todo(Tactic, Parents)) :-
 hypotheses([], []).
 hypotheses([L|Ls], [_-(~L)|Hs]) :- hypotheses(Ls, Hs).
 
-% binders X-T for the eigenvariables Xs, then the hypotheses Hs
-binders(Xs, Hs, Binders) :- maplist(individual, Xs, Is), append(Is, Hs, Binders).
+% binders X-T: eigenvariables X-Sort for the clause's binders Bs, then the hypotheses Hs
+binders(Bs, Hs, Binders) :- maplist(eigenvariable, Bs, Is), append(Is, Hs, Binders).
 
-individual(X, X-'$i').
+eigenvariable(X:S, X-S).
 
 lambdas([], M, M).
 lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
@@ -87,7 +87,7 @@ flipped(S = T, X, lam(E, S = T, app(X, [], [app('$sym', [S, T], [E])]))).
 flipped(~(S = T), X, lam(K, ~(S = T), app(X, [], [lam(E, T = S, app(K, [], [app('$sym', [T, S], [E])]))]))).
 
 % a fresh instance of a premise clause, with variables Ts
-premise(Name, Ts, Ls) :- step(Name, clause(Ts, Ls), _).
+premise(Name, Ts, Ls) :- step(Name, clause(Bs, Ls), _), binder_variables(Bs, Ts).
 
 /********************************************************************************
  * search procedures: tactic(Fresh, Hypotheses, Parents, M)
@@ -123,7 +123,8 @@ rup(_, Hs, Premises, M) :-
 % AVATAR component clause: C | ~split, where split is defined as C
 avatar_component(_, Hs, [_], app(H, [], [lam(D, Split, app(D, Ts, Ms))])) :-
   select(H-(~(~Split)), Hs, Others),
-  split(Split, clause(Ts, Ls)),
+  split(Split, clause(Bs, Ls)),
+  binder_variables(Bs, Ts),
   maplist(matches(Others), Ls, Ms).
 % ...or ~L | split, where split is defined as L: the definition is proved from two hypotheses,
 % Y : ~T and X : T
@@ -136,11 +137,12 @@ avatar_component(Fresh, Hs, [_], app(H, [], [Intro])) :-
 
 % Intro proves the definition of Split by M, with eigenvariables from Fresh0 and hypotheses for its literals
 intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro) :-
-  split(Split, clause(Xs, Ls)),
+  split(Split, clause(Bs, Ls)),
+  binder_variables(Bs, Xs),
   number_vars(Xs, Fresh0, Fresh),
   hypotheses(Ls, Gs),
   append(Gs, Hs, Hs1),
-  binders(Xs, Gs, Binders),
+  binders(Bs, Gs, Binders),
   lambdas(Binders, M, Intro).
 
 % AVATAR split clause: split_1 | ... | split_n from the premise C_1 | ... | C_n
