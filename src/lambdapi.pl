@@ -3,6 +3,10 @@ lambdapi back end, using the encoding of first-order logic in lambdapi's Stdlib.
 
 A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π (¬ L_0) → ... → π (¬ L_n-1) → π ⊥,
 the type of its proof terms in the IR (see ir.pl), which are printed directly.
+
+The negated conjecture ~G is a hypothesis, not an axiom: each step that depends on it (its cone)
+takes it as a parameter, named after it, and the conjecture is proved by ¬¬-elimination, the only
+use of Stdlib.Classic.
 */
 :- module(lambdapi, [emit/0]).
 :- use_module(ops).
@@ -14,13 +18,31 @@ the type of its proof terms in the IR (see ir.pl), which are printed directly.
 :- use_module(utils).
 :- set_prolog_flag(double_quotes, codes).
 
+% negated(Name, G): Name is the negated conjecture ~G
+% cone(Name): step Name depends on the negated conjecture
+:- dynamic(negated/2).
+:- dynamic(cone/1).
+
 emit :-
+  retractall(negated(_, _)),
+  retractall(cone(_)),
+  forall(ir_step(Name, _, Justification), mark(Name, Justification)),
   out(prelude),
   out(signature),
   forall(ir_step(Name, Conclusion, Justification), out(proof_step(Justification, Name, Conclusion))).
 
+% steps are in dependency order, so the cone is found in one pass
+mark(Name, negated_conjecture(_)) :- !, ir_step(Name, formula(~G), _), assertz(negated(Name, G)).
+mark(_, conjecture(_, _, _)) :- !.
+mark(Name, Justification) :-
+  references(Justification, Names),
+  member(N, Names),
+  ( negated(N, _) ; cone(N) ), !,
+  assertz(cone(Name)).
+mark(_, _).
+
 prelude -->
-  "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq;\n\n",
+  "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq", classic, ";\n\n",
   "opaque symbol sym (x y : τ ι) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
   "opaque symbol refl (x : τ ι) : π (x = x) ≔ eq_refl x;\n",
   "opaque symbol rw [x y : τ ι] (p : τ ι → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
@@ -46,6 +68,9 @@ declarations(Keyword, [S-(Args-Sort)|Ss]) -->
 arrows([], Sort) --> sort(Sort).
 arrows([A|As], Sort) --> sort(A), " → ", arrows(As, Sort).
 
+classic --> { negated(_, _) }, !, " Stdlib.Classic".
+classic --> [].
+
 sort('$i') --> "τ ι".
 sort('$o') --> "Prop".
 
@@ -60,16 +85,32 @@ proof_step(input(_, Input), Name, clause(Bs, Ls)) -->
   { binder_variables(Bs, Xs), length(Ls, N), range(0, N, Is) },
   lambdas(Xs, Is),
   cases(Is, input_instance(Input, Xs)), ";\n".
+proof_step(input(_, Input), Name, formula(F)) -->
+  "constant symbol ", input(Input), " : π ", formula(F), ";\n",
+  header(Name), "π ", formula(F), " ≔ ", input(Input), ";\n".
+proof_step(negated_conjecture(_), Name, formula(F)) -->
+  "// ", atom(Name), " : π ", formula(F), " is a parameter of the steps that depend on it\n".
+proof_step(conjecture(_, Negated, Refutation), Name, formula(G)) -->
+  header(Name), "π ", formula(G), " ≔ ¬¬ₑ ", formula(G), " (λ ", atom(Negated), ", ", head(Refutation), ");\n".
 proof_step(split_def(Split, Clause), _, _) -->
   "rule ", sym(Split/0), " ↪ ", clause(Clause), ";\n".
 proof_step(proof(M), Name, Conclusion) -->
-  header(Name), conclusion(Conclusion), " ≔ ", proof(M), ";\n".
+  header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proof(M), ";\n".
 
 proof_step(todo(Record, _), Name, Conclusion) -->
-  { functor(Record, Rule, _) },
-  header(Name), conclusion(Conclusion), " ≔ begin admit end; // TODO ", atom(Rule), "\n".
+  header(Name), assumption(Name), conclusion(Conclusion), " ≔ begin admit end; // TODO ", rule(Record), "\n".
+
+rule(esa(Rule, _)) --> !, atom(Rule).
+rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 
 header(Name) --> "opaque symbol ", atom(Name), " : ".
+
+% a step in the cone of the negated conjecture takes it as a parameter
+assumption(Name) --> { cone(Name), negated(N, G) }, !, "Π (", atom(N), " : π ", formula(~G), "), ".
+assumption(_) --> [].
+
+discharge(Name) --> { cone(Name), negated(N, _) }, !, "λ ", atom(N), ", ".
+discharge(_) --> [].
 
 conclusion(clause(Bs, Ls)) --> statement(clause(Bs, Ls)).
 conclusion(formula(F)) --> "π ", formula(F).
@@ -136,6 +177,7 @@ annotation(_, F) --> "π ", formula(F).
 head('$sym') --> !, "sym".
 head('$refl') --> !, "refl".
 head(h(N)) --> !, hypothesis(h(N)).
+head(Name) --> { atom(Name), cone(Name), negated(N, _) }, !, "(", atom(Name), " ", atom(N), ")".
 head(Name) --> { atom(Name) }, atom(Name).
 
 variable(h(N)) --> !, hypothesis(h(N)).

@@ -36,6 +36,13 @@ justified(proof(M), Conclusion, Steps) :- !,
   ground(M),
   empty_assoc(Gamma),
   check(Steps, Gamma, M, T).
+% G, refuting the hypothesis ~G
+justified(conjecture(_, Negated, Refutation), formula(G), Steps) :- !,
+  get_assoc(Negated, Steps, true),
+  ir_step(Negated, formula(N), negated_conjecture(_)),
+  N == ~G,
+  get_assoc(Refutation, Steps, true),
+  ir_step(Refutation, clause([], []), _).
 justified(_, _, _).
 
 % M : T, where M and T are ground, but for the binders of an unfolded split definition, which the

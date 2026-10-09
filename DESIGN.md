@@ -27,6 +27,7 @@ Usage: `swipl -g 'run(Backend)' -t halt src/main.pl < proof.p`, where `Backend` 
 - Quantifiers `'!'(Bs, F)` and `'?'(Bs, F)`, with binders `X : Sort` as in TPTP (`:` has SWI's priority). The sort is `'$i'` when TPTP gives none.
 - Reading normalises `S != T` to `~(S = T)`, `F <= G` to `G => F`, `F <~> G` to `~(F <=> G)`, and `~|`, `~&` to a negated `|` or `&`.
 - Clauses are `clause(Bs, Literals)`: binders as in quantifiers, and a list of literals `A` or `~A` over their variables. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause too.
+- Vampire prints clauses as `fof` too, so shape alone cannot tell a clause from a formula. `$false` is the empty clause. Otherwise a statement is a clause if it is clause-shaped and is either `cnf`, an input, or derived by clausal reasoning: `cnf_transformation`, a rule in the table below, or an unknown rule from clauses only. The conjecture, its negation, preprocessing and definitions are formulas.
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so every lookup is a fresh instance and instantiation is unification. When a step is reconstructed, its conclusion is made rigid by numbering its variables `'$VAR'(N)` in binder order, so the IR is ground.
 - In search contexts, `X-T` is an entry (`X : T`); `X : Sort` is always a quantifier or clause binder.
 
@@ -34,7 +35,14 @@ Usage: `swipl -g 'run(Backend)' -t halt src/main.pl < proof.p`, where `Backend` 
 ```
 ir_step(Name, Conclusion, Justification)     % dependency order, reachable from the last $false
 Conclusion    ::= clause(Bs, Lits) | formula(F)
-Justification ::= input(Role, Source) | split_def(Symbol, Clause) | proof(M) | todo(Record, Parents)
+Justification ::= input(Role, Source)      % never the conjecture
+                | split_def(Symbol, Clause) | proof(M)
+                | negated_conjecture(Conjecture)
+                                           % the hypothesis ~G, discharged by Conjecture
+                | conjecture(Source, Negated, Refutation)
+                                           % G by contradiction: the last step, if there is a conjecture
+                | todo(Record, Parents)    % Record is a Rule (an entailment), or esa(Rule, Symbols):
+                                           % satisfiability only, introducing Symbols
 M ::= h(N)                 % a hypothesis
     | app(F, Ts, Ms)       % F applied to first-order terms Ts, then to proofs Ms
     | lam(X, T, M)         % X : T is h(N) : formula, or an eigenvariable '$VAR'(N) : Sort
@@ -50,6 +58,16 @@ F ::= h(N) | Name | '$sym' | '$refl'
 - **Rewriting:** in `rewrite(X, A, E, M)` the motive `A` is any formula, so a literal of either polarity can be rewritten. `X` is an eigenvariable `'$VAR'(N)` of sort `'$i'`, bound only in `A`; `E`'s type must be inferable (a hypothesis or an application), so `rewrite` is only ever checked against a type, never a head.
 - First-order arguments `Ts` are untyped terms, kept apart from proof arguments, so back ends can read premise instances directly. They are built from the signature, eigenvariables, and `'$inhabited'` (below).
 - **Split definitions:** a split symbol is a defined proposition that unfolds to the type of its clause. A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
+
+## Formulas and the conjecture
+FOF proofs are clausified by Vampire: preprocessing (`ennf`/`nnf_transformation`, `flattening`, `rectify`, `skolemize`, `pure_predicate_removal`, `definition_folding`, …), then `cnf_transformation`. These intra-formula steps are left as `todo` for now. The clausal part is reconstructed as before. The design keeps a later **A-translation** (a constructive Agda back end, with ⊥ := G) open:
+1. **Proof terms stay in minimal logic with an abstract ⊥.** No DNE or excluded middle ever appears in the IR.
+2. **Classical reasoning is confined to two places:** the `conjecture` step, and unreconstructed clausification (`todo`).
+3. **The negated conjecture is a hypothesis, never an axiom.** Its type is `G → ⊥`, where ⊥ is the refutation's answer type, and only the `conjecture` step discharges it. A classical back end proves `G` by `¬¬ₑ G (λ nc, refutation nc)`. An A-translation takes ⊥ := G and nc := `id`, so the theorem is `refutation id`. In Agda that falls out of a module parameterised by `(⊥ : Set) (nc : G → ⊥)`.
+4. **Which ⊥ is which follows from structure, so formulas carry no tags.** In clause types every `¬` is the answer ⊥, including the one in a literal `~A`. In `formula(F)` conclusions `¬` is object falsity, except the outermost `¬` of the negated conjecture. Steps that depend on it mix the two. Getting from object falsity to the answer ⊥ (ex falso) is clausification's job, and back ends can compute that cone with `ir:references/2`.
+5. **Clause-shaped inputs are clauses**, as for CNF problems. Their clause type follows from the input formula by case analysis, for any ⊥.
+
+Steps that only preserve satisfiability are `todo(esa(Rule, Symbols), Parents)`: Vampire's `status(esa)` (Skolemisation), and predicate definitions. `definition_folding` is `esa` too. Vampire's predicate definitions are one-sided (Plaisted–Greenbaum): `body | ~sP` gives only `sP → body`. Folding `body | rest` into `sP | rest` needs `body → sP`, so the conclusion does not follow from the printed premises (z3 finds models). It is satisfiable, though, because `sP` is fresh. A better treatment, for later: make `sP := body` a real definition, as split symbols are. Folding then holds by unfolding, constructively, with nothing postulated. That needs the body recovered from the one-sided formula, possibly under `! [X..]`. A proof with more than one conjecture is an error. If the conjecture is unused, Vampire does not print it, and the IR ends at `$false`.
 
 ## Reconstruction (`reconstruct.pl`, `rup.pl`, `close.pl`)
 - **Search** builds terms directly from the conclusion's binders and a hypothesis `X-(~L)` for each literal, annotating every λ as it is built. A tactic's term has type `⊥` and is abstracted over the conclusion.
@@ -74,17 +92,21 @@ Vampire rule → search procedure (`vampire.pl`):
 | avatar_component_clause | `avatar_component` |
 | rat | `rup` |
 
+The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, `status(esa)` and `definition_folding` become `todo(esa(…))`, and any other rule becomes `todo`.
+
 ## Back ends
 **checker** (`checker.pl`): an independent type checker of each ground, annotated term against the ground type of its conclusion, step by step.
 - It only binds the quantifier binders of fresh instances of steps, split definitions and `'$sym'`: to ground terms `Ts`, or to eigenvariables under the λs of an unfolded split definition.
 - First-order terms must be in scope, and a step can only cite steps checked before it.
+- The `conjecture` step `G` must cite a checked refutation of `$false`, and a checked `negated_conjecture` step `~G`.
 - Types are compared syntactically, not up to unfolding. Instantiation is by unification, so it needs fresh instances: a hypothesis of quantified type would need substitution.
 - A term that fails to check is a search bug: the step is reported and the run fails. Other back ends do not run the checker.
 
 **lambdapi** (`lambdapi.pl`), using the Stdlib encoding of first-order logic:
 - A clause is stated as its IR type with framework-level `Π`/`→`; for `~A` that is `π (¬ ¬ A)`. Proof terms are printed directly, with `'$sym'` and `'$refl'` as prelude symbols `sym` and `refl`, and `rewrite(X, A, E, M)` as `rw (λ (x : τ ι), A) E M` (`rewrite` is a lambdapi keyword), where `rw` is defined by `ind_eq`.
 - A `let` carries its type, and so does the binder of a λ value: lambdapi does not use a let's type to elaborate its value, and without the annotation PUZ017-1 went from 2 s to over 60 s.
-- Inputs are declared as `{|name²|}` with their original formula, and their clause is obtained by an `∨ₑ` chain. A split symbol is a `Prop` with `rule spl ↪ clause`.
+- Inputs are declared as `{|name²|}` with their original formula, and their clause is obtained by an `∨ₑ` chain (a formula input is just the constant). A split symbol is a `Prop` with `rule spl ↪ clause`.
+- **The negated conjecture** `nc` is not declared. Each step in its cone takes it as a parameter, `Π (nc : π (¬ G))`, and refers to a cone step as `(f nc)`. The conjecture is `¬¬ₑ G (λ nc, refutation nc)`, the only use of `Stdlib.Classic`, which is required only when there is a conjecture.
 - Symbols are `{|f¹|}`, or `{|f/2¹|}` for a name overloaded by arity (TPTP allows it, and Vampire prints both as `f`). Formulas are parenthesised only where the Stdlib priorities need it.
 
 **SMT-LIB** (`smtlib.pl`), in the manner of "Ground Truth": one `push`/`check-sat`/`pop` per step, expecting `unsat`.
@@ -92,7 +114,7 @@ Vampire rule → search procedure (`vampire.pl`):
 - A step asserts the ground premise instances `app(Name, Ts, _)` of its proof term and its negated conclusion. Rewrites need no facts: equality reasoning is left to the solver.
 - Variables are Skolem constants, read from the λ binders with their sorts: the conclusion's variables, and the eigenvariables of split definitions proved in the term.
 - AVATAR definitions are ground implications: `spl ⇒ Cσ` where a definition is used, and `C[eigen] ⇒ spl` where one is proved. The latter is sound by Skolemisation only because eigenvariables are fresh, which this back end does not check.
-- Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted. `todo` steps are checked with universally quantified premises.
+- Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted. `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead. Checking them with quantified premises often timed out on preprocessing. The negated conjecture and the conjecture are not checked either.
 
 ## Files (`src/`)
 | File | Role |
@@ -102,12 +124,12 @@ Vampire rule → search procedure (`vampire.pl`):
 | `load.pl` | `read_tstp/1`: `read/1` with TPTP operators, then normalisation |
 | `db.pl` | Shared dynamic facts: `step/3`, `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
 | `logic.pl` | Formulas and clauses: `formula_clause`, `clause_formula`, `binder_variables`, `complement`, `flip`, `number_vars`, `substitute`, `formula_symbol` |
-| `vampire.pl` | Vampire front end: rule table, inputs and AVATAR definitions; unknown rules become `todo` |
+| `vampire.pl` | Vampire front end: clause or formula, rule table, inputs, the conjecture and AVATAR definitions; unknown rules become `todo` |
 | `signature.pl` | Default sorts for undeclared symbols, for any front end; `overloaded/1` |
 | `reconstruct.pl` | Proof search and the tactics |
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
-| `ir.pl` | IR documentation; `clause_type/2` |
+| `ir.pl` | IR documentation; `clause_type/2`, `references/2` |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl` | Back ends |
 | `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |
@@ -117,6 +139,8 @@ Vampire rule → search procedure (`vampire.pl`):
 - `'$sym'` was first tested on hand-made proofs of both polarities, through lambdapi and z3. Mutating proof terms (dropped or swapped arguments, wrong `'$sym'` order, wrong lemma type or binder annotation) was always caught by the checker: over 23000 mutants for SYN488-1.
 - The CNF corpus (3740 proofs) has equality throughout: about 59000 rewrites, of which 17000 are into a flipped hypothesis (a `let`). Every step is reconstructed and checks, with no `todo` left; definition unfolding adds another 29000 rewrites. Mutants of rewrites (wrong direction, no hole, wrong motive variable, rewrite dropped) and of `refl`/`sym` arguments were all caught.
 - **lambdapi scaling:** checking cost grows roughly as n⁴ in the number of hypotheses of one declaration, even with every binder typed: n = 150 takes 30–50 s. The largest proofs (lambdapi output 4–245 MB, such as HWV057 and SWV424-1.200 and up) time out or run out of memory. lambdapi's `let` was much worse than β-redexes, and a `cut` lemma worse still.
+- The FOF corpus (3486 proofs): every clausal step reconstructs and checks, with no warnings. Five fail in `read/1`. Four are Vampire's `~$true`, which tokenises as the symbol `~$` (the conjecture `$true`), and SYN986+1.004 exceeds the C stack. Mutants of the negated conjecture, of a cone argument and of its type were caught.
+- cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `checksmt` would not notice one. `distinctness_axiom` and `introduced(theory, …)` steps are not entailments, and are not yet marked `esa`.
 - Literal matching is naive, in a fixed literal order.
 
 To test: produce a corpus of TSTP proofs in `solutions/` if not already.

@@ -4,7 +4,8 @@
 % step(Name, Conclusion, How): a proof step, as understood by a front end
 % Conclusion is clause(Binders, Literals) or formula(F), with Prolog variables:
 % each retrieval is a fresh instance
-% How is input(Role, Source), split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents)
+% How is input(Role, Source), conjecture(Source), negated_conjecture(Conjecture),
+% split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents)
 :- dynamic(step/3).
 
 % symbol(Name, ArgumentSorts, Sort): signature, with sorts '$i' and '$o' by default

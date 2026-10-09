@@ -5,7 +5,8 @@ conclusion (with its variables as Skolem constants), expecting `unsat`.
 The facts are premise instances, and instances of AVATAR definitions, found using the binder
 types of the proof term.
 
-Unreconstructed steps (todo) are checked with their premises universally quantified.
+Unreconstructed steps (todo) are not checked: the solver echoes a warning instead. Neither are the
+negated conjecture, a hypothesis, and the conjecture, which follows from refuting it.
 Each check is preceded by (echo "name"), so the solver prints the name and then the result,
 and by (set-info :status unsat), so that a solver fails loudly on any other result: z3 reports an
 error and exits 1 at the end, and cvc5 aborts at once.
@@ -58,14 +59,15 @@ check(proof(M), Name, clause(Bs, Ls)) -->
     phrase(skolem_constants(M), Cs0),
     sort(Cs0, Cs) },
   scope(Name, clause(Bs, Ls), Cs, Fs).
-check(todo(_, Parents), Name, Conclusion) -->
-  { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs),
-    conclusion_constants(Conclusion, Cs) },
-  "; TODO\n",
-  scope(Name, Conclusion, Cs, Fs).
+% the negated conjecture is a hypothesis, and the conjecture follows from refuting it
+check(negated_conjecture(_), _, _) --> [].
+check(conjecture(_, _, _), _, _) --> [].
+% unreconstructed: checking it with quantified premises is liable to time out
+check(todo(Record, _), Name, _) -->
+  "(echo \"warning: ", atom(Name), " (", rule(Record), ") is not checked\")\n".
 
-quantified(clause(Bs, Ls), F) :- clause_formula(clause(Bs, Ls), F).
-quantified(formula(F), F).
+rule(esa(Rule, _)) --> !, atom(Rule).
+rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 
 % the facts Fs and the negated conclusion, with Skolem constants Cs
 scope(Name, Conclusion, Cs, Fs) -->
@@ -78,7 +80,6 @@ scope(Name, Conclusion, Cs, Fs) -->
 
 % the negated conclusion, with free variables
 negated(clause(_, Ls), Ns) :- maplist(negation, Ls, Ns).
-negated(formula(F), [~F]).
 
 negation(L, ~L).
 
@@ -88,7 +89,7 @@ constants([X:S|Cs]) --> "(declare-const ", term(X), " ", sort(S), ")\n", constan
 /*
 Variables are Skolem constants in a check, shared by its assertions: the conclusion's variables,
 from negating it, and the eigenvariables of split definitions proved in the term (see fact//4).
-Both are bound by the λs of the proof term, with their sorts; a todo step has the conclusion's.
+Both are bound by the λs of the proof term, with their sorts.
 */
 skolem_constants(lam('$VAR'(N), S, M)) --> !, ['$VAR'(N):S], skolem_constants(M).
 skolem_constants(lam(_, _, M)) --> !, skolem_constants(M).
@@ -96,9 +97,6 @@ skolem_constants(let(_, _, M, N)) --> !, skolem_constants(M), skolem_constants(N
 skolem_constants(app(_, _, Ms)) --> !, foldl(skolem_constants, Ms).
 skolem_constants(rewrite(_, _, E, M)) --> !, skolem_constants(E), skolem_constants(M).
 skolem_constants(_) --> [].
-
-conclusion_constants(clause(Bs, _), Bs).
-conclusion_constants(formula(_), []).
 
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).

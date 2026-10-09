@@ -4,10 +4,16 @@ The intermediate representation (IR) of proofs, and the types of clauses.
   ir_step(Name, Conclusion, Justification)        (db.pl), checked by checker.pl
 
   Conclusion    ::= clause(Bs, Literals) | formula(F)
-  Justification ::= input(Role, Source)
+  Justification ::= input(Role, Source)             an axiom (never the conjecture)
                   | split_def(Symbol, Clause)       Symbol is defined as Clause (AVATAR)
                   | proof(M)                        M is a proof term of the conclusion clause
-                  | todo(Record, Parents)           not (yet) reconstructed
+                  | negated_conjecture(Conjecture)  the hypothesis ~G, discharged by Conjecture
+                  | conjecture(Source, Negated, Refutation)
+                                                    G, as Refutation refutes the hypothesis Negated:
+                                                    by contradiction, the last step
+                  | todo(Record, Parents)           not (yet) reconstructed: Record is a Rule for an
+                                                    entailment, or esa(Rule, Symbols) if it only
+                                                    preserves satisfiability, introducing Symbols
 
 Proofs are λ-terms, Curry-Howard style, in minimal logic: no particular logic is fixed, and
 ⊥ ('$false') is abstract. Classically it is falsity, but in the A-translation it is the conjecture G.
@@ -33,10 +39,17 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
       | '$refl'           built-in: '!'([X:'$i'], X = X)
 
 Heads are always variables or constants, so terms are β-normal but for let.
+A formula(F) conclusion is an object-level formula, so its type is F, but for the negated
+conjecture: its outermost ~ is the refutation's ⊥. A classical back end proves the conjecture G by
+¬¬-elimination; the A-translation takes ⊥ to be G, and the hypothesis ~G to be the identity, so
+that the conjecture is the refutation itself. Only clausification (todo) is otherwise classical.
+
 First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited', an
 arbitrary individual for a variable that search left unconstrained (see close.pl).
 */
-:- module(ir, [clause_type/2]).
+:- module(ir, [clause_type/2, references/2]).
+:- use_module(library(lists)).
+:- use_module(library(apply)).
 :- use_module(ops).
 
 % the type of proofs of a clause: '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
@@ -46,3 +59,18 @@ clause_type(clause(Bs, Ls), T) :-
 
 implications([], '$false').
 implications([L|Ls], (~L => F)) :- implications(Ls, F).
+
+% the steps that a justification cites
+references(proof(M), Names) :- !, phrase(heads(M), Names0), sort(Names0, Names).
+references(todo(_, Parents), Parents) :- !.
+references(conjecture(_, Negated, Refutation), [Negated, Refutation]) :- !.
+references(_, []).
+
+heads(lam(_, _, M)) --> !, heads(M).
+heads(let(_, _, M, N)) --> !, heads(M), heads(N).
+heads(rewrite(_, _, E, M)) --> !, heads(E), heads(M).
+heads(app(F, _, Ms)) --> !, head(F), foldl(heads, Ms).
+heads(_) --> [].
+
+head(F) --> { atom(F), F \== '$sym', F \== '$refl' }, !, [F].
+head(_) --> [].

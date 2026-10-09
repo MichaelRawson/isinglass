@@ -19,12 +19,27 @@ unification with it, Prolog's backtracking performing the search.
 :- use_module(rup).
 :- use_module(close).
 
-% reconstruct everything required for the last refutation
+% reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
   forall(step(_, _, split_def(Symbol, Clause)), assertz(split(Symbol, Clause))),
   findall(Name, step(Name, clause([], []), _), Refutations),
   last(Refutations, Refutation),
-  prove(Refutation).
+  prove(Refutation),
+  findall(Name-Source, step(Name, _, conjecture(Source)), Conjectures),
+  conjecture(Conjectures, Refutation).
+
+% the conjecture G holds by refuting its negation, a hypothesis ~G: the last step, and the only
+% classical one (but for clausification), as the refutation is in minimal logic with abstract ⊥
+conjecture([], _).
+conjecture([Conjecture-Source], Refutation) :-
+  step(Negated, _, negated_conjecture(Conjecture)), !,
+  prove(Negated),
+  step(Conjecture, formula(G), _),
+  rigid(formula(G), _),
+  assertz(ir_step(Conjecture, formula(G), conjecture(Source, Negated, Refutation))).
+conjecture(Conjectures, _) :-
+  format(user_error, "error: expected one conjecture and its negation, not ~w~n", [Conjectures]),
+  fail.
 
 prove(Name) :- ir_step(Name, _, _), !.
 prove(Name) :-
@@ -39,6 +54,7 @@ rigid(formula(F), Fresh) :- term_variables(F, Vs), number_vars(Vs, 0, Fresh).
 
 justify(input(Role, Source), _, _, input(Role, Source)).
 justify(split_def(Symbol, Clause), _, _, split_def(Symbol, Clause)).
+justify(negated_conjecture(Conjecture), _, _, negated_conjecture(Conjecture)).
 justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
