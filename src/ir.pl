@@ -26,6 +26,8 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
       | '$sym'            built-in: '!'([X, Y], X = Y => Y = X)
 
 Heads are always variables or constants, so terms are β-normal but for let.
+First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited', an
+arbitrary individual for a variable that search left unconstrained (see close.pl).
 */
 :- module(ir, [clause_type/2]).
 :- use_module(ops).

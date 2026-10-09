@@ -7,6 +7,7 @@ Translate a Vampire TSTP proof on standard input, e.g.
 */
 :- use_module(load).
 :- use_module(vampire).
+:- use_module(signature).
 :- use_module(reconstruct).
 :- use_module(lambdapi, []).
 :- use_module(smtlib, []).
@@ -15,5 +16,6 @@ Translate a Vampire TSTP proof on standard input, e.g.
 run(Backend) :-
   read_tstp(Statements),
   load_vampire(Statements),
+  default_signature,
   reconstruct,
   Backend:emit.

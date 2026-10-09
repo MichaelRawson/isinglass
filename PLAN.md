@@ -66,7 +66,7 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 - A step can only cite steps checked before it, so proofs are well-founded.
 - A term that fails to check is a search bug: `run(checker)` reports the step and fails. Other back ends don't run the checker.
 
-**Search** (`reconstruct.pl`) builds these terms directly, from hypotheses `X-Type`, annotating each λ with its binder's type as it is built. Annotations share variables with premise instances, so they are ground once the term is: binders are named `h(N)` after search, and leftover term variables become `'$any'`. The rule → search-procedure table is unchanged.
+**Search** (`reconstruct.pl`) builds these terms directly, from hypotheses `X-Type`, annotating each λ with its binder's type as it is built. Annotations share variables with premise instances, so they are ground once the term is: binders are named `h(N)` after search, and leftover term variables become `'$inhabited'` (`close.pl`). The rule → search-procedure table is unchanged.
 
 **Full formulas (M3).** Connective-level reasoning will add built-ins or term formers (pairs, injections, case analysis, ∃-elimination), each chosen to stay sound under the A-translation.
 
@@ -79,8 +79,11 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 | `load.pl` | `read_tstp/1`: `read/1` with run-time TPTP operators, followed by normalisation |
 | `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
 | `logic.pl` | `formula_clause`, `clause_formula`, `complement`, `flip`, `number_vars`, `formula_symbol` |
-| `vampire.pl` | Front end: maps Vampire rules to search procedures; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
-| `reconstruct.pl` | Proof search, building λ-terms: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
+| `vampire.pl` | Front end: maps Vampire rules to search procedures; `file`/AVATAR definitions. Unknown rules become `todo`. |
+| `signature.pl` | Default sorts for symbols the front end has not declared, shared by all front ends |
+| `reconstruct.pl` | Proof search, building λ-terms: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Unit propagation is in `rup.pl`, and closing terms in `close.pl`. |
+| `close.pl` | Closing a proof term after search: binders named `h(N)`, leftover term variables → `'$inhabited'`, assuming the sort is inhabited |
+| `rup.pl` | Reverse unit propagation over ground clauses, building a chain of lemmas: used by `rup` |
 | `ir.pl` | IR documentation; `clause_type`, the type of a clause |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl` | lambdapi back end |
@@ -138,12 +141,12 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 ## Known issues / notes for review
 - **lambdapi scaling (upstream?).** Checking cost grows roughly as n⁴ in the number of hypotheses of a single declaration, even flat with all binders typed: n=150 takes 30–50 s. A 451-literal input clause (SWV424-1.450 `f452`) cannot be checked in 4 GB. lambdapi's `let` was also much worse than β-redexes, and a `cut` lemma was worse still.
 - **Performance work done** (on 39k steps with 920k `rat` premise references):
-  - `rup` uses an assoc trail plus occurrence lists, re-checking only clauses containing a newly falsified literal.
+  - `rup` keeps an assoc of false literals and a queue of those not yet propagated, re-checking only the clauses containing a newly false literal. Chopping false literals out of clauses was tried, and cost about 25% of the whole run on SWV424-1.200, because each chop updates the clause in an assoc.
   - `split/2` indexes AVATAR definitions.
   - The checker context is an assoc.
   - Clauses are stored with Prolog variables, so premise instances are database copies rather than substitutions (about 1.5–2× faster reconstruction).
 - **Remaining cost:** the remaining reconstruction cost is spread over assoc and database lookups. A cheaper index for repeated `rat` premise sets is possible.
-- **`avatar_component`'s second clause** (`~L | split`, closed by `mate`) is exercised by the corpus, e.g. SYN488-1 `f614`.
+- **`avatar_component`'s second clause** (`~L | split`, closed by two complementary hypotheses) is exercised by the corpus, e.g. SYN488-1 `f614`.
 - **Resolution search:** as in `lp.pl`, `resolve` lets the minor premise refute only positive literals of the major; both premises are tried as major, so this is complete.
   - Allowing either polarity made the search exponential on wide, mostly-negative clauses: SYO656-1 (27-literal premises, 6 variables) did not finish, and SYO673-1 took 12 s instead of 0.5 s.
   - Literal matching is still naive, in a fixed literal order; matching the most constrained literal first would help if wider clauses blow up again.

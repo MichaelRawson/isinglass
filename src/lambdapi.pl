@@ -214,7 +214,7 @@ term_priority(T, 100) :- compound(T), T \= '$VAR'(_), !.
 term_priority(_, 101).
 
 term_('$VAR'(N)) --> !, "x", number(N).
-term_('$any') --> !, "infer_el".
+term_('$inhabited') --> !, "infer_el".
 term_(T) --> { T =.. [F|Ts], length(Ts, N) }, sym(F/N), variables(Ts).
 
 sym(F/_) --> { introduced(F, _) }, !, atom(F).

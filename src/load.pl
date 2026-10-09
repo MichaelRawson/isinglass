@@ -46,8 +46,12 @@ read_statement(Term, [Statement|Rest]) :-
 
 statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
   Term =.. [Language, Name, Role, Formula0|Annotations],
-  ( Annotations = [Source|_] -> true ; Source = none ),
-  ( Role == type -> Formula = Formula0 ; normalise(Formula0, Formula) ).
+  source(Annotations, Source),
+  normalise(Formula0, Formula).
+
+% the source annotation is optional, and may be followed by useful info
+source([], none).
+source([Source|_], Source).
 
 normalise(V, F) :- var(V), !, F = V.
 normalise('$'(false), F) :- !, F = '$false'.

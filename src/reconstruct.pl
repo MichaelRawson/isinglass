@@ -16,6 +16,8 @@ unification with it, Prolog's backtracking performing the search.
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(rup).
+:- use_module(close).
 
 % reconstruct everything required for the last refutation
 reconstruct :-
@@ -40,20 +42,18 @@ justify(split_def(Symbol, Clause), _, _, split_def(Symbol, Clause)).
 justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
-  (   Conclusion = clause(Xs, Ls),
-      hypotheses(Ls, Hs),
-      call_tactic(Tactic, Fresh, Hs, Parents, Body)
-  ->  binders(Xs, Hs, Binders),
-      lambdas(Binders, Body, M),
-      close_term(M, 0, _),
-      Justification = proof(M)
-  ;   format(user_error, "warning: ~w failed to reconstruct ~w~n", [Tactic, Conclusion]),
-      Justification = todo(Tactic, Parents)
-  ).
+  search(Tactic, Parents, Conclusion, Fresh, Justification).
 
-call_tactic(Tactic, Fresh, Hs, Parents, M) :-
-  Goal =.. [Tactic, Fresh, Hs, Parents, M],
-  call(Goal), !.
+% the tactic finds a term of type ⊥ from hypotheses for the literals, abstracted over the conclusion
+search(Tactic, Parents, clause(Xs, Ls), Fresh, proof(M)) :-
+  hypotheses(Ls, Hs),
+  once(call(Tactic, Fresh, Hs, Parents, Body)), !,
+  binders(Xs, Hs, Binders),
+  lambdas(Binders, Body, M),
+  close_term(M).
+% ...or it fails, and the step is left to do
+search(Tactic, Parents, Conclusion, _, todo(Tactic, Parents)) :-
+  format(user_error, "warning: ~w failed to reconstruct ~w~n", [Tactic, Conclusion]).
 
 % a hypothesis V : ~L for each literal L
 hypotheses([], []).
@@ -66,19 +66,6 @@ individual(X, X-'$i').
 
 lambdas([], M, M).
 lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
-
-% after search, binders are named h(N), h(N + 1), ..., and unconstrained term variables become '$any'
-close_term(V, N, N) :- var(V), !.
-close_term(lam(X, _, M), N0, N) :- !, bind(X, N0, N1), close_term(M, N1, N).
-close_term(let(X, _, M, M1), N0, N) :- !, bind(X, N0, N1), close_term(M, N1, N2), close_term(M1, N2, N).
-close_term(app(_, Ts, Ms), N0, N) :- !,
-  term_variables(Ts, Vs),
-  maplist(=('$any'), Vs),
-  foldl(close_term, Ms, N0, N).
-close_term(_, N, N).
-
-bind(X, N0, N) :- var(X), !, X = h(N0), N is N0 + 1.
-bind(_, N, N).
 
 /********************************************************************************
  * literal matching
@@ -98,10 +85,6 @@ refutes(S = T, X, ~B, lam(K, ~B, app(K, [], [app('$sym', [S, T], [X])]))) :- uni
 % X refutes L with the equation the other way round
 flipped(S = T, X, lam(E, S = T, app(X, [], [app('$sym', [S, T], [E])]))).
 flipped(~(S = T), X, lam(K, ~(S = T), app(X, [], [lam(E, T = S, app(K, [], [app('$sym', [T, S], [E])]))]))).
-
-% X : C refutes the complement of C, as M
-assumption(~_, X, X) :- !.
-assumption(C, X, lam(K, ~C, app(K, [], [X]))).
 
 % a fresh instance of a premise clause, with variables Ts
 premise(Name, Ts, Ls) :- step(Name, clause(Ts, Ls), _).
@@ -131,62 +114,24 @@ resolve_literal(Hs, Minor, K, lam(X, K, app(Minor, Ts, Ms))) :-
   premise(Minor, Ts, Ls),
   maplist(matches([X-K|Hs]), Ls, Ms).
 
-% reverse unit propagation over ground clauses
-% the trail maps literals L to variables of type ~L
-% propagation is confluent, so commit to each unit found:
-% when a literal becomes false, (re)check the clauses in which it occurs
+% reverse unit propagation (see rup.pl) over ground premises: premises with variables are ignored,
+% which is enough for Vampire's rat, over AVATAR's propositional clauses
 rup(_, Hs, Premises, M) :-
   findall(P-Ls, (member(P, Premises), premise(P, [], Ls)), Clauses),
-  empty_assoc(Empty),
-  foldl(trail, Hs, Empty, Trail),
-  foldl(occurrences, Clauses, Empty, Occurrences),
-  propagate(Clauses, Occurrences, Trail, M).
-
-trail(X-(~L), Trail0, Trail) :- put_assoc(L, Trail0, X, Trail).
-
-occurrences(P-Ls, Occurrences0, Occurrences) :- foldl(occurrence(P-Ls), Ls, Occurrences0, Occurrences).
-
-occurrence(Clause, L, Occurrences0, Occurrences) :-
-  ( get_assoc(L, Occurrences0, Cs) -> true ; Cs = [] ),
-  put_assoc(L, Occurrences0, [Clause|Cs], Occurrences).
-
-% propagate(Queue, Occurrences, Trail, M): fails if the queue empties without conflict
-propagate([P-Ls|Queue], Occurrences, Trail, M) :-
-  (   unit(Trail, Ls, Unit, Ms),
-      ( var(Unit) -> true ; Unit = L-_, complement(L, C), \+ get_assoc(C, Trail, _) )
-  ->  (   var(Unit)
-      ->  M = app(P, [], Ms)
-      ;   Unit = _-A,
-          assumption(C, X, A),
-          M = let(G, ~C, lam(X, C, app(P, [], Ms)), M1),
-          put_assoc(C, Trail, G, Trail1),
-          ( get_assoc(C, Occurrences, Cs) -> append(Cs, Queue, Queue1) ; Queue1 = Queue ),
-          propagate(Queue1, Occurrences, Trail1, M1)
-      )
-  ;   propagate(Queue, Occurrences, Trail, M)
-  ).
-
-% all literals but (at most) one Unit are false according to Trail
-unit(_, [], _, []).
-unit(Trail, [L|Ls], Unit, [M|Ms]) :-
-  ( get_assoc(L, Trail, M) -> true ; Unit = L-M ),
-  unit(Trail, Ls, Unit, Ms).
+  rup(Hs, Clauses, M).
 
 % AVATAR component clause: C | ~split, where split is defined as C
 avatar_component(_, Hs, [_], app(H, [], [lam(D, Split, app(D, Ts, Ms))])) :-
   select(H-(~(~Split)), Hs, Others),
   split(Split, clause(Ts, Ls)),
   maplist(matches(Others), Ls, Ms).
-% ...or ~L | split, where split is defined as L
+% ...or ~L | split, where split is defined as L: the definition is proved from two hypotheses,
+% Y : ~T and X : T
 avatar_component(Fresh, Hs, [_], app(H, [], [Intro])) :-
   select(H-(~Split), Hs, Others),
-  intro(Split, Fresh, _, Others, All, M, Intro),
-  mate(All, M).
-
-% two hypotheses Y : ~T and X : T
-mate(Hs, app(Y, [], [X])) :-
-  member(Y-(~T), Hs),
-  member(X-U, Hs),
+  intro(Split, Fresh, _, Others, All, app(Y, [], [X]), Intro),
+  member(Y-(~T), All),
+  member(X-U, All),
   U == T.
 
 % Intro proves the definition of Split by M, with eigenvariables from Fresh0 and hypotheses for its literals

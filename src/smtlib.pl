@@ -26,7 +26,7 @@ header -->
   "(set-logic ALL)\n",
   "(set-option :print-success false)\n",
   "(declare-sort I 0)\n",
-  "(declare-const |$any| I)\n",
+  "(declare-const |$inhabited| I)\n",
   { findall(S-(Args-Sort), symbol(S, Args, Sort), Symbols) },
   declarations(Symbols).
 
@@ -150,7 +150,7 @@ binders([X]) --> !, "(", term(X), " I)".
 binders([X|Xs]) --> "(", term(X), " I) ", binders(Xs).
 
 term('$VAR'(N)) --> !, "x", number(N).
-term('$any') --> !, "|$any|".
+term('$inhabited') --> !, "|$inhabited|".
 term(T) --> { T =.. [F|Ts], length(Ts, N) }, ( { Ts == [] } -> sym(F/N) ; "(", sym(F/N), arguments(Ts), ")" ).
 
 arguments([]) --> [].
