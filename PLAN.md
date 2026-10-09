@@ -10,6 +10,7 @@
   - Avoid SWI-only features: no SSU `=>`, no `format ~@`, no `sub_term/2`, no `string_*`, no `:- if`.
   - Printing is done with DCGs over code lists, emitted with `phrase/2` and `write/1`.
   - A few common non-ISO library predicates are used: `forall/2`, `msort/2`, `last/2`, `same_length/2`, `foldl/4`, `library(assoc)`.
+  - Other helpers go in `utils.pl`, under their own names. `forall/2` is built in to SWI but in `library(iso_ext)` in Scryer, so it will need an import there.
 - **Scryer is deferred.** Its strict reader rejects Vampire's SAT lines, e.g. `cnf(s1, plain, spl0_1 | spl0_2, inference(sat_conversion, ...))`. That is an unparenthesised priority-1102 term in argument position, which is invalid ISO even though it is valid TPTP; SWI accepts it. To be fixed upstream in Vampire.
   - Other Scryer findings, for later:
     - A prefix `!` operator breaks cuts.
@@ -80,7 +81,7 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 | `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
 | `logic.pl` | `formula_clause`, `clause_formula`, `complement`, `flip`, `number_vars`, `formula_symbol` |
 | `vampire.pl` | Front end: maps Vampire rules to search procedures; `file`/AVATAR definitions. Unknown rules become `todo`. |
-| `signature.pl` | Default sorts for symbols the front end has not declared, shared by all front ends |
+| `signature.pl` | Default sorts for symbols the front end has not declared, shared by all front ends; `overloaded/1` for back ends' naming |
 | `reconstruct.pl` | Proof search, building λ-terms: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Unit propagation is in `rup.pl`, and closing terms in `close.pl`. |
 | `close.pl` | Closing a proof term after search: binders named `h(N)`, leftover term variables → `'$inhabited'`, assuming the sort is inhabited |
 | `rup.pl` | Reverse unit propagation over ground clauses, building a chain of lemmas: used by `rup` |
@@ -88,6 +89,8 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl` | lambdapi back end |
 | `smtlib.pl` | SMT-LIB back end: one `push`/`check-sat`/`pop` per step, expecting `unsat` |
+| `printing.pl` | Printing helpers shared by the back ends: `out/1` and the `atom`, `number`, `codes` DCGs |
+| `utils.pl` | Portable helpers, under names that clash with no built-in or library predicate (`range/3`) |
 | `main.pl` | `run(Backend)`, where `Backend` is a back-end module |
 
 Usage: `swipl -g 'run(lambdapi)' -t halt src/main.pl < proof.p`. The back end can be `lambdapi`, `smtlib` or `checker`.

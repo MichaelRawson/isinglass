@@ -5,20 +5,19 @@ A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π (¬ L_0) → ... �
 the type of its proof terms in the IR (see ir.pl), which are printed directly.
 */
 :- module(lambdapi, [emit/0]).
-:- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
+:- use_module(printing).
+:- use_module(signature).
+:- use_module(utils).
 :- set_prolog_flag(double_quotes, codes).
 
 emit :-
-  findall(Name, ir_step(Name, _, _), Names),
   out(prelude),
   out(signature),
-  forall(member(Name, Names), out(proof_step(Name))).
-
-out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
+  forall(ir_step(Name, Conclusion, Justification), out(proof_step(Justification, Name, Conclusion))).
 
 prelude -->
   "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq;\n\n",
@@ -52,15 +51,11 @@ sort('$o') --> "Prop".
  * steps
  ********************************************************************************/
 
-proof_step(Name) -->
-  { ir_step(Name, Conclusion, Justification) },
-  proof_step(Justification, Name, Conclusion).
-
 proof_step(input(_, Input), Name, clause(Bs, Ls)) -->
   { clause_formula(clause(Bs, Ls), F) },
   "constant symbol ", input(Input), " : π ", formula(F), ";\n",
   header(Name), statement(clause(Bs, Ls)), " ≔ ",
-  { binder_variables(Bs, Xs), length(Ls, N), numlist_(0, N, Is) },
+  { binder_variables(Bs, Xs), length(Ls, N), range(0, N, Is) },
   lambdas(Xs, Is),
   cases(Is, input_instance(Input, Xs)), ";\n".
 proof_step(split_def(Split, Clause), _, _) -->
@@ -103,7 +98,8 @@ cases([I, J|Is], D) -->
 
 r(I) --> "r", number(I).
 
-input_instance(Input, Xs) --> { phrase(variables(Xs), As) }, application(input(Input), As).
+input_instance(Input, []) --> !, input(Input).
+input_instance(Input, Xs) --> "(", input(Input), variables(Xs), ")".
 
 input(Input) --> "{|", atom(Input), "²|}".
 
@@ -124,11 +120,12 @@ binders(M) --> ", ", proof(M).
 
 % lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
 % (without, inference can be very slow, e.g. PUZ017-1)
-value(lam(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(T), ")", binders(M).
+value(lam(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(X, T), ")", binders(M).
 value(M) --> proof(M).
 
-annotation('$i') --> !, "τ ι".
-annotation(F) --> "π ", formula(F).
+% an eigenvariable has a sort, and a hypothesis a formula
+annotation('$VAR'(_), S) --> !, sort(S).
+annotation(_, F) --> "π ", formula(F).
 
 head('$sym') --> !, "sym".
 head(Name) --> { atom(Name) }, !, atom(Name).
@@ -145,10 +142,6 @@ operand(M) --> { M = app(_, _, _) ; M = lam(_, _, _) ; M = let(_, _, _, _) }, !,
 operand(X) --> head(X).
 
 hypothesis(h(I)) --> "h", number(I).
-
-% Head applied to the (space-separated) arguments As, parenthesised only if there are any
-application(Head, []) --> !, call(Head).
-application(Head, As) --> "(", call(Head), codes(As), ")".
 
 /********************************************************************************
  * formulas and terms
@@ -221,14 +214,5 @@ sym(F/_) --> { introduced(F, _) }, !, atom(F).
 sym(F/N) --> "{|", atom(F), arity(F, N), "¹|}".
 
 % a name overloaded by arity is told apart by its arity
-arity(F, N) --> { symbol(F, As, _), \+ length(As, N) }, !, "/", number(N).
+arity(F, N) --> { overloaded(F/N) }, !, "/", number(N).
 arity(_, _) --> [].
-
-atom(A) --> { atom_codes(A, Cs) }, codes(Cs).
-number(N) --> { number_codes(N, Cs) }, codes(Cs).
-
-codes([]) --> [].
-codes([C|Cs]) --> [C], codes(Cs).
-
-numlist_(N, N, []) :- !.
-numlist_(I, N, [I|Is]) :- J is I + 1, numlist_(J, N, Is).

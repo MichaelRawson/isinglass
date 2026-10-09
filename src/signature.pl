@@ -1,5 +1,5 @@
 % the default signature, shared by front ends
-:- module(signature, [default_signature/0]).
+:- module(signature, [default_signature/0, overloaded/1]).
 :- use_module(library(lists)).
 :- use_module(library(apply)).
 :- use_module(logic).
@@ -24,3 +24,6 @@ default_symbol(P-(F/N)) :-
   length(Args, N),
   maplist(=('$i'), Args),
   assertz(symbol(F, Args, Sort)).
+
+% the name F is also used with an arity other than N, so a back end must tell them apart
+overloaded(F/N) :- symbol(F, As, _), \+ length(As, N), !.

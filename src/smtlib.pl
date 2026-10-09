@@ -10,17 +10,18 @@ Each check is preceded by (echo "name"), so the solver prints the name and then 
 */
 :- module(smtlib, [emit/0]).
 :- use_module(library(lists)).
+:- use_module(library(apply)).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(printing).
+:- use_module(signature).
 :- set_prolog_flag(double_quotes, codes).
 
 emit :-
   out(header),
   forall(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
-
-out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
 
 header -->
   "(set-logic ALL)\n",
@@ -51,7 +52,7 @@ check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 check(proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
-    facts(M, Env, Fs, []) },
+    phrase(facts(Env, M), Fs) },
   scope(Name, clause(Bs, Ls), Fs).
 check(todo(_, Parents), Name, Conclusion) -->
   { findall(F, (member(P, Parents), ir_step(P, C, _), quantified(C, F)), Fs) },
@@ -71,8 +72,10 @@ scope(Name, Conclusion, Fs) -->
   "(echo \"", atom(Name), "\")\n(check-sat)\n(pop 1)\n".
 
 % the negated conclusion, with free variables
-negated(clause(_, Ls), Ns) :- findall(~L, member(L, Ls), Ns).
+negated(clause(_, Ls), Ns) :- maplist(negation, Ls, Ns).
 negated(formula(F), [~F]).
+
+negation(L, ~L).
 
 constants([]) --> [].
 constants([V|Vs]) --> "(declare-const ", term(V), " I)\n", constants(Vs).
@@ -80,62 +83,51 @@ constants([V|Vs]) --> "(declare-const ", term(V), " I)\n", constants(Vs).
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
-% facts(A, Env, Fs0, Fs): the ground facts used in annotated term A; Env maps binders to types
-facts(lam(X, T, A), Env, Fs0, Fs) :- !, put_assoc(X, Env, T, Env1), facts(A, Env1, Fs0, Fs).
-facts(let(X, F, A, B), Env, Fs0, Fs) :- !,
-  facts(A, Env, Fs0, Fs1),
-  put_assoc(X, Env, F, Env1),
-  facts(B, Env1, Fs1, Fs).
-facts(app(F, Ts, As), Env, Fs0, Fs) :- !,
-  fact(F, Ts, As, Env, Fs0, Fs1),
-  foldl_facts(As, Env, Fs1, Fs).
-facts(_, _, Fs, Fs).
-
-foldl_facts([], _, Fs, Fs).
-foldl_facts([A|As], Env, Fs0, Fs) :- facts(A, Env, Fs0, Fs1), foldl_facts(As, Env, Fs1, Fs).
+% the ground facts used in proof term M, in order; Env maps binders to their types
+facts(Env, lam(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
+facts(Env, let(X, F, M, N)) --> !, facts(Env, M), { put_assoc(X, Env, F, Env1) }, facts(Env1, N).
+facts(Env, app(F, Ts, Ms)) --> !, fact(Env, F, Ts, Ms), foldl(facts(Env), Ms).
+facts(_, _) --> [].
 
 % a premise instance
-fact(F, Ts, _, _, [D|Fs], Fs) :-
-  atom(F), step(F, clause(Bs, Ls), _), binder_variables(Bs, Ts), !,
-  disjunction(Ls, D).
+fact(_, F, Ts, _) -->
+  { atom(F), step(F, clause(Bs, Ls), _), binder_variables(Bs, Ts) }, !,
+  { disjunction(Ls, D) }, [D].
 % the definition of Split is used, from F : Split
-fact(F, Ts, _, Env, [(Split => D)|Fs], Fs) :-
-  get_assoc(F, Env, Split), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts), !,
-  disjunction(Ls, D).
-% the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds (by skolemisation)
-fact(F, [], [A], Env, [(D => Split)|Fs], Fs) :-
-  get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
-  binder_variables(Bs, Xs), eigenvariables(A, Xs), !,
-  disjunction(Ls, D).
-fact(_, _, _, _, Fs, Fs).
+fact(Env, F, Ts, _) -->
+  { get_assoc(F, Env, Split), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts) }, !,
+  { disjunction(Ls, D) }, [(Split => D)].
+% the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds: sound by
+% Skolemisation of ~Split => ? [X] : ~C, as the eigenvariables are fresh (which search guarantees,
+% and checker.pl checks, but this back end does not)
+fact(Env, F, [], [M]) -->
+  { get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
+    binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
+  { disjunction(Ls, D) }, [(D => Split)].
+fact(_, _, _, _) --> [].
 
-eigenvariables(lam('$VAR'(N), _, A), ['$VAR'(N)|Xs]) :- !, eigenvariables(A, Xs).
+eigenvariables(lam('$VAR'(N), _, M), ['$VAR'(N)|Xs]) :- !, eigenvariables(M, Xs).
 eigenvariables(_, []).
 
 % '$VAR' terms occurring free, i.e. not bound by a quantifier
 free_variables(Fs, Vs) :-
-  free_variables(Fs, [], [], Vs0),
+  foldl(free_variables([]), Fs, [], Vs0),
   sort(Vs0, Vs).
 
-free_variables('$VAR'(N), Bound, Vs0, Vs) :- !,
+free_variables(Bound, '$VAR'(N), Vs0, Vs) :- !,
   ( memberchk('$VAR'(N), Bound) -> Vs = Vs0 ; Vs = ['$VAR'(N)|Vs0] ).
-free_variables('!'(Bs, F), Bound, Vs0, Vs) :- !, quantified_variables(Bs, F, Bound, Vs0, Vs).
-free_variables('?'(Bs, F), Bound, Vs0, Vs) :- !, quantified_variables(Bs, F, Bound, Vs0, Vs).
-free_variables(T, Bound, Vs0, Vs) :-
+free_variables(Bound, '!'(Bs, F), Vs0, Vs) :- !, quantified_variables(Bound, Bs, F, Vs0, Vs).
+free_variables(Bound, '?'(Bs, F), Vs0, Vs) :- !, quantified_variables(Bound, Bs, F, Vs0, Vs).
+free_variables(Bound, T, Vs0, Vs) :-
   compound(T), !,
   T =.. [_|Ts],
-  free_variables_list(Ts, Bound, Vs0, Vs).
+  foldl(free_variables(Bound), Ts, Vs0, Vs).
 free_variables(_, _, Vs, Vs).
 
-quantified_variables(Bs, F, Bound, Vs0, Vs) :-
+quantified_variables(Bound, Bs, F, Vs0, Vs) :-
   binder_variables(Bs, Xs),
   append(Xs, Bound, Bound1),
-  free_variables(F, Bound1, Vs0, Vs).
-
-free_variables_list([], _, Vs, Vs).
-free_variables_list([T|Ts], Bound, Vs0, Vs) :-
-  free_variables(T, Bound, Vs0, Vs1),
-  free_variables_list(Ts, Bound, Vs1, Vs).
+  free_variables(Bound1, F, Vs0, Vs).
 
 /********************************************************************************
  * formulas and terms
@@ -148,8 +140,8 @@ formula((F | G)) --> !, "(or ", formula(F), " ", formula(G), ")".
 formula((F & G)) --> !, "(and ", formula(F), " ", formula(G), ")".
 formula((F => G)) --> !, "(=> ", formula(F), " ", formula(G), ")".
 formula((F <=> G)) --> !, "(= ", formula(F), " ", formula(G), ")".
-formula('!'(Xs, F)) --> !, "(forall (", binders(Xs), ") ", formula(F), ")".
-formula('?'(Xs, F)) --> !, "(exists (", binders(Xs), ") ", formula(F), ")".
+formula('!'(Bs, F)) --> !, "(forall (", binders(Bs), ") ", formula(F), ")".
+formula('?'(Bs, F)) --> !, "(exists (", binders(Bs), ") ", formula(F), ")".
 formula(S = T) --> !, "(= ", term(S), " ", term(T), ")".
 formula(A) --> term(A).
 
@@ -161,7 +153,8 @@ binder(X:S) --> "(", term(X), " ", sort(S), ")".
 
 term('$VAR'(N)) --> !, "x", number(N).
 term('$inhabited') --> !, "|$inhabited|".
-term(T) --> { T =.. [F|Ts], length(Ts, N) }, ( { Ts == [] } -> sym(F/N) ; "(", sym(F/N), arguments(Ts), ")" ).
+term(T) --> { atomic(T) }, !, sym(T/0).
+term(T) --> { T =.. [F|Ts], length(Ts, N) }, "(", sym(F/N), arguments(Ts), ")".
 
 arguments([]) --> [].
 arguments([T|Ts]) --> " ", term(T), arguments(Ts).
@@ -170,11 +163,5 @@ arguments([T|Ts]) --> " ", term(T), arguments(Ts).
 sym(F/N) --> "|t.", atom(F), arity(F, N), "|".
 
 % a name overloaded by arity is told apart by its arity
-arity(F, N) --> { symbol(F, As, _), \+ length(As, N) }, !, "/", number(N).
+arity(F, N) --> { overloaded(F/N) }, !, "/", number(N).
 arity(_, _) --> [].
-
-atom(A) --> { atom_codes(A, Cs) }, codes(Cs).
-number(N) --> { number_codes(N, Cs) }, codes(Cs).
-
-codes([]) --> [].
-codes([C|Cs]) --> [C], codes(Cs).
