@@ -2,12 +2,13 @@
 lambdapi back end, using the encoding of first-order logic in lambdapi's Stdlib.
 
 A clause ∀xs. L_0 ∨ ... ∨ L_n-1 is stated as Π xs, π (¬ L_0) → ... → π (¬ L_n-1) → π ⊥,
-the type of its proof terms in the IR (see db.pl), which are printed directly.
+the type of its proof terms in the IR (see ir.pl), which are printed directly.
 */
 :- module(lambdapi, [emit/0]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(logic).
+:- use_module(ir).
 :- use_module(db).
 :- set_prolog_flag(double_quotes, codes).
 
@@ -37,7 +38,8 @@ signature -->
 
 declarations(_, []) --> [].
 declarations(Keyword, [S-(Args-Sort)|Ss]) -->
-  Keyword, sym(S), " : ", arrows(Args, Sort), ";\n",
+  { length(Args, N) },
+  Keyword, sym(S/N), " : ", arrows(Args, Sort), ";\n",
   declarations(Keyword, Ss).
 
 arrows([], Sort) --> sort(Sort).
@@ -62,7 +64,7 @@ proof_step(input(_, Input), Name, clause(Xs, Ls)) -->
   lambdas(Xs, Is),
   cases(Is, input_instance(Input, Xs)), ";\n".
 proof_step(split_def(Split, Clause), _, _) -->
-  "rule ", sym(Split), " ↪ ", clause(Clause), ";\n".
+  "rule ", sym(Split/0), " ↪ ", clause(Clause), ";\n".
 proof_step(proof(M), Name, Conclusion) -->
   header(Name), conclusion(Conclusion), " ≔ ", proof(M), ";\n".
 
@@ -199,12 +201,7 @@ exists([]) --> [].
 exists([X|Xs]) --> "`∃ (", term(X), " : τ ι), ", exists(Xs).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
-clause(clause(Xs, Ls)) -->
-  { implications(Ls, F0), ( Xs == [] -> F = F0 ; F = '!'(Xs, F0) ) },
-  formula(0, F).
-
-implications([], '$false').
-implications([L|Ls], (~L => F)) :- implications(Ls, F).
+clause(C) --> { clause_type(C, F) }, formula(0, F).
 
 % the type of hypothesis refuting literal L, as an argument of π
 hypothesis_type(L) --> formula(~L).
@@ -218,10 +215,14 @@ term_priority(_, 101).
 
 term_('$VAR'(N)) --> !, "x", number(N).
 term_('$any') --> !, "infer_el".
-term_(T) --> { T =.. [F|Ts] }, sym(F), variables(Ts).
+term_(T) --> { T =.. [F|Ts], length(Ts, N) }, sym(F/N), variables(Ts).
 
-sym(S) --> { introduced(S, _) }, !, atom(S).
-sym(S) --> "{|", atom(S), "¹|}".
+sym(F/_) --> { introduced(F, _) }, !, atom(F).
+sym(F/N) --> "{|", atom(F), arity(F, N), "¹|}".
+
+% a name overloaded by arity is told apart by its arity
+arity(F, N) --> { symbol(F, As, _), \+ length(As, N) }, !, "/", number(N).
+arity(_, _) --> [].
 
 atom(A) --> { atom_codes(A, Cs) }, codes(Cs).
 number(N) --> { number_codes(N, Cs) }, codes(Cs).

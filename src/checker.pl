@@ -1,5 +1,5 @@
 /*
-Type checker back end: each proof term of the IR (see db.pl) is checked against the type of its
+Type checker back end: each proof term of the IR (see ir.pl) is checked against the type of its
 conclusion, in order, citing only steps already checked. Output is nothing; a step that fails
 to check is reported, and is a bug in the search.
 
@@ -13,6 +13,7 @@ terms (instantiation) or to eigenvariables (an unfolded split definition, under 
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
+:- use_module(ir).
 :- use_module(db).
 
 emit :-
@@ -106,7 +107,7 @@ arguments([M|Ms], Steps, Gamma, T0, T) :-
 % weak head normal form: negation is implication, and split symbols are their definitions
 % types are compared syntactically (T1 == T above), not up to unfolding: enough for clauses
 unfold(~A, (A => '$false')) :- !.
-unfold(S, T) :- atom(S), split_def(S, Clause), !, closed(Clause), clause_type(Clause, T).
+unfold(S, T) :- atom(S), split(S, Clause), !, closed(Clause), clause_type(Clause, T).
 unfold(T, T).
 
 closed(clause(Xs, Ls)) :- \+ \+ ( number_vars(Xs, 0, _), ground(Ls) ).

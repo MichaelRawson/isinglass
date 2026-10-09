@@ -32,7 +32,8 @@ header -->
 
 declarations([]) --> [].
 declarations([S-(Args-Sort)|Ss]) -->
-  "(declare-fun ", sym(S), " (", sorts(Args), ") ", sort(Sort), ")\n",
+  { length(Args, N) },
+  "(declare-fun ", sym(S/N), " (", sorts(Args), ") ", sort(Sort), ")\n",
   declarations(Ss).
 
 sorts([]) --> [].
@@ -97,11 +98,11 @@ foldl_facts([A|As], Env, Fs0, Fs) :- facts(A, Env, Fs0, Fs1), foldl_facts(As, En
 fact(F, Ts, _, _, [D|Fs], Fs) :- atom(F), step(F, clause(Ts, Ls), _), !, disjunction(Ls, D).
 % the definition of Split is used, from F : Split
 fact(F, Ts, _, Env, [(Split => D)|Fs], Fs) :-
-  get_assoc(F, Env, Split), atom(Split), split_def(Split, clause(Ts, Ls)), !,
+  get_assoc(F, Env, Split), atom(Split), split(Split, clause(Ts, Ls)), !,
   disjunction(Ls, D).
 % the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds (by skolemisation)
 fact(F, [], [A], Env, [(D => Split)|Fs], Fs) :-
-  get_assoc(F, Env, ~Split), atom(Split), split_def(Split, clause(Xs, Ls)), eigenvariables(A, Xs), !,
+  get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Xs, Ls)), eigenvariables(A, Xs), !,
   disjunction(Ls, D).
 fact(_, _, _, _, Fs, Fs).
 
@@ -150,13 +151,17 @@ binders([X|Xs]) --> "(", term(X), " I) ", binders(Xs).
 
 term('$VAR'(N)) --> !, "x", number(N).
 term('$any') --> !, "|$any|".
-term(T) --> { T =.. [F|Ts] }, ( { Ts == [] } -> sym(F) ; "(", sym(F), arguments(Ts), ")" ).
+term(T) --> { T =.. [F|Ts], length(Ts, N) }, ( { Ts == [] } -> sym(F/N) ; "(", sym(F/N), arguments(Ts), ")" ).
 
 arguments([]) --> [].
 arguments([T|Ts]) --> " ", term(T), arguments(Ts).
 
 % namespaced, to avoid clashes with SMT-LIB symbols
-sym(S) --> "|t.", atom(S), "|".
+sym(F/N) --> "|t.", atom(F), arity(F, N), "|".
+
+% a name overloaded by arity is told apart by its arity
+arity(F, N) --> { symbol(F, As, _), \+ length(As, N) }, !, "/", number(N).
+arity(_, _) --> [].
 
 atom(A) --> { atom_codes(A, Cs) }, codes(Cs).
 number(N) --> { number_codes(N, Cs) }, codes(Cs).

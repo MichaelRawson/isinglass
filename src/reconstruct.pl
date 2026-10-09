@@ -1,5 +1,5 @@
 /*
-Reconstruct steps into ir_step/3 facts by searching for proof terms (see db.pl for the IR).
+Reconstruct steps into ir_step/3 facts by searching for proof terms (see ir.pl for the IR).
 
 The search procedures below are given hypotheses Hs, a list of X-T pairs where X : T is a
 variable, and build a term of type ⊥, which is then abstracted over the conclusion (checker.pl
@@ -175,7 +175,7 @@ unit(Trail, [L|Ls], Unit, [M|Ms]) :-
 % AVATAR component clause: C | ~split, where split is defined as C
 avatar_component(_, Hs, [_], app(H, [], [lam(D, Split, app(D, Ts, Ms))])) :-
   select(H-(~(~Split)), Hs, Others),
-  split_def(Split, clause(Ts, Ls)),
+  split(Split, clause(Ts, Ls)),
   maplist(matches(Others), Ls, Ms).
 % ...or ~L | split, where split is defined as L
 avatar_component(Fresh, Hs, [_], app(H, [], [Intro])) :-
@@ -191,7 +191,7 @@ mate(Hs, app(Y, [], [X])) :-
 
 % Intro proves the definition of Split by M, with eigenvariables from Fresh0 and hypotheses for its literals
 intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro) :-
-  split_def(Split, clause(Xs, Ls)),
+  split(Split, clause(Xs, Ls)),
   number_vars(Xs, Fresh0, Fresh),
   hypotheses(Ls, Gs),
   append(Gs, Hs, Hs1),
@@ -206,7 +206,7 @@ splits([], _, Hs, Ds, Premise, app(Premise, Ts, Ms)) :-
   premise(Premise, Ts, Ls),
   maplist(split_literal(Hs, Ds), Ls, Ms).
 splits([H-(~(~Split))|Rest], Fresh, Hs, Ds, Premise, M) :-
-  split_def(Split, Clause),
+  split(Split, Clause),
   splits(Rest, Fresh, Hs, [H-Split-Clause|Ds], Premise, M).
 splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, app(H, [], [Intro])) :-
   intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro),

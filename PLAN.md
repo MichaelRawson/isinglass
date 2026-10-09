@@ -35,7 +35,7 @@
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so each database lookup is a fresh instance and instantiation is unification. When a step is reconstructed, its conclusion is made rigid by numbering its variables `'$VAR'(N)` in binder order; the IR is ground.
 - Vampire's AVATAR clause shape `(! [X] : C) | ~spl` is also recognised as a clause.
 
-## The IR (`src/db.pl`)
+## The IR (`src/ir.pl`, `src/db.pl`)
 ```
 ir_step(Name, Conclusion, Justification)     % in dependency order, reachable from the final $false
 split(Symbol, Clause)                        % index of AVATAR definitions
@@ -48,7 +48,7 @@ M ::= h(N)                 % a hypothesis
 F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 ```
 **Proofs are λ-terms**, Curry–Howard style, in minimal logic with an abstract `⊥`.
-- A clause `clause(Xs, [L₀…Lₙ₋₁])` has the type `Π xs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`logic:clause_type/2`), where `¬F` is `F → ⊥`. `M` is a closed term of that type.
+- A clause `clause(Xs, [L₀…Lₙ₋₁])` has the type `Π xs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`. `M` is a closed term of that type.
 - The hypothesis for a negative literal `~A` is honestly `¬¬A`, so `¬¬`-elimination is never needed, and the IR is sound under any reading of `⊥`:
   - classical falsity, for lambdapi, Lean and SMT;
   - the conjecture `G` of the A-translation, for Agda.
@@ -77,10 +77,11 @@ F ::= h(N) | Name | '$sym' % '$sym' : ∀x y. x = y → y = x
 |---|---|
 | `ops.pl` | Operators of the internal syntax, exported as a module |
 | `load.pl` | `read_tstp/1`: `read/1` with run-time TPTP operators, followed by normalisation |
-| `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2`; IR documentation |
-| `logic.pl` | `clause_form`, `clause_formula`, `clause_type`, `complement`, `flip`, `number_vars`, `symbols`, `split_def` |
+| `db.pl` | Shared dynamic facts: `step/3` (front-end output), `symbol/3`, `introduced/2`, `ir_step/3`, `split/2` |
+| `logic.pl` | `formula_clause`, `clause_formula`, `complement`, `flip`, `number_vars`, `formula_symbol` |
 | `vampire.pl` | Front end: maps Vampire rules to search procedures; `file`/AVATAR definitions; default signature. Unknown rules become `todo`. |
 | `reconstruct.pl` | Proof search, building λ-terms: `variant`, `resolve`, `rup`, `avatar_component`, `avatar_split`. Also binder naming and leftover variables → `'$any'`. |
+| `ir.pl` | IR documentation; `clause_type`, the type of a clause |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl` | lambdapi back end |
 | `smtlib.pl` | SMT-LIB back end: one `push`/`check-sat`/`pop` per step, expecting `unsat` |
@@ -102,6 +103,7 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 ## Back-end encodings
 **lambdapi.**
 - **Statements:** a clause is stated as its IR type `Π xs, π (¬ L₀) → … → π ⊥`, using framework-level `Π`/`→` rather than `` `∀ ``/`⇒`. For a negative literal this is `π (¬ ¬ A)`.
+- **Symbols:** `{|f¹|}`, or `{|f/2¹|}` for a name overloaded by arity (TPTP allows it, and Vampire prints both as `f`).
 - **Proof terms** are printed directly. `'$sym'` is a prelude symbol `sym`.
 - **Lets:** a `let` carries its type, and the binder of a λ value is annotated too. lambdapi does not use a let's type to elaborate its value, and inference was very slow without the annotation (PUZ017-1 went from 2 s to over 60 s).
 - **Inputs:** declared as `{|name²|}` with their original formula. The clause is obtained by an `∨ₑ` chain.
@@ -112,7 +114,7 @@ A front end for another prover (e.g. E) would be a similar small table onto the 
 **SMT-LIB.**
 - Each step is checked by asserting the ground premise instances `app(Name, Ts, _)` of its proof term and the negated conclusion, with variables as fresh constants.
 - AVATAR definitions are asserted as ground implications, using the binder types in the proof term: `spl ⇒ Cσ` when a definition is used, and `C[eigen] ⇒ spl` when one is introduced. The latter is sound by skolemisation.
-- Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
+- Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted. A name overloaded by arity also gets its arity, `|t.f/2|`.
 - `todo` steps are checked with universally quantified premises.
 
 ## Status: milestone 1 (CNF, no equality, plus AVATAR)
