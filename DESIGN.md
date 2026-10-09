@@ -59,6 +59,7 @@ F ::= h(N) | Name | '$sym' | '$refl'
 - **Resolution** lets the minor premise refute only positive literals of the major. Both premises are tried as major, so this is complete, and it avoids an exponential search on wide, mostly negative clauses (SYO656-1 did not finish otherwise).
 - **Refl** is the last way to match a premise literal: `~(S = T)` with `S`, `T` unifiable is refuted by `λk. k (refl S)`. So `variant` also covers equality resolution, trivial inequality removal and (by symmetry) reorienting equations. This might blow up on wide clauses with many disequations; on the corpus it did not.
 - **Paramodulation** is like resolution: each literal `K` of the `Into` premise is matched, or rewritten as `λy : K. From …`, where one positive equation `A = B` of (an instance of) `From` is refuted by `λe : A = B. Body`, and the other literals of `From` are matched. **Equality factoring** is the same, but the equation comes from a hypothesis for a conclusion literal `A ≠ B`. In `Body`, `y` is rewritten by `e` (or `sym e`) to a hypothesis's literal or its flip, by a parallel walk of the two literals that chooses rewrite sites by unification: any set of occurrences, as Vampire rewrites all of them, even inside instantiated variables. A flipped hypothesis refutes by a λ, whose β-redex is written as a `let`, so that heads stay variables or constants. All rewrites in a step share the motive variable `'$VAR'(Fresh)`.
+- **Definition unfolding** replaces every occurrence of each defined symbol: the first parent is the clause, and the others are unit definitions `f(X₁…Xₙ) = body`, either way round, listed once per occurrence. Each definition is oriented by a side `f(distinct variables)`, by backtracking if both sides are. Each literal is then unfolded deterministically, innermost first, so an instance's arguments are already unfolded, and each occurrence is one `rewrite`. Its motive is the literal around the occurrence, rebuilt from a zipper of frames rather than by `copy_term`, which would rename the clause's variables. The unfolded literal is refuted by a hypothesis, as in paramodulation. Each distinct definition instance is opened once, outside the clause application, so that every literal can use it.
 - A failed tactic leaves the step as `todo`, with a warning.
 
 Vampire rule → search procedure (`vampire.pl`):
@@ -68,11 +69,10 @@ Vampire rule → search procedure (`vampire.pl`):
 | factoring, duplicate_literal_removal, sat_conversion, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution | `variant` |
 | superposition, forward/backward_demodulation | `paramodulate` |
 | equality_factoring | `equality_factor` |
+| definition_unfolding | `unfold` |
 | avatar_split_clause | `avatar_split` |
 | avatar_component_clause | `avatar_component` |
 | rat | `rup` |
-
-**Todo:** definition_unfolding (function definition elimination) is not reconstructed yet, so it stays `todo`.
 
 ## Back ends
 **checker** (`checker.pl`): an independent type checker of each ground, annotated term against the ground type of its conclusion, step by step.
@@ -115,7 +115,7 @@ Vampire rule → search procedure (`vampire.pl`):
 
 ## Testing and known issues
 - `'$sym'` was first tested on hand-made proofs of both polarities, through lambdapi and z3. Mutating proof terms (dropped or swapped arguments, wrong `'$sym'` order, wrong lemma type or binder annotation) was always caught by the checker: over 23000 mutants for SYN488-1.
-- The CNF corpus (3740 proofs) has equality throughout: about 59000 rewrites, of which 17000 are into a flipped hypothesis (a `let`). Every step but definition_unfolding is reconstructed and checks. Mutants of rewrites (wrong direction, no hole, wrong motive variable, rewrite dropped) and of `refl`/`sym` arguments were all caught.
+- The CNF corpus (3740 proofs) has equality throughout: about 59000 rewrites, of which 17000 are into a flipped hypothesis (a `let`). Every step is reconstructed and checks, with no `todo` left; definition unfolding adds another 29000 rewrites. Mutants of rewrites (wrong direction, no hole, wrong motive variable, rewrite dropped) and of `refl`/`sym` arguments were all caught.
 - **lambdapi scaling:** checking cost grows roughly as n⁴ in the number of hypotheses of one declaration, even with every binder typed: n = 150 takes 30–50 s. The largest proofs (lambdapi output 4–245 MB, such as HWV057 and SWV424-1.200 and up) time out or run out of memory. lambdapi's `let` was much worse than β-redexes, and a `cut` lemma worse still.
 - Literal matching is naive, in a fixed literal order.
 

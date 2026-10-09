@@ -182,6 +182,101 @@ rewritten_term(L, R, Z, U, U1, V) :-
   maplist(rewritten_term(L, R, Z), Us, Us1, Vs),
   V =.. [F|Vs].
 
+% definition unfolding: every occurrence of a defined symbol in the clause is replaced, innermost
+% first, each by one rewrite with an instance of its definition; the instances are opened outermost,
+% once each, so that every literal can use them
+unfold(Fresh, Hs, [Clause|Definitions], M) :-
+  sort(Definitions, Ds),
+  maplist(definiendum, Ds, Defs),
+  premise(Clause, Ts, Ks),
+  foldl(unfold_literal(ctx('$VAR'(Fresh), Defs), Hs), Ks, Ms, [], Instances),
+  foldl(opened, Instances, app(Clause, Ts, Ms), M).
+
+% a unit definition f(X_1, ..., X_n) = body, or body = f(X_1, ..., X_n), defines f/n
+definiendum(D, def(D, F/N, Side)) :-
+  premise(D, _, [A = B]),
+  ( Side = left, Def = A ; Side = right, Def = B ),
+  pattern(Def),
+  functor(Def, F, N).
+
+% f(X_1, ..., X_n) with distinct variables
+pattern(T) :-
+  nonvar(T),
+  T =.. [_|Xs],
+  maplist(var, Xs),
+  sort(Xs, Ys),
+  same_length(Xs, Ys).
+
+opened(instance(D, Us, Equation, E), M, app(D, Us, [lam(E, Equation, M)])).
+
+% literal K is unfolded by a chain of rewrites, from Y : K, and refuted by a hypothesis
+unfold_literal(Ctx, Hs, K, M, Is0, Is) :-
+  unfold_atom(K, Ctx, K1, []-Is0, Steps-Is),
+  (   Steps == []
+  ->  matches(Hs, K, M)
+  ;   M = lam(Y, K, Body),
+      Ctx = ctx(Z, _),
+      chain(Steps, Z, Y, W),
+      member(X-(~K2), Hs),
+      ( Target = K2 ; flip(K2, Target) ),
+      unify_with_occurs_check(K1, Target),
+      refutes(~K2, X, Target, Refutation),
+      applied(Refutation, W, Body)
+  ).
+
+% the rewrites, most recent first, applied to Y
+chain([], _, Y, Y).
+chain([step(Motive, Equation)|Steps], Z, Y, rewrite(Z, Motive, Equation, W)) :-
+  chain(Steps, Z, Y, W).
+
+% the arguments of the atom are unfolded; frames(F, Done, Rest) record the context of the subterm
+% being unfolded, from the inside out, with its unfolded left siblings Done (reversed) and the rest
+unfold_atom(~A, Ctx, ~A1, S0, S) :- !, unfold_arguments(A, Ctx, [frame(~, [], [])], A1, S0, S).
+unfold_atom(A, Ctx, A1, S0, S) :- unfold_arguments(A, Ctx, [], A1, S0, S).
+
+unfold_arguments(T, Ctx, Frames, T1, S0, S) :-
+  T =.. [F|As],
+  unfold_list(As, F, [], Ctx, Frames, Bs, S0, S),
+  T1 =.. [F|Bs].
+
+unfold_list([], _, _, _, _, [], S, S).
+unfold_list([A|As], F, Done, Ctx, Frames, [B|Bs], S0, S) :-
+  unfold_term(A, Ctx, [frame(F, Done, As)|Frames], B, S0, S1),
+  unfold_list(As, F, [B|Done], Ctx, Frames, Bs, S1, S).
+
+% innermost first: the arguments, then the term itself, whose body is unfolded again
+unfold_term(T, _, _, T, S, S) :- var(T), !.
+unfold_term(T, Ctx, Frames, T1, S0, S) :-
+  unfold_arguments(T, Ctx, Frames, T0, S0, S1),
+  Ctx = ctx(_, Defs),
+  (   functor(T0, F, N), member(def(D, F/N, Side), Defs)
+  ->  unfolded(D, Side, T0, Ctx, Frames, Body, S1, S2),
+      unfold_term(Body, Ctx, Frames, T1, S2, S)
+  ;   T1 = T0, S = S1
+  ).
+
+% T is replaced by Body, with an instance of definition D: a step with the motive of the frames,
+% and the instance, unless the same one is already open
+unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Motive, Equation)|Steps]-Is) :-
+  premise(D, Us, [A = B]),
+  oriented(Side, A = B, E, T, Body, Equation),
+  plug(Frames, Z, Motive),
+  instance(D, Us, A = B, E, Is0, Is).
+
+oriented(left, A = B, E, A, B, E).
+oriented(right, A = B, E, B, A, app('$sym', [A, B], [E])).
+
+instance(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.
+instance(D, Us, Equation, E, Is, [instance(D, Us, Equation, E)|Is]).
+
+% the term with X in the context of the frames
+plug([], T, T).
+plug([frame(F, Done, Rest)|Frames], X, T) :-
+  reverse(Done, Left),
+  append(Left, [X|Rest], As),
+  U =.. [F|As],
+  plug(Frames, U, T).
+
 % reverse unit propagation (see rup.pl) over ground premises: premises with variables are ignored,
 % which is enough for Vampire's rat, over AVATAR's propositional clauses
 rup(_, Hs, Premises, M) :-

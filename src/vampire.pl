@@ -48,6 +48,7 @@ tactic(superposition, paramodulate).
 tactic(forward_demodulation, paramodulate).
 tactic(backward_demodulation, paramodulate).
 tactic(equality_factoring, equality_factor).
+tactic(definition_unfolding, unfold).
 
 record_introduced(Source) :-
   forall(introduced_symbol(Source, Kind, Symbol), assertz(introduced(Symbol, Kind))).
