@@ -41,29 +41,36 @@ mark(Name, Justification) :-
   assertz(cone(Name)).
 mark(_, _).
 
+% ∀ₜ and ∃ₜ quantify over types, so that the type variables of TF1 can be bound within a formula
 prelude -->
   "require open Stdlib.Set Stdlib.Prop Stdlib.FOL Stdlib.Eq", classic, ";\n\n",
-  "opaque symbol sym (x y : τ ι) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
-  "opaque symbol refl (x : τ ι) : π (x = x) ≔ eq_refl x;\n",
-  "opaque symbol rw [x y : τ ι] (p : τ ι → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
-  "opaque symbol infer_el [a] : τ a ≔ el a;\n\n".
+  "constant symbol ∀ₜ : (Set → Prop) → Prop;\nnotation ∀ₜ quantifier;\n",
+  "rule π (∀ₜ $p) ↪ Π a : Set, π ($p a);\n",
+  "constant symbol ∃ₜ : (Set → Prop) → Prop;\nnotation ∃ₜ quantifier;\n",
+  "opaque symbol sym (a : Set) (x y : τ a) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
+  "opaque symbol refl (a : Set) (x : τ a) : π (x = x) ≔ eq_refl x;\n",
+  "opaque symbol rw [a] [x y : τ a] (p : τ a → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n\n".
 
 /********************************************************************************
  * signature
  ********************************************************************************/
 
+% a polymorphic symbol takes its type arguments first, as Π (x0 : Set), ...
 signature -->
-  { findall(S-T, (symbol(S, Args, Sort), \+ introduced(S, _), T = Args-Sort), Original),
-    findall(S-T, (symbol(S, Args, Sort), introduced(S, _), T = Args-Sort), Introduced) },
+  { findall(S-T, (symbol(S, Ps, Args, Sort), \+ introduced(S, _), T = Ps-Args-Sort), Original),
+    findall(S-T, (symbol(S, Ps, Args, Sort), introduced(S, _), T = Ps-Args-Sort), Introduced) },
   declarations("constant symbol ", Original),
   declarations("symbol ", Introduced),
   "\n".
 
 declarations(_, []) --> [].
-declarations(Keyword, [S-(Args-Sort)|Ss]) -->
-  { length(Args, N) },
-  Keyword, sym(S/N), " : ", arrows(Args, Sort), ";\n",
+declarations(Keyword, [S-(Ps-Args-Sort)|Ss]) -->
+  { length(Ps, K), length(Args, M), N is K + M, number_vars(Ps, 0, _) },
+  Keyword, sym(S/N), " : ", params(Ps), arrows(Args, Sort), ";\n",
   declarations(Keyword, Ss).
+
+params([]) --> [].
+params([P|Ps]) --> "Π (", term(P), " : Set), ", params(Ps).
 
 arrows([], Sort) --> sort(Sort).
 arrows([A|As], Sort) --> sort(A), " → ", arrows(As, Sort).
@@ -71,8 +78,10 @@ arrows([A|As], Sort) --> sort(A), " → ", arrows(As, Sort).
 classic --> { negated(_, _) }, !, " Stdlib.Classic".
 classic --> [].
 
-sort('$i') --> "τ ι".
-sort('$o') --> "Prop".
+% sorts are terms of sort Set
+sort('$tType') --> !, "Set".
+sort('$o') --> !, "Prop".
+sort(S) --> "τ ", term(S).
 
 /********************************************************************************
  * steps
@@ -155,8 +164,8 @@ input(Input) --> "{|", atom(Input), "²|}".
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
 proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
-proof(rewrite(X, A, E, M)) --> !,
-  "rw (λ (", term(X), " : ", sort('$i'), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
+proof(rewrite(X:S, A, E, M)) --> !,
+  "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
 
@@ -221,7 +230,7 @@ priority(_ => _, 5) :- !.
 priority(_ <=> _, 5) :- !.
 priority('!'(_, _), 0) :- !.
 priority('?'(_, _), 0) :- !.
-priority(_ = _, 10) :- !.
+priority('$='(_, _, _), 10) :- !.
 priority(T, Q) :- term_priority(T, Q).
 
 formula_('$false') --> !, "⊥".
@@ -233,14 +242,18 @@ formula_((F => G)) --> !, formula(6, F), " ⇒ ", formula(5, G).
 formula_((F <=> G)) --> !, formula(6, F), " ⇔ ", formula(6, G).
 formula_('!'(Xs, F)) --> !, foralls(Xs), formula(0, F).
 formula_('?'(Xs, F)) --> !, exists(Xs), formula(0, F).
-formula_(S = T) --> !, term(11, S), " = ", term(11, T).
+formula_('$='(_, S, T)) --> !, term(11, S), " = ", term(11, T).
 formula_(A) --> term_(A).
 
+% type variables are bound by ∀ₜ and ∃ₜ
 foralls([]) --> [].
-foralls([X:S|Bs]) --> "`∀ (", term(X), " : ", sort(S), "), ", foralls(Bs).
+foralls([X:S|Bs]) --> "`", quantifier("∀", S), " (", term(X), " : ", sort(S), "), ", foralls(Bs).
 
 exists([]) --> [].
-exists([X:S|Bs]) --> "`∃ (", term(X), " : ", sort(S), "), ", exists(Bs).
+exists([X:S|Bs]) --> "`", quantifier("∃", S), " (", term(X), " : ", sort(S), "), ", exists(Bs).
+
+quantifier(Q, '$tType') --> !, codes(Q), "ₜ".
+quantifier(Q, _) --> codes(Q).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
 clause(C) --> { clause_type(C, F) }, formula(0, F).
@@ -256,7 +269,8 @@ term_priority(T, 100) :- compound(T), T \= '$VAR'(_), !.
 term_priority(_, 101).
 
 term_('$VAR'(N)) --> !, "x", number(N).
-term_('$inhabited') --> !, "infer_el".
+term_('$inhabited'(S)) --> !, "el ", term(S).
+term_('$i') --> !, "ι".
 term_(T) --> { T =.. [F|Ts], length(Ts, N) }, sym(F/N), variables(Ts).
 
 sym(F/_) --> { introduced(F, _) }, !, atom(F).

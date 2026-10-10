@@ -10,6 +10,11 @@ negated conjecture, a hypothesis, and the conjecture, which follows from refutin
 Each check is preceded by (echo "name"), so the solver prints the name and then the result,
 and by (set-info :status unsat), so that a solver fails loudly on any other result: z3 reports an
 error and exits 1 at the end, and cvc5 aborts at once.
+
+Types are sorts, declared with their arity: SMT-LIB has parametric sorts, but solvers do not yet
+support polymorphic functions (declare-sort-parameter). As each check is ground, polymorphic
+symbols are monomorphised: each instance f(Types, ...) used in a check is declared in its scope,
+as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts.
 */
 :- module(smtlib, [emit/0]).
 :- use_module(library(lists)).
@@ -26,15 +31,21 @@ emit :-
   out(header),
   forall(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
 
+% '$inhabited'('$tType') is an arbitrary sort
 header -->
   "(set-logic ALL)\n",
   "(set-option :print-success false)\n",
   "(declare-sort I 0)\n",
-  "(declare-const |$inhabited| I)\n",
-  { findall(S-(Args-Sort), symbol(S, Args, Sort), Symbols) },
+  "(declare-sort |$inhabited| 0)\n",
+  { findall(S-(Args-Sort), symbol(S, [], Args, Sort), Symbols) },
   declarations(Symbols).
 
+% types are sorts; polymorphic symbols are declared by instance, in each check
 declarations([]) --> [].
+declarations([S-(Args-'$tType')|Ss]) --> !,
+  { length(Args, N) },
+  "(declare-sort ", sym(S/N), " ", number(N), ")\n",
+  declarations(Ss).
 declarations([S-(Args-Sort)|Ss]) -->
   { length(Args, N) },
   "(declare-fun ", sym(S/N), " (", sorts(Args), ") ", sort(Sort), ")\n",
@@ -44,8 +55,15 @@ sorts([]) --> [].
 sorts([S]) --> !, sort(S).
 sorts([S|Ss]) --> sort(S), " ", sorts(Ss).
 
-sort('$i') --> "I".
-sort('$o') --> "Bool".
+sort('$i') --> !, "I".
+sort('$o') --> !, "Bool".
+sort('$inhabited'('$tType')) --> !, "|$inhabited|".
+sort('$VAR'(N)) --> !, "x", number(N).
+sort(T) --> { atom(T) }, !, sym(T/0).
+sort(T) --> { T =.. [F|Ts], length(Ts, N) }, "(", sym(F/N), sort_arguments(Ts), ")".
+
+sort_arguments([]) --> [].
+sort_arguments([S|Ss]) --> " ", sort(S), sort_arguments(Ss).
 
 /********************************************************************************
  * checks
@@ -59,6 +77,7 @@ check(proof(M), Name, clause(Bs, Ls)) -->
     phrase(skolem_constants(M), Cs0),
     sort(Cs0, Cs) },
   scope(Name, clause(Bs, Ls), Cs, Fs).
+
 % the negated conjecture is a hypothesis, and the conjecture follows from refuting it
 check(negated_conjecture(_), _, _) --> [].
 check(conjecture(_, _, _), _, _) --> [].
@@ -73,8 +92,11 @@ rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 scope(Name, Conclusion, Cs, Fs) -->
   { negated(Conclusion, Ns),
     append(Fs, Ns, All) },
+  { phrase(foldl(formula_instances, All), Is0),
+    sort(Is0, Is) },
   "(push 1)\n",
   constants(Cs),
+  instances(Is),
   asserts(All),
   "(echo \"", atom(Name), "\")\n(set-info :status unsat)\n(check-sat)\n(pop 1)\n".
 
@@ -83,8 +105,51 @@ negated(clause(_, Ls), Ns) :- maplist(negation, Ls, Ns).
 
 negation(L, ~L).
 
-constants([]) --> [].
-constants([X:S|Cs]) --> "(declare-const ", term(X), " ", sort(S), ")\n", constants(Cs).
+% type variables first, as the sorts of the others depend on them
+constants(Cs) --> foldl(type_constant, Cs), foldl(term_constant, Cs).
+
+type_constant(X:S) --> { S == '$tType' }, !, "(declare-sort ", term(X), " 0)\n".
+type_constant(_) --> [].
+
+term_constant(X:S) --> { S \== '$tType' }, !, "(declare-const ", term(X), " ", sort(S), ")\n".
+term_constant(_) --> [].
+
+% the instances of polymorphic symbols in a check, as F/N-Types, to be monomorphised
+formula_instances(F) --> { connective(F, Gs) }, !, foldl(formula_instances, Gs).
+formula_instances(A) --> term_instances(A).
+
+term_instances(T) --> { polymorphic(T, F, N, Types, Us) }, !, [F/N-Types], foldl(term_instances, Us).
+term_instances(T) --> { instance(T, _, Us, _, _) }, !, foldl(term_instances, Us).
+term_instances(_) --> [].
+
+% T is an instance of a polymorphic symbol F/N, with type arguments Types and term arguments Us
+polymorphic(T, F, N, Types, Us) :-
+  compound(T),
+  T \= '$VAR'(_),
+  functor(T, F, N),
+  F \== '$=',
+  instance(T, Types, Us, _, _),
+  Types \== [].
+
+instances(Is) --> foldl(instance_declaration, Is).
+
+% the declaration of an instance, whose sorts are those of the symbol with Types for its parameters
+instance_declaration(F/N-Types) -->
+  { length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As],
+    instance(T, _, _, Ss, Sort) },
+  "(declare-fun ", instance_name(F/N, Types), " (", sorts(Ss), ") ", sort(Sort), ")\n".
+
+instance_name('$inhabited'/1, [S]) --> !, "|$inhabited[", type_name(S), "]|".
+instance_name(F/N, Types) --> "|t.", atom(F), arity(F, N), "[", type_names(Types), "]|".
+
+% a type within a symbol name, as in TPTP
+type_names([T]) --> !, type_name(T).
+type_names([T|Ts]) --> type_name(T), ",", type_names(Ts).
+
+type_name('$VAR'(N)) --> !, "x", number(N).
+type_name('$inhabited'('$tType')) --> !, "$inhabited".
+type_name(T) --> { atom(T) }, !, atom(T).
+type_name(T) --> { T =.. [F|Ts] }, atom(F), "(", type_names(Ts), ")".
 
 /*
 Variables are Skolem constants in a check, shared by its assertions: the conclusion's variables,
@@ -141,7 +206,7 @@ formula((F => G)) --> !, "(=> ", formula(F), " ", formula(G), ")".
 formula((F <=> G)) --> !, "(= ", formula(F), " ", formula(G), ")".
 formula('!'(Bs, F)) --> !, "(forall (", binders(Bs), ") ", formula(F), ")".
 formula('?'(Bs, F)) --> !, "(exists (", binders(Bs), ") ", formula(F), ")".
-formula(S = T) --> !, "(= ", term(S), " ", term(T), ")".
+formula('$='(_, S, T)) --> !, "(= ", term(S), " ", term(T), ")".
 formula(A) --> term(A).
 
 binders([]) --> [].
@@ -151,7 +216,8 @@ binders([B|Bs]) --> binder(B), " ", binders(Bs).
 binder(X:S) --> "(", term(X), " ", sort(S), ")".
 
 term('$VAR'(N)) --> !, "x", number(N).
-term('$inhabited') --> !, "|$inhabited|".
+term(T) --> { polymorphic(T, F, N, Types, []) }, !, instance_name(F/N, Types).
+term(T) --> { polymorphic(T, F, N, Types, Us) }, !, "(", instance_name(F/N, Types), arguments(Us), ")".
 term(T) --> { atomic(T) }, !, sym(T/0).
 term(T) --> { T =.. [F|Ts], length(Ts, N) }, "(", sym(F/N), arguments(Ts), ")".
 

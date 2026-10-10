@@ -1,5 +1,5 @@
 % the shared database: written by the front end and reconstruction, read by back ends
-:- module(db, [step/3, symbol/3, introduced/2, ir_step/3, split/2]).
+:- module(db, [step/3, symbol/4, introduced/2, ir_step/3, split/2]).
 
 % step(Name, Conclusion, How): a proof step, as understood by a front end
 % Conclusion is clause(Binders, Literals) or formula(F), with Prolog variables:
@@ -8,8 +8,9 @@
 % split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents)
 :- dynamic(step/3).
 
-% symbol(Name, ArgumentSorts, Sort): signature, with sorts '$i' and '$o' by default
-:- dynamic(symbol/3).
+% symbol(Name, Params, ArgumentSorts, Sort): signature (see signature.pl), with Params the type
+% variables of a polymorphic symbol; untyped symbols get sorts '$i' and '$o'
+:- dynamic(symbol/4).
 
 % introduced(Name, Kind): symbol introduced by the prover (e.g. naming, skolem)
 :- dynamic(introduced/2).

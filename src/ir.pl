@@ -30,13 +30,13 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
       | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort
       | let(X, F, M, M')  X : F is M, in M' (a lemma)
-      | rewrite(X, A, E, M)
+      | rewrite(X:S, A, E, M)
                           E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
-                          '$VAR'(N) of sort '$i' bound only in the motive A, and E's type is
+                          '$VAR'(N) of sort S bound only in the motive A, and E's type is
                           inferred (a hypothesis or an application)
   F ::= X | Name          a hypothesis, or a step
-      | '$sym'            built-in: '!'([X:'$i', Y:'$i'], X = Y => Y = X)
-      | '$refl'           built-in: '!'([X:'$i'], X = X)
+      | '$sym'            built-in: '!'([A:'$tType', X:A, Y:A], '$='(A, X, Y) => '$='(A, Y, X))
+      | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
 
 Heads are always variables or constants, so terms are β-normal but for let.
 A formula(F) conclusion is an object-level formula, so its type is F, but for the negated
@@ -44,10 +44,14 @@ conjecture: its outermost ~ is the refutation's ⊥. A classical back end proves
 ¬¬-elimination; the A-translation takes ⊥ to be G, and the hypothesis ~G to be the identity, so
 that the conjecture is the refutation itself. Only clausification (todo) is otherwise classical.
 
-First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited', an
-arbitrary individual for a variable that search left unconstrained (see close.pl).
+Equations are typed, as '$='(A, S, T) with A the sort of S and T. Sorts are terms of sort '$tType'
+(see signature.pl), and type variables are binders X : '$tType', as in TF1.
+
+First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited'(S),
+an arbitrary individual of sort S for a variable that search left unconstrained; S is
+'$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, references/2]).
+:- module(ir, [clause_type/2, references/2, builtin_type/2]).
 :- use_module(library(lists)).
 :- use_module(library(apply)).
 :- use_module(ops).
@@ -59,6 +63,10 @@ clause_type(clause(Bs, Ls), T) :-
 
 implications([], '$false').
 implications([L|Ls], (~L => F)) :- implications(Ls, F).
+
+% the types of the built-in heads
+builtin_type('$sym', '!'([A:'$tType', X:A, Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))).
+builtin_type('$refl', '!'([A:'$tType', X:A], '$='(A, X, X))).
 
 % the steps that a justification cites
 references(proof(M), Names) :- !, phrase(heads(M), Names0), sort(Names0, Names).

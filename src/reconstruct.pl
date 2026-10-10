@@ -16,6 +16,7 @@ unification with it, Prolog's backtracking performing the search.
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(signature).
 :- use_module(rup).
 :- use_module(close).
 
@@ -91,18 +92,19 @@ lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
 matches(Hs, L, M) :-
   member(X-T, Hs),
   refutes(T, X, L, M).
-matches(_, ~(S = T), lam(K, ~(S = S), app(K, [], [app('$refl', [S], [])]))) :-
+matches(_, ~'$='(A, S, T), lam(K, ~'$='(A, S, S), app(K, [], [app('$refl', [A, S], [])]))) :-
   unify_with_occurs_check(S, T).
 
 % refutes(T, X, L, M): X : T refutes L as M, modulo symmetry of equality
 refutes(~K, X, L, X) :- unify_with_occurs_check(K, L).
 refutes(~K, X, L, M) :- flip(K, F), unify_with_occurs_check(F, L), flipped(L, X, M).
 refutes(A, X, ~B, lam(K, ~B, app(K, [], [X]))) :- A \= ~_, unify_with_occurs_check(A, B).
-refutes(S = T, X, ~B, lam(K, ~B, app(K, [], [app('$sym', [S, T], [X])]))) :- unify_with_occurs_check(T = S, B).
+refutes('$='(A, S, T), X, ~B, lam(K, ~B, app(K, [], [app('$sym', [A, S, T], [X])]))) :-
+  unify_with_occurs_check('$='(A, T, S), B).
 
 % X refutes L with the equation the other way round
-flipped(S = T, X, lam(E, S = T, app(X, [], [app('$sym', [S, T], [E])]))).
-flipped(~(S = T), X, lam(K, ~(S = T), app(X, [], [lam(E, T = S, app(K, [], [app('$sym', [T, S], [E])]))]))).
+flipped('$='(A, S, T), X, lam(E, '$='(A, S, T), app(X, [], [app('$sym', [A, S, T], [E])]))).
+flipped(~'$='(A, S, T), X, lam(K, ~'$='(A, S, T), app(X, [], [lam(E, '$='(A, T, S), app(K, [], [app('$sym', [A, T, S], [E])]))]))).
 
 % a fresh instance of a premise clause, with variables Ts
 premise(Name, Ts, Ls) :- step(Name, clause(Bs, Ls), _), binder_variables(Bs, Ts).
@@ -142,11 +144,12 @@ paramodulate(Fresh, Hs, Premises, app(Into, Ts, Ms)) :-
 paramodulate_literal(_, Hs, _, K, M) :- matches(Hs, K, M).
 paramodulate_literal(Fresh, Hs, From, K, lam(Y, K, app(From, Ts, Ms))) :-
   premise(From, Ts, Ls),
-  append(Before, [A = B|After], Ls),
-  rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body),
+  append(Before, [Eq|After], Ls),
+  Eq = '$='(_, _, _),
+  rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body),
   maplist(matches(Hs), Before, Ms0),
   maplist(matches(Hs), After, Ms1),
-  append(Ms0, [lam(E, A = B, Body)|Ms1], Ms).
+  append(Ms0, [lam(E, Eq, Body)|Ms1], Ms).
 
 % equality factoring: as paramodulation, but the equation is a hypothesis for a literal A != B
 equality_factor(Fresh, Hs, [Premise], app(Premise, Ts, Ms)) :-
@@ -154,48 +157,61 @@ equality_factor(Fresh, Hs, [Premise], app(Premise, Ts, Ms)) :-
   maplist(factor_literal(Fresh, Hs), Ks, Ms).
 
 factor_literal(_, Hs, K, M) :- matches(Hs, K, M).
-factor_literal(Fresh, Hs, K, lam(Y, K, app(H, [], [lam(E, A = B, Body)]))) :-
-  member(H-(~(~(A = B))), Hs),
-  rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body).
+factor_literal(Fresh, Hs, K, lam(Y, K, app(H, [], [lam(E, Eq, Body)]))) :-
+  member(H-(~(~Eq)), Hs),
+  Eq = '$='(_, _, _),
+  rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body).
 
 % Body : ⊥ from Y : K and E : A = B: K rewritten one way or the other is refuted by a hypothesis
-rewrite_literal(Fresh, Hs, K, Y, E, A = B, Body) :-
-  orientation(A = B, E, L, R, Equation),
+rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
+  orientation(Eq, E, Sort, L, R, Equation),
   member(X-(~K1), Hs),
   ( Target = K1 ; flip(K1, Target) ),
-  rewritten(K, Target, L, R, '$VAR'(Fresh), Motive),
+  rewritten(K, Target, rw(Sort, L, R), '$VAR'(Fresh), Motive),
   refutes(~K1, X, Target, M),
-  applied(M, rewrite('$VAR'(Fresh), Motive, Equation, Y), Body).
+  applied(M, rewrite('$VAR'(Fresh):Sort, Motive, Equation, Y), Body).
 
-orientation(A = B, E, A, B, E).
-orientation(A = B, E, B, A, app('$sym', [A, B], [E])).
+orientation('$='(S, A, B), E, S, A, B, E).
+orientation('$='(S, A, B), E, S, B, A, app('$sym', [S, A, B], [E])).
 
 % M : ~T applied to W : T; a λ is β-reduced to a let, so that heads stay variables or constants
 applied(M, W, app(M, [], [W])) :- var(M), !.
 applied(lam(V, T, B), W, let(V, T, W, B)).
 
-% literal K becomes K1 by rewriting L to R at some occurrences, which are Z in Motive
-rewritten(~A, ~A1, L, R, Z, ~Motive) :- !, rewritten_atom(A, A1, L, R, Z, Motive).
-rewritten(A, A1, L, R, Z, Motive) :- A1 \= ~_, rewritten_atom(A, A1, L, R, Z, Motive).
+% literal K becomes K1 by rewriting L to R, of sort S, at some occurrences, which are Z in Motive;
+% rewrites are only where the sort is S (a variable side would otherwise unify with any term), which
+% the signature gives for each argument; type arguments are never rewritten
+rewritten(~A, ~A1, Rw, Z, ~Motive) :- !, rewritten_atom(A, A1, Rw, Z, Motive).
+rewritten(A, A1, Rw, Z, Motive) :- A1 \= ~_, rewritten_atom(A, A1, Rw, Z, Motive).
 
-rewritten_atom(A, A1, L, R, Z, Motive) :-
+rewritten_atom(A, A1, Rw, Z, Motive) :-
   nonvar(A),
   A1 =.. [P|Us1],
   A =.. [P|Us],
-  maplist(rewritten_term(L, R, Z), Us, Us1, Vs),
+  instance(A, Types, _, Ss, _),
+  rewritten_arguments(Types, Ss, Rw, Z, Us, Us1, Vs),
   Motive =.. [P|Vs].
 
+% the arguments: the type arguments Types are left as they are, and the others, of sorts Ss, rewritten
+rewritten_arguments([], Ss, Rw, Z, Us, Us1, Vs) :- maplist(rewritten_term(Rw, Z), Ss, Us, Us1, Vs).
+rewritten_arguments([_|Types], Ss, Rw, Z, [U|Us], [U1|Us1], [U|Vs]) :-
+  unify_with_occurs_check(U, U1),
+  rewritten_arguments(Types, Ss, Rw, Z, Us, Us1, Vs).
+
+% U of sort S becomes U1, as V in the motive
 rewritten_term(_, _, _, U, U1, U) :- U == U1, !.
-rewritten_term(L, R, Z, U, U1, Z) :-
+rewritten_term(rw(Sort, L, R), Z, S, U, U1, Z) :-
+  unify_with_occurs_check(S, Sort),
   unify_with_occurs_check(U, L),
   unify_with_occurs_check(U1, R).
 rewritten_term(_, _, _, U, U1, U1) :- var(U), unify_with_occurs_check(U, U1).
-rewritten_term(L, R, Z, U, U1, V) :-
+rewritten_term(Rw, Z, _, U, U1, V) :-
   nonvar(U),
   compound(U1),
   U1 =.. [F|Us1],
   U =.. [F|Us],
-  maplist(rewritten_term(L, R, Z), Us, Us1, Vs),
+  instance(U, Types, _, Ss, _),
+  rewritten_arguments(Types, Ss, Rw, Z, Us, Us1, Vs),
   V =.. [F|Vs].
 
 % definition unfolding: every occurrence of a defined symbol in the clause is replaced, innermost
@@ -210,7 +226,7 @@ unfold(Fresh, Hs, [Clause|Definitions], M) :-
 
 % a unit definition f(X_1, ..., X_n) = body, or body = f(X_1, ..., X_n), defines f/n
 definiendum(D, def(D, F/N, Side)) :-
-  premise(D, _, [A = B]),
+  premise(D, _, ['$='(_, A, B)]),
   ( Side = left, Def = A ; Side = right, Def = B ),
   pattern(Def),
   functor(Def, F, N).
@@ -242,17 +258,23 @@ unfold_literal(Ctx, Hs, K, M, Is0, Is) :-
 
 % the rewrites, most recent first, applied to Y
 chain([], _, Y, Y).
-chain([step(Motive, Equation)|Steps], Z, Y, rewrite(Z, Motive, Equation, W)) :-
+chain([step(Sort, Motive, Equation)|Steps], Z, Y, rewrite(Z:Sort, Motive, Equation, W)) :-
   chain(Steps, Z, Y, W).
 
 % the arguments of the atom are unfolded; frames(F, Done, Rest) record the context of the subterm
-% being unfolded, from the inside out, with its unfolded left siblings Done (reversed) and the rest
+% being unfolded, from the inside out, with its unfolded left siblings Done (reversed) and the rest;
+% type arguments are left as they are
 unfold_atom(~A, Ctx, ~A1, S0, S) :- !, unfold_arguments(A, Ctx, [frame(~, [], [])], A1, S0, S).
 unfold_atom(A, Ctx, A1, S0, S) :- unfold_arguments(A, Ctx, [], A1, S0, S).
 
 unfold_arguments(T, Ctx, Frames, T1, S0, S) :-
   T =.. [F|As],
-  unfold_list(As, F, [], Ctx, Frames, Bs, S0, S),
+  type_arity(T, N),
+  length(Types, N),
+  append(Types, Us, As),
+  reverse(Types, Done),
+  unfold_list(Us, F, Done, Ctx, Frames, Vs, S0, S),
+  append(Types, Vs, Bs),
   T1 =.. [F|Bs].
 
 unfold_list([], _, _, _, _, [], S, S).
@@ -273,17 +295,19 @@ unfold_term(T, Ctx, Frames, T1, S0, S) :-
 
 % T is replaced by Body, with an instance of definition D: a step with the motive of the frames,
 % and the instance, unless the same one is already open
-unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Motive, Equation)|Steps]-Is) :-
-  premise(D, Us, [A = B]),
-  oriented(Side, A = B, E, T, Body, Equation),
+unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Sort, Motive, Equation)|Steps]-Is) :-
+  premise(D, Us, [Eq]),
+  Eq = '$='(Sort, _, _),
+  oriented(Side, Eq, E, T, Body, Equation),
   plug(Frames, Z, Motive),
-  instance(D, Us, A = B, E, Is0, Is).
+  opening(D, Us, Eq, E, Is0, Is).
 
-oriented(left, A = B, E, A, B, E).
-oriented(right, A = B, E, B, A, app('$sym', [A, B], [E])).
+oriented(left, '$='(_, A, B), E, A, B, E).
+oriented(right, '$='(S, A, B), E, B, A, app('$sym', [S, A, B], [E])).
 
-instance(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.
-instance(D, Us, Equation, E, Is, [instance(D, Us, Equation, E)|Is]).
+% an instance of definition D is opened once
+opening(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.
+opening(D, Us, Equation, E, Is, [instance(D, Us, Equation, E)|Is]).
 
 % the term with X in the context of the frames
 plug([], T, T).

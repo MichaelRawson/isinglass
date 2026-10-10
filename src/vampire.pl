@@ -4,20 +4,23 @@
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(signature).
 
-load_vampire(Statements) :- maplist(load_statement, Statements).
+% type declarations first, so that every equation can be given its sort
+load_vampire(Statements) :-
+  forall(member(annotated(_, _, type, Type, _), Statements), declare(Type)),
+  forall(member(Statement, Statements), load_statement(Statement)).
 
-load_statement(annotated(_, Name, type, _, _)) :- !,
-  format(user_error, "error: type declaration ~w is not supported~n", [Name]),
-  fail.
-load_statement(annotated(Language, Name, Role, Formula, Source)) :-
+load_statement(annotated(_, _, type, _, _)) :- !.
+load_statement(annotated(Language, Name, Role, Formula0, Source)) :-
+  typed([], Formula0, Formula),
   how(Role, Source, Formula, How),
   conclusion(Language, How, Formula, Conclusion),
   record_introduced(Source),
   assertz(step(Name, Conclusion, How)).
 
 % $false is the empty clause, and a clause-shaped cnf statement is a clause; variables are kept as
-% Prolog variables. Vampire prints clauses as fof statements, so a fof statement is a clause only
+% Prolog variables. Vampire prints clauses as fof (or tff) statements, so one is a clause only
 % if it is clause-shaped and either an input (back ends derive its clause type from its formula by
 % cases, for any ⊥) or derived by clausal reasoning; the conjecture, its negation, preprocessing and
 % definitions are formulas
@@ -26,11 +29,13 @@ conclusion(Language, How, F, C) :- clausal(Language, How), formula_clause(F, C0)
 conclusion(_, _, F, formula(F)).
 
 clausal(cnf, _).
-clausal(fof, input(_, _)).
-clausal(fof, tactic(_, _)).
-clausal(fof, todo(cnf_transformation, _)) :- !.
+clausal(Language, How) :- ( Language == fof ; Language == tff ), clausal_step(How).
+
+clausal_step(input(_, _)).
+clausal_step(tactic(_, _)).
+clausal_step(todo(cnf_transformation, _)) :- !.
 % an unknown rule from clauses only
-clausal(fof, todo(Rule, Parents)) :-
+clausal_step(todo(Rule, Parents)) :-
   atom(Rule),
   Parents \== [],
   forall(member(P, Parents), step(P, clause(_, _), _)).

@@ -8,7 +8,7 @@
   flip/2,
   number_vars/3,
   substitute/4,
-  formula_symbol/3
+  connective/2
 ]).
 :- use_module(library(lists)).
 :- use_module(library(apply)).
@@ -55,8 +55,8 @@ complement(~A, L) :- !, L = A.
 complement(A, ~A).
 
 % the same literal, with the equation the other way round
-flip(S = T, T = S).
-flip(~(S = T), ~(T = S)).
+flip('$='(A, S, T), '$='(A, T, S)).
+flip(~'$='(A, S, T), ~'$='(A, T, S)).
 
 % bind variables Vs to '$VAR'(N0), '$VAR'(N0 + 1), ...
 number_vars([], N, N).
@@ -69,13 +69,3 @@ substitute(X, S, A, B) :-
   A =.. [F|As],
   maplist(substitute(X, S), As, Bs),
   B =.. [F|Bs].
-
-% a symbol Name/Arity of a formula, one at a time, in Position function or predicate
-formula_symbol(F, P, S) :- connective(F, Gs), !, member(G, Gs), formula_symbol(G, P, S).
-formula_symbol(A = B, P, S) :- !, ( term_symbol(A, P, S) ; term_symbol(B, P, S) ).
-formula_symbol(A, P, S) :- functor_symbol(predicate, A, P, S).
-
-term_symbol(T, P, S) :- nonvar(T), functor_symbol(function, T, P, S).
-
-functor_symbol(Position, T, Position, F/N) :- functor(T, F, N).
-functor_symbol(_, T, P, S) :- T =.. [_|Ts], member(U, Ts), term_symbol(U, P, S).
