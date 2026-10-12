@@ -4,10 +4,10 @@ nonterminal at a time, and written with write/1.
 */
 :- module(printing, [out/1, atom//1, number//1, codes//1]).
 
-% G is a nonterminal of the calling module
+% G is a nonterminal of the calling module, called directly: phrase/2 is in library(dcgs) in Scryer
 :- meta_predicate(out(2)).
 
-out(G) :- phrase(G, Cs), atom_codes(A, Cs), write(A).
+out(G) :- call(G, Cs, []), atom_codes(A, Cs), write(A).
 
 atom(A) --> { atom_codes(A, Cs) }, codes(Cs).
 number(N) --> { number_codes(N, Cs) }, codes(Cs).

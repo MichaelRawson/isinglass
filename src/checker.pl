@@ -11,9 +11,9 @@ Terms and their types are ground. The only Prolog variables bound in checking ar
 binders of fresh instances of steps, split definitions and built-ins, which are bound to ground
 terms (instantiation) or to eigenvariables (an unfolded split definition, under λs).
 */
-:- module(checker, [emit/0]).
+:- module(checker, [emit_checker/0]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
+:- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
@@ -21,7 +21,7 @@ terms (instantiation) or to eigenvariables (an unfolded split definition, under 
 :- use_module(db).
 :- use_module(signature).
 
-emit :-
+emit_checker :-
   findall(Name, ir_step(Name, _, _), Names),
   empty_assoc(Empty),
   foldl(checked, Names, Empty, _).
@@ -31,7 +31,7 @@ checked(Name, Steps, Steps1) :-
   ir_step(Name, Conclusion, Justification),
   (   justified(Justification, Conclusion, Steps)
   ->  put_assoc(Name, Steps, true, Steps1)
-  ;   format(user_error, "error: ~w does not check~n", [Name]),
+  ;   warn(['error: ', Name, ' does not check']),
       fail
   ).
 

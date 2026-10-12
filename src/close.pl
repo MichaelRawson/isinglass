@@ -16,13 +16,13 @@ belongs here.
 */
 :- module(close, [close_term/1]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
+:- use_module(utils).
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
 
 close_term(M) :-
-  phrase(instances([], M), Bs),
+  instances([], M, Bs, []),
   maplist(inhabited_type, Bs),
   maplist(inhabited, Bs),
   name_binders(M, 0, _).
@@ -39,13 +39,13 @@ instances(_, V) --> { var(V) }, !.
 instances(Env, lam(X, T, M)) --> !, instances([X-T|Env], M).
 instances(Env, let(X, F, M, M1)) --> !, instances(Env, M), instances([X-F|Env], M1).
 instances(Env, rewrite(_, _, E, M)) --> !, instances(Env, E), instances(Env, M).
-instances(Env, app(F, Ts, Ms)) --> !, { instance_binders(Env, F, Ts, Bs) }, Bs, foldl(instances(Env), Ms).
+instances(Env, app(F, Ts, Ms)) --> !, { instance_binders(Env, F, Ts, Bs) }, list(Bs), foldl(instances(Env), Ms).
 instances(_, _) --> [].
 
 instance_binders(_, _, [], []) :- !.
 instance_binders(Env, F, Ts, Bs) :- head_binders(Env, F, Bs), !, binder_variables(Bs, Ts).
 instance_binders(_, F, Ts, _) :-
-  format(user_error, "error: no binders for the instance ~w of ~w~n", [Ts, F]),
+  warn(['error: no binders for the instance ', Ts, ' of ', F]),
   fail.
 
 % a step, a built-in, or a hypothesis whose type is a split symbol

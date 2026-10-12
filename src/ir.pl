@@ -53,7 +53,6 @@ an arbitrary individual of sort S for a variable that search left unconstrained;
 */
 :- module(ir, [clause_type/2, references/2, builtin_type/2]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
 :- use_module(ops).
 
 % the type of proofs of a clause: '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
@@ -69,7 +68,7 @@ builtin_type('$sym', '!'([A:'$tType', X:A, Y:A], ('$='(A, X, Y) => '$='(A, Y, X)
 builtin_type('$refl', '!'([A:'$tType', X:A], '$='(A, X, X))).
 
 % the steps that a justification cites
-references(proof(M), Names) :- !, phrase(heads(M), Names0), sort(Names0, Names).
+references(proof(M), Names) :- !, heads(M, Names0, []), sort(Names0, Names).
 references(todo(_, Parents), Parents) :- !.
 references(conjecture(_, Negated, Refutation), [Negated, Refutation]) :- !.
 references(_, []).

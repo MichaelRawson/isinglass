@@ -1,6 +1,7 @@
 % Vampire front end: interpret TSTP statements as step/3 facts
 :- module(vampire, [load_vampire/1]).
 :- use_module(library(lists)).
+:- use_module(utils).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
@@ -8,8 +9,8 @@
 
 % type declarations first, so that every equation can be given its sort
 load_vampire(Statements) :-
-  forall(member(annotated(_, _, type, Type, _), Statements), declare(Type)),
-  forall(member(Statement, Statements), load_statement(Statement)).
+  each(member(annotated(_, _, type, Type, _), Statements), declare(Type)),
+  each(member(Statement, Statements), load_statement(Statement)).
 
 load_statement(annotated(_, _, type, _, _)) :- !.
 load_statement(annotated(Language, Name, Role, Formula0, Source)) :-
@@ -17,7 +18,7 @@ load_statement(annotated(Language, Name, Role, Formula0, Source)) :-
   how(Role, Source, Formula, How),
   conclusion(Language, How, Formula, Conclusion),
   record_introduced(Source),
-  assertz(step(Name, Conclusion, How)).
+  record(step(Name, Conclusion, How)).
 
 % $false is the empty clause, and a clause-shaped cnf statement is a clause; variables are kept as
 % Prolog variables. Vampire prints clauses as fof (or tff) statements, so one is a clause only
@@ -38,13 +39,13 @@ clausal_step(todo(cnf_transformation, _)) :- !.
 clausal_step(todo(Rule, Parents)) :-
   atom(Rule),
   Parents \== [],
-  forall(member(P, Parents), step(P, clause(_, _), _)).
+  each(member(P, Parents), step(P, clause(_, _), _)).
 
 % the conjecture is a goal, proved by refuting its negation, a hypothesis (see reconstruct.pl);
 % steps that only preserve satisfiability (status esa) introduce symbols, and are not entailments
 how(conjecture, file(_, Input), _, conjecture(Input)) :- !.
 how(Role, file(_, Input), _, input(Role, Input)) :- !.
-how(_, introduced(definition, _, [avatar_definition]), Symbol <=> Component, split_def(Symbol, C)) :-
+how(_, introduced(definition, _, [avatar_definition]), (Symbol <=> Component), split_def(Symbol, C)) :-
   formula_clause(Component, C), !.
 how(_, introduced(definition, Info, _), _, todo(esa(definition, Symbols), [])) :- !,
   new_symbols(Info, Symbols).
@@ -86,7 +87,7 @@ tactic(equality_factoring, equality_factor).
 tactic(definition_unfolding, unfold).
 
 record_introduced(Source) :-
-  forall(introduced_symbol(Source, Kind, Symbol), assertz(introduced(Symbol, Kind))).
+  each(introduced_symbol(Source, Kind, Symbol), record(introduced(Symbol, Kind))).
 
 introduced_symbol(new_symbols(Kind, Symbols), Kind, Symbol) :- member(Symbol, Symbols).
 introduced_symbol(inference(_, Info, _), Kind, Symbol) :- member(I, Info), introduced_symbol(I, Kind, Symbol).

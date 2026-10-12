@@ -11,7 +11,6 @@
   connective/2
 ]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
 :- use_module(ops).
 
 % a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
@@ -44,10 +43,10 @@ atomic_formula(A) :- nonvar(A), \+ connective(A, _).
 connective('$true', []).
 connective('$false', []).
 connective(~F, [F]).
-connective(F | G, [F, G]).
-connective(F & G, [F, G]).
-connective(F => G, [F, G]).
-connective(F <=> G, [F, G]).
+connective((F | G), [F, G]).
+connective((F & G), [F, G]).
+connective((F => G), [F, G]).
+connective((F <=> G), [F, G]).
 connective('!'(_, F), [F]).
 connective('?'(_, F), [F]).
 

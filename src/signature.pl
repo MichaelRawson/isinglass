@@ -17,13 +17,12 @@ Untyped symbols get the default sorts, '$i' and '$o'.
   type_arity/2
 ]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
 
 % a type declaration, as read by load.pl
-declare(type(Name, Params, Args, Sort)) :- assertz(symbol(Name, Params, Args, Sort)).
+declare(type(Name, Params, Args, Sort)) :- record(symbol(Name, Params, Args, Sort)).
 
 % built-in symbols: equality, the sorts of individuals and propositions, and an arbitrary inhabitant
 % of a sort (see close.pl)
@@ -95,7 +94,7 @@ default_symbol(P-(F/N)) :-
   default_sort(P, Sort),
   length(Args, N),
   maplist(=('$i'), Args),
-  assertz(symbol(F, [], Args, Sort)).
+  record(symbol(F, [], Args, Sort)).
 
 declared(F/N) :- ( builtin(F, Ps, As, _) ; symbol(F, Ps, As, _) ), arity(Ps, As, N), !.
 

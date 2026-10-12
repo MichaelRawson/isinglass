@@ -8,7 +8,8 @@ The negated conjecture ~G is a hypothesis, not an axiom: each step that depends 
 takes it as a parameter, named after it, and the conjecture is proved by ¬¬-elimination, the only
 use of Stdlib.Classic.
 */
-:- module(lambdapi, [emit/0]).
+:- module(lambdapi, [emit_lambdapi/0]).
+:- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
@@ -23,13 +24,13 @@ use of Stdlib.Classic.
 :- dynamic(negated/2).
 :- dynamic(cone/1).
 
-emit :-
+emit_lambdapi :-
   retractall(negated(_, _)),
   retractall(cone(_)),
-  forall(ir_step(Name, _, Justification), mark(Name, Justification)),
+  each(ir_step(Name, _, Justification), mark(Name, Justification)),
   out(prelude),
   out(signature),
-  forall(ir_step(Name, Conclusion, Justification), out(proof_step(Justification, Name, Conclusion))).
+  each(ir_step(Name, Conclusion, Justification), out(proof_step(Justification, Name, Conclusion))).
 
 % steps are in dependency order, so the cone is found in one pass
 mark(Name, negated_conjecture(_)) :- !, ir_step(Name, formula(~G), _), assertz(negated(Name, G)).
@@ -66,7 +67,7 @@ signature -->
 declarations(_, []) --> [].
 declarations(Keyword, [S-(Ps-Args-Sort)|Ss]) -->
   { length(Ps, K), length(Args, M), N is K + M, number_vars(Ps, 0, _) },
-  Keyword, sym(S/N), " : ", params(Ps), arrows(Args, Sort), ";\n",
+  codes(Keyword), sym(S/N), " : ", params(Ps), arrows(Args, Sort), ";\n",
   declarations(Keyword, Ss).
 
 params([]) --> [].
@@ -102,7 +103,7 @@ proof_step(negated_conjecture(_), Name, formula(F)) -->
 proof_step(conjecture(_, Negated, Refutation), Name, formula(G)) -->
   header(Name), "π ", formula(G), " ≔ ¬¬ₑ ", formula(G), " (λ ", atom(Negated), ", ", head(Refutation), ");\n".
 proof_step(split_def(Split, Clause), _, _) -->
-  "rule ", sym(Split/0), " ↪ ", clause(Clause), ";\n".
+  "rule ", sym(Split/0), " ↪ ", proposition(Clause), ";\n".
 proof_step(proof(M), Name, Conclusion) -->
   header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proof(M), ";\n".
 
@@ -224,10 +225,10 @@ rparen(_, _) --> [].
 priority('$false', 101) :- !.
 priority('$true', 101) :- !.
 priority(~_, 35) :- !.
-priority(_ | _, 6) :- !.
-priority(_ & _, 7) :- !.
-priority(_ => _, 5) :- !.
-priority(_ <=> _, 5) :- !.
+priority((_ | _), 6) :- !.
+priority((_ & _), 7) :- !.
+priority((_ => _), 5) :- !.
+priority((_ <=> _), 5) :- !.
 priority('!'(_, _), 0) :- !.
 priority('?'(_, _), 0) :- !.
 priority('$='(_, _, _), 10) :- !.
@@ -256,7 +257,7 @@ quantifier(Q, '$tType') --> !, codes(Q), "ₜ".
 quantifier(Q, _) --> codes(Q).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
-clause(C) --> { clause_type(C, F) }, formula(0, F).
+proposition(C) --> { clause_type(C, F) }, formula(0, F).
 
 % the type of hypothesis refuting literal L, as an argument of π
 hypothesis_type(L) --> formula(~L).

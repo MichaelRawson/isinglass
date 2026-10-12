@@ -11,7 +11,7 @@ unification with it, Prolog's backtracking performing the search.
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
+:- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
@@ -22,9 +22,9 @@ unification with it, Prolog's backtracking performing the search.
 
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
-  forall(step(_, _, split_def(Symbol, Clause)), assertz(split(Symbol, Clause))),
+  each(step(_, _, split_def(Symbol, Clause)), record(split(Symbol, Clause))),
   findall(Name, step(Name, clause([], []), _), Refutations),
-  last(Refutations, Refutation),
+  final(Refutations, Refutation),
   prove(Refutation),
   findall(Name-Source, step(Name, _, conjecture(Source)), Conjectures),
   conjecture(Conjectures, Refutation).
@@ -37,9 +37,9 @@ conjecture([Conjecture-Source], Refutation) :-
   prove(Negated),
   step(Conjecture, formula(G), _),
   rigid(formula(G), _),
-  assertz(ir_step(Conjecture, formula(G), conjecture(Source, Negated, Refutation))).
+  record(ir_step(Conjecture, formula(G), conjecture(Source, Negated, Refutation))).
 conjecture(Conjectures, _) :-
-  format(user_error, "error: expected one conjecture and its negation, not ~w~n", [Conjectures]),
+  warn(['error: expected one conjecture and its negation, not ', Conjectures]),
   fail.
 
 prove(Name) :- ir_step(Name, _, _), !.
@@ -47,7 +47,7 @@ prove(Name) :-
   step(Name, Conclusion, How),
   rigid(Conclusion, Fresh),
   justify(How, Conclusion, Fresh, Justification),
-  assertz(ir_step(Name, Conclusion, Justification)).
+  record(ir_step(Name, Conclusion, Justification)).
 
 % number the variables of a conclusion, in binder order; Fresh is the next index
 rigid(clause(Bs, _), Fresh) :- binder_variables(Bs, Xs), number_vars(Xs, 0, Fresh).
@@ -70,7 +70,7 @@ search(Tactic, Parents, clause(Bs, Ls), Fresh, proof(M)) :-
   close_term(M).
 % ...or it fails, and the step is left to do
 search(Tactic, Parents, Conclusion, _, todo(Tactic, Parents)) :-
-  format(user_error, "warning: ~w failed to reconstruct ~w~n", [Tactic, Conclusion]).
+  warn(['warning: ', Tactic, ' failed to reconstruct ', Conclusion]).
 
 % a hypothesis V : ~L for each literal L
 hypotheses([], []).

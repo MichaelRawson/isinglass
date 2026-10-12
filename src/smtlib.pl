@@ -16,9 +16,9 @@ support polymorphic functions (declare-sort-parameter). As each check is ground,
 symbols are monomorphised: each instance f(Types, ...) used in a check is declared in its scope,
 as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts.
 */
-:- module(smtlib, [emit/0]).
+:- module(smtlib, [emit_smtlib/0]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
+:- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
@@ -27,9 +27,9 @@ as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts
 :- use_module(signature).
 :- set_prolog_flag(double_quotes, codes).
 
-emit :-
+emit_smtlib :-
   out(header),
-  forall(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
+  each(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
 
 % '$inhabited'('$tType') is an arbitrary sort
 header -->
@@ -73,8 +73,8 @@ check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 check(proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
-    phrase(facts(Env, M), Fs),
-    phrase(skolem_constants(M), Cs0),
+    facts(Env, M, Fs, []),
+    skolem_constants(M, Cs0, []),
     sort(Cs0, Cs) },
   scope(Name, clause(Bs, Ls), Cs, Fs).
 
@@ -92,7 +92,7 @@ rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 scope(Name, Conclusion, Cs, Fs) -->
   { negated(Conclusion, Ns),
     append(Fs, Ns, All) },
-  { phrase(foldl(formula_instances, All), Is0),
+  { foldl(formula_instances, All, Is0, []),
     sort(Is0, Is) },
   "(push 1)\n",
   constants(Cs),

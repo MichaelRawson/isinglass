@@ -19,17 +19,22 @@ $-words are read as the prefix operator $ applied to a term, and become symbols 
 */
 :- module(load, [read_tstp/1]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
 :- use_module(ops).
 
-% operators needed to read TPTP (as in tptp.pl)
-% declared only when reading, so as not to affect the parsing of code
+% operators needed to read TPTP (as in tptp.pl), declared only when reading, so as not to affect the
+% parsing of code. ! is a solo character, so != and !> are two tokens each, and are read with the
+% help of prefix operators = and >: S != T as '!'(S, =(T)), with ! infix, and !>[Bs] as '!'(>(Bs)).
+% (tptp.pl has a postfix ! instead, for (S!) = T, but Trealla does not read an atom that is both a
+% prefix and a postfix operator; and ISO does not allow the operator ! as an operand of an infix >.)
+% One fact to a line: checkread takes the table from here.
 tptp_op(80, fx, '$').
-tptp_op(100, xf, '!').
 tptp_op(400, fy, '!').
 tptp_op(400, fx, '?').
+tptp_op(400, fx, >).
+tptp_op(400, fx, '=').
 tptp_op(403, yfx, *).
 tptp_op(405, xfx, '=').
+tptp_op(405, xfx, '!').
 tptp_op(440, xfy, >).
 tptp_op(450, fy, ~).
 tptp_op(450, xfy, :).
@@ -44,11 +49,20 @@ tptp_op(1105, xfx, <~>).
 
 % Prolog's own prefix operators named by words (such as table and dynamic) are removed, as they may
 % be TPTP symbols
+% A distinct object "Apple" is read as the atom 'Apple': the default reading of double quotes differs
+% between systems (a string, characters or codes)
 read_tstp(Statements) :-
-  findall(T-N, word_prefix_op(T, N), Words),
-  forall(member(T-N, Words), op(0, T, N)),
-  forall(tptp_op(P, T, N), op(P, T, N)),
+  findall(op(0, T, N), word_prefix_op(T, N), Words),
+  findall(op(P, T, N), tptp_op(P, T, N), Ops),
+  declare_ops(Words),
+  declare_ops(Ops),
+  set_prolog_flag(double_quotes, atom),
   read_statements(Statements).
+
+% op/3 is called here, in the module that reads: Trealla's operators are local to a module, and
+% those declared through a meta-predicate of another module would be local to that one
+declare_ops([]).
+declare_ops([op(P, T, N)|Ops]) :- op(P, T, N), declare_ops(Ops).
 
 word_prefix_op(T, N) :-
   current_op(_, T, N),
@@ -79,8 +93,7 @@ source([], none).
 source([Source|_], Source).
 
 normalise(V, F) :- var(V), !, F = V.
-% S != T is read as '!'(S) = T, but a variable S must not be unified with '!'(_)
-normalise(S0 = T0, F) :- nonvar(S0), S0 = '!'(S1), !, F = ~(S = T), term(S1, S), term(T0, T).
+normalise('!'(S0, '='(T0)), F) :- !, F = ~(S = T), term(S0, S), term(T0, T).
 normalise(S0 = T0, F) :- !, F = (S = T), term(S0, S), term(T0, T).
 normalise(~G, F) :- !, F = ~H, normalise(G, H).
 normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).
@@ -90,9 +103,9 @@ normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
 normalise('<='(G, H), F) :- !, F = (H1 => G1), normalise(G, G1), normalise(H, H1).
 normalise((G <=> H), F) :- !, F = (G1 <=> H1), normalise(G, G1), normalise(H, H1).
-normalise('<~>'(G, H), F) :- !, F = ~(G1 <=> H1), normalise(G, G1), normalise(H, H1).
-normalise('~|'(G, H), F) :- !, F = ~(G1 | H1), normalise(G, G1), normalise(H, H1).
-normalise('~&'(G, H), F) :- !, F = ~(G1 & H1), normalise(G, G1), normalise(H, H1).
+normalise('<~>'(G, H), F) :- !, F = ~((G1 <=> H1)), normalise(G, G1), normalise(H, H1).
+normalise('~|'(G, H), F) :- !, F = ~((G1 | H1)), normalise(G, G1), normalise(H, H1).
+normalise('~&'(G, H), F) :- !, F = ~((G1 & H1)), normalise(G, G1), normalise(H, H1).
 normalise(A0, A) :- term(A0, A).
 
 % a quantified variable X or X : Sort, as X : Sort
@@ -117,8 +130,8 @@ declaration(Name0 : Type, type(Name, Params, Args, Sort)) :-
   terms(Args0, Args),
   term(Sort0, Sort).
 
-% !>[Bs] : Type, read as ((!) > Bs) : Type (canonical, as the operators of the code differ)
-polymorphic(T, Bs, Type) :- nonvar(T), T = :(>('!', Bs), Type), !.
+% !>[Bs] : Type, read as '!'(>(Bs)) : Type
+polymorphic(T, Bs, Type) :- nonvar(T), T = :('!'(>(Bs)), Type), !.
 polymorphic(Type, [], Type).
 
 % types may be type variables, which must not be unified with the patterns

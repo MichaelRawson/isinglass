@@ -28,7 +28,6 @@ minimal; premises with redundant units would give unused lemmas.
 */
 :- module(rup, [rup/3]).
 :- use_module(library(lists)).
-:- use_module(library(apply)).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
