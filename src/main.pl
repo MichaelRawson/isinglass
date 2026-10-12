@@ -23,6 +23,7 @@ against the working directory, but finds a module that is already loaded.
 :- use_module(lambdapi).
 :- use_module(smtlib).
 :- use_module(checker).
+:- use_module(agda).
 
 % exit with status 1 on failure or error: the top levels of the systems differ
 main(Backend) :-
@@ -41,3 +42,5 @@ run(Backend) :-
 emit(lambdapi) :- emit_lambdapi.
 emit(smtlib) :- emit_smtlib.
 emit(checker) :- emit_checker.
+emit(agda) :- emit_agda.
+emit(agda_file) :- emit_agda_file.

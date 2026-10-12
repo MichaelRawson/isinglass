@@ -6,7 +6,7 @@ Reconstruction is done by backtracking _search_ over the space of possible insta
 
 Overall: TSTP → frontend (e.g. 'Vampire') → ATP-agnostic proof → reconstruction → IR → backend (e.g. 'lambdapi')
 
-Usage: `swipl -g 'main(Backend)' src/main.pl < proof.p`, where `Backend` is `lambdapi`, `smtlib` or `checker`. Scryer or Trealla have also been tested at some point.
+Usage: `swipl -g 'main(Backend)' src/main.pl < proof.p`, where `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. Scryer or Trealla have also been tested at some point.
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
@@ -62,6 +62,7 @@ each
 - Resolution finds the pivot literal and then matches remaining literals in the same way.
 - Paramodulation is similar: each literal is matched to a premise, or rewritten using one positive equation `A = B` from a premise.
 - Equality factoring is the same, but the equation comes from a hypothesis for a conclusion literal `A != B`
+- Denial: derive `~A` from the negated conjecture `~A`, modulo symmetry.
 - Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
 - Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
 - A failed tactic leaves the step as `todo`, with a warning.
@@ -80,9 +81,13 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | avatar_split_clause | `avatar_split` |
 | avatar_component_clause | `avatar_component` |
 | rat | `rup` |
+| cnf_transformation of a clause | `variant` |
+| cnf_transformation of the negated conjecture, an atom | `deny` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
 Steps that preserve only satisfiability are not yet handled.
+Clausification is mostly `todo`.
+For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`).
 
 ## Backends
 
@@ -104,6 +109,20 @@ Uses the `Stdlib` encoding of first-order logic.:
 - Type quantification: Stdlib's `` `∀ `` ranges over the elements of a `Set`, not over `Set`, so our prelude adds a binder `∀ₜ : (Set → Prop) → Prop` with `π (∀ₜ p) ↪ Π a : Set, π (p a)`.
 - `∃ₜ` is declared but has no rewrite rule yet.
 - Type annotations are used where this was shown to improve checking performance, although it should not really be necessary.
+
+### Agda (`agda.pl`)
+For a hammer: a term to fill a hole, constructive by the A-translation.
+- The output is `Proof.refutation bridge ... bridge`, then `where` and a module `Proof {R : Set} (leaf : type) ...` with one definition per clausal step.
+- `R` is the IR's `⊥`. Agda infers it to be the goal, so the goal is never printed; `~F` is `F → R`.
+- The leaves are the input clauses and negated conjecture, parameters of the module. The negated conjecture `G → R` is the identity.
+- We expect one conjecture, a ground atom (or none: then the term has any type). Inputs are clauses.
+- Sequent reading: the Agda term of an input clause is assumed to have type `∀ xs → A₁ → … → Aₙ → B₁ ⊎ … ⊎ Bₘ` (`⊥` if `m = 0`) for its negative literals `~Aᵢ` and positive literals `Bⱼ`, in order.
+- Input clauses are transformed to the usual clause type in continuation-passing style.
+- Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms. Only the prover's own symbols are renamed (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place).
+- Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
+- `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps are not printed.
+- Everything is in `Set`: no universe levels, so no split definitions over type variables.
+- `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with names mangled such that TPTP names are Agda identifiers.
 
 ### SMT-LIB (`smtlib.pl`)
 In the manner of "Ground Truth" (Voronkov et al), ground premises of each step in such a way that in combination with the negated conclusion it produces an unsatisfiable SMT instance.
@@ -131,12 +150,12 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `close.pl` | Closing terms after search |
 | `ir.pl` | IR documentation; `clause_type/2`, `reference/2` |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
-| `lambdapi.pl`, `smtlib.pl` | Back ends |
+| `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
 | `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |
 | `utils.pl` | Portable helpers: `each/2`, `warn/1`, `final/2`, `range/3`, `list//1` |
 
 ## Known Issues
-- Backend scaling: for some backends (lambdapi) the largest proofs (e.g. `HWV057`, `SWV424-1.200`) time out or run out of memory. Not our problem, will be reported upstream.
+- Backend scaling: for some backends (lambdapi, Agda) some large (e.g. `HWV057`, `SWV424-1.200`) or otherwise-tricky proofs time out or run out of memory. Not our problem, will be reported upstream if relevant.
 - One failure at `read/1`: SYN986+1.004 blows the stack with its deep `succ` terms, but checks with `ulimit -s unlimited`.
 - Some slowness during reconstruction in places, under investigation - e.g. `PUZ135_1`'s self-superposition.
 - cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `checksmt` would not notice a timeout.

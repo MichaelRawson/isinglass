@@ -53,11 +53,25 @@ how(_, inference(negated_conjecture, _, [Conjecture]), _, negated_conjecture(Con
 how(_, inference(Rule, Info, Parents), _, todo(esa(Rule, Symbols), Parents)) :-
   ( memberchk(status(esa), Info) ; esa(Rule) ), !,
   new_symbols(Info, Symbols).
+how(_, inference(cnf_transformation, _, [Parent]), _, How) :-
+  clausification(Parent, How), !.
 how(_, inference(Rule, _, Parents), _, How) :-
   tactic(Rule, Tactic), !,
   How = tactic(Tactic, Parents).
 how(_, inference(Rule, _, Parents), _, todo(Rule, Parents)) :- !.
 how(_, Source, _, todo(Source, [])).
+
+% clausification is reconstructed where it is trivial: a clause is only reordered, and the negated
+% conjecture is denied directly, whatever preprocessing came between, which is not trusted
+clausification(Parent, tactic(variant, [Parent])) :- step(Parent, clause(_, _), _), !.
+clausification(Parent, tactic(deny, [Negated])) :-
+  denial(Parent, Negated),
+  step(Negated, formula(~G), _),
+  \+ connective(G, _).
+
+% Name is the negated conjecture Negated, up to preprocessing of one formula
+denial(Name, Name) :- step(Name, _, negated_conjecture(_)), !.
+denial(Name, Negated) :- step(Name, formula(_), todo(_, [Parent])), denial(Parent, Negated).
 
 new_symbols(Info, Symbols) :- findall(S, (member(I, Info), introduced_symbol(I, _, S)), Symbols).
 

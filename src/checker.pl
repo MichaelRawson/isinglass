@@ -106,6 +106,11 @@ head(Steps, _, Name, T) :-
   step(Name, Clause, _),
   Clause = clause(_, _),
   clause_type(Clause, T).
+% the negated conjecture, a hypothesis
+head(Steps, _, Name, T) :-
+  atom(Name),
+  get_assoc(Name, Steps, true),
+  step(Name, formula(T), negated_conjecture(_)).
 
 % instantiation is unification, so T0 must be a fresh instance: a hypothesis of quantified type
 % (not yet possible) would need substitution instead; each term is of the sort of its binder,

@@ -34,7 +34,7 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
                           E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
                           '$VAR'(N) of sort S bound only in the motive A, and E's type is
                           inferred (a hypothesis or an application)
-  F ::= X | Name          a hypothesis, or a step
+  F ::= X | Name          a hypothesis, or a step: a clause, or the negated conjecture
       | '$sym'            built-in: '!'([A:'$tType', X:A, Y:A], '$='(A, X, Y) => '$='(A, Y, X))
       | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
 

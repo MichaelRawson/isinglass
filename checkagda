@@ -1,0 +1,3 @@
+#!/bin/sh
+
+cd `dirname "$1"` && timeout 10 agda -i /usr/share/agda-stdlib/src `basename "$1"` > /dev/null || basename "$1"

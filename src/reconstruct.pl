@@ -119,6 +119,14 @@ variant(_, Hs, [Premise], app(Premise, Ts, Ms)) :-
   premise(Premise, Ts, Ls),
   maplist(matches(Hs), Ls, Ms).
 
+% the conclusion ~A denies the negated conjecture ~A, a hypothesis, modulo symmetry
+deny(_, [H-(~(~A))], [Negated], app(H, [], [M])) :-
+  step(Negated, formula(~G), _),
+  denied(G, Negated, A, M).
+
+denied(G, Negated, A, app(Negated, [], [])) :- unify_with_occurs_check(G, A).
+denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A, Negated, M).
+
 % binary resolution: literals of the major premise are either in the conclusion,
 % or refuted by (an instance of) the minor premise
 % only positive literals are refuted by the minor: one resolved literal is positive, and either premise

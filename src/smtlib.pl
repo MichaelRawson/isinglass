@@ -177,6 +177,8 @@ facts(_, _) --> [].
 fact(_, F, Ts, _) -->
   { atom(F), step(F, clause(Bs, Ls), _), binder_variables(Bs, Ts) }, !,
   { disjunction(Ls, D) }, [D].
+% the negated conjecture
+fact(_, F, [], _) --> { atom(F), step(F, formula(G), negated_conjecture(_)) }, !, [G].
 % the definition of Split is used, from F : Split
 fact(Env, F, Ts, _) -->
   { get_assoc(F, Env, Split), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts) }, !,
