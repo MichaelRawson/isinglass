@@ -56,7 +56,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 each 
 
 - Conclusion variables and eigenvariables are numbered `'$VAR'(N)` _before_ search, so unification cannot instantiate them.
-- Closing (`close.pl`) runs after search: binders are named `h(N)`, and term variables left unconstrained become `'$inhabited'(S)`, an arbitrary individual of their sort `S`.
+- Closing (`close.pl`) runs after search: binders are named `h(N)`, and it tries to fill term-level variables left unconstrained with a suitable inhabitant (else `'$inhabited'(S)`)
 - RUP (`rup.pl`): ground reverse unit propagation as in a SAT solver, split out into a separate module.
 - Many rules are simply variants of a parent, up to instantiation, factoring, reflexivity, literal re-ordering, and symmetry of equality.
 - Resolution finds the pivot literal and then matches remaining literals in the same way.

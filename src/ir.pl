@@ -48,8 +48,8 @@ Equations are typed, as '$='(A, S, T) with A the sort of S and T. Sorts are term
 (see signature.pl), and type variables are binders X : '$tType', as in TF1.
 
 First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited'(S),
-an arbitrary individual of sort S for a variable that search left unconstrained; S is
-'$tType' for a type variable (see close.pl).
+an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
+of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
 :- module(ir, [clause_type/2, reference/2, builtin_type/2]).
 :- use_module(library(lists)).
