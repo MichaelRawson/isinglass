@@ -129,7 +129,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `reconstruct.pl` | Proof search and the tactics |
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
-| `ir.pl` | IR documentation; `clause_type/2`, `references/2` |
+| `ir.pl` | IR documentation; `clause_type/2`, `reference/2` |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl` | Back ends |
 | `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |

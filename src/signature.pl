@@ -31,18 +31,19 @@ builtin('$i', [], [], '$tType').
 builtin('$o', [], [], '$tType').
 builtin('$inhabited', [S], [], S).
 
+% the symbol F of arity N, counting type arguments: built in, or of the database
+signature_symbol(F/N, Ps, Ss, Sort) :-
+  ( builtin(F, Ps, Ss, Sort) ; symbol(F, Ps, Ss, Sort) ),
+  arity(Ps, Ss, N), !.
+
 % T is an instance of a symbol of the signature, with type arguments Types and term arguments Us,
 % of sorts Ss, and T is of sort Sort
 instance(T, Types, Us, Ss, Sort) :-
   functor(T, F, N),
-  ( builtin(F, Ps, Ss, Sort) ; symbol(F, Ps, Ss, Sort) ),
-  length(Ps, K),
-  length(Ss, M),
-  N =:= K + M, !,
+  signature_symbol(F/N, Ps, Ss, Sort),
   T =.. [_|As],
-  length(Types, K),
-  append(Types, Us, As),
-  Ps = Types.
+  append(Ps, Us, As),
+  Types = Ps.
 
 % the number of type arguments of a term or atom
 type_arity(T, K) :- instance(T, Types, _, _, _), !, length(Types, K).
@@ -89,14 +90,12 @@ default_sort(function, '$i').
 default_sort(predicate, '$o').
 
 % functions sort before predicates, so a name used as both is a function
-default_symbol(_-(F/N)) :- declared(F/N), !.
+default_symbol(_-Symbol) :- signature_symbol(Symbol, _, _, _), !.
 default_symbol(P-(F/N)) :-
   default_sort(P, Sort),
   length(Args, N),
   maplist(=('$i'), Args),
   record(symbol(F, [], Args, Sort)).
-
-declared(F/N) :- ( builtin(F, Ps, As, _) ; symbol(F, Ps, As, _) ), arity(Ps, As, N), !.
 
 arity(Ps, As, N) :- length(Ps, K), length(As, M), N =:= K + M.
 

@@ -51,7 +51,7 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained; S is
 '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, references/2, builtin_type/2]).
+:- module(ir, [clause_type/2, reference/2, builtin_type/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
 
@@ -67,17 +67,14 @@ implications([L|Ls], (~L => F)) :- implications(Ls, F).
 builtin_type('$sym', '!'([A:'$tType', X:A, Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))).
 builtin_type('$refl', '!'([A:'$tType', X:A], '$='(A, X, X))).
 
-% the steps that a justification cites
-references(proof(M), Names) :- !, heads(M, Names0, []), sort(Names0, Names).
-references(todo(_, Parents), Parents) :- !.
-references(conjecture(_, Negated, Refutation), [Negated, Refutation]) :- !.
-references(_, []).
+% a step that a justification cites, one at a time
+reference(proof(M), Name) :- head(M, Name).
+reference(todo(_, Parents), Name) :- member(Name, Parents).
+reference(conjecture(_, Negated, Refutation), Name) :- ( Name = Negated ; Name = Refutation ).
 
-heads(lam(_, _, M)) --> !, heads(M).
-heads(let(_, _, M, N)) --> !, heads(M), heads(N).
-heads(rewrite(_, _, E, M)) --> !, heads(E), heads(M).
-heads(app(F, _, Ms)) --> !, head(F), foldl(heads, Ms).
-heads(_) --> [].
-
-head(F) --> { atom(F), F \== '$sym', F \== '$refl' }, !, [F].
-head(_) --> [].
+% a step at the head of an application in a proof term
+head(lam(_, _, M), Name) :- head(M, Name).
+head(let(_, _, M, N), Name) :- ( head(M, Name) ; head(N, Name) ).
+head(rewrite(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
+head(app(F, _, _), F) :- atom(F), \+ builtin_type(F, _).
+head(app(_, _, Ms), Name) :- member(M, Ms), head(M, Name).

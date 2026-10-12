@@ -36,8 +36,7 @@ emit_lambdapi :-
 mark(Name, negated_conjecture(_)) :- !, ir_step(Name, formula(~G), _), assertz(negated(Name, G)).
 mark(_, conjecture(_, _, _)) :- !.
 mark(Name, Justification) :-
-  references(Justification, Names),
-  member(N, Names),
+  reference(Justification, N),
   ( negated(N, _) ; cone(N) ), !,
   assertz(cone(Name)).
 mark(_, _).
