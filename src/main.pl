@@ -5,7 +5,7 @@ Translate a TSTP proof on standard input, given the front end for its prover and
   scryer-prolog -f -g 'main(vampire, smtlib)' src/main.pl < proof.p
   tpl -f -g 'main(vampire, checker)' src/main.pl < proof.p
 
-The script `ising` does this with SWI, or the system named by $PROLOG.
+The script `ising` does this with SWI.
 
 Every module is loaded here, in dependency order: Trealla resolves the file of a nested use_module
 against the working directory, but finds a module that is already loaded.
@@ -36,17 +36,22 @@ main(Frontend, Backend) :-
   ;   halt(1)
   ).
 
+% both names are looked up before anything is read, so a typo is reported at once
 run(Frontend, Backend) :-
+  frontend(Frontend, Load),
+  backend(Backend, Emit),
   read_tstp(Statements),
-  load(Frontend, Statements),
+  call(Load, Statements),
   default_signature,
   reconstruct,
-  emit(Backend).
+  call(Emit).
 
-load(vampire, Statements) :- load_vampire(Statements).
+frontend(vampire, load_vampire) :- !.
+frontend(Frontend, _) :- warn(['error: unknown frontend ', Frontend]), halt(1).
 
-emit(lambdapi) :- emit_lambdapi.
-emit(smtlib) :- emit_smtlib.
-emit(checker) :- emit_checker.
-emit(agda) :- emit_agda.
-emit(agda_file) :- emit_agda_file.
+backend(lambdapi, emit_lambdapi) :- !.
+backend(smtlib, emit_smtlib) :- !.
+backend(checker, emit_checker) :- !.
+backend(agda, emit_agda) :- !.
+backend(agda_file, emit_agda_file) :- !.
+backend(Backend, _) :- warn(['error: unknown backend ', Backend]), halt(1).

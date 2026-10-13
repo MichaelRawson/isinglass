@@ -20,8 +20,8 @@ Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in t
 - [Vampire](https://github.com/vprover/vampire/) (`vampire`)
 
 ## Backends
-- A built-in proof checker, (`check`).
-- [lambdapi](https://lambdapi.readthedocs.io/en/latest/), (`lambdapi)`
+- A built-in proof checker, (`checker`).
+- [lambdapi](https://lambdapi.readthedocs.io/en/latest/), (`lambdapi`)
 - SMT-LIB for checking by SMT solvers, in the style of "Ground Truth" (`smtlib`).
 - constructive Agda (`agda`, supporting only clausal proofs)
 
