@@ -49,7 +49,34 @@ prelude -->
   "constant symbol ∃ₜ : (Set → Prop) → Prop;\nnotation ∃ₜ quantifier;\n",
   "opaque symbol sym (a : Set) (x y : τ a) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
   "opaque symbol refl (a : Set) (x : τ a) : π (x = x) ≔ eq_refl x;\n",
-  "opaque symbol rw [a] [x y : τ a] (p : τ a → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n\n".
+  "opaque symbol rw [a] [x y : τ a] (p : τ a → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
+  rules, "\n".
+
+% the expansion rules (see ir.pl), proved once; those for ¬⇔ and ¬∀ are classical,
+% and those for quantifiers over types are apart (_t), with the rules of ∃ₜ
+rules --> { formula_step(_) }, !,
+  "opaque symbol and_e [p q] : π (p ∧ q) → (π p → π q → π ⊥) → π ⊥ ≔ λ h k, k (∧ₑ₁ h) (∧ₑ₂ h);\n",
+  "opaque symbol or_e [p q] : π (p ∨ q) → (π p → π ⊥) → (π q → π ⊥) → π ⊥ ≔ λ h k l, ∨ₑ h k l;\n",
+  "opaque symbol imp_e [p q] : π (p ⇒ q) → (π (¬ p) → π ⊥) → (π q → π ⊥) → π ⊥ ≔ λ h k l, k (λ x, l (h x));\n",
+  "opaque symbol iff_e [p q] : π (p ⇔ q) → (π p → π q → π ⊥) → (π (¬ p) → π (¬ q) → π ⊥) → π ⊥ ≔\n",
+  "  λ h k l, l (λ x, k x (∧ₑ₁ h x)) (λ y, k (∧ₑ₂ h y) y);\n",
+  "opaque symbol nand_e [p q] : π (¬ (p ∧ q)) → (π (¬ p) → π ⊥) → (π (¬ q) → π ⊥) → π ⊥ ≔ λ h k l, k (λ x, l (λ y, h (∧ᵢ x y)));\n",
+  "opaque symbol nor_e [p q] : π (¬ (p ∨ q)) → (π (¬ p) → π (¬ q) → π ⊥) → π ⊥ ≔ λ h k, k (λ x, h (∨ᵢ₁ x)) (λ y, h (∨ᵢ₂ y));\n",
+  "opaque symbol nimp_e [p q] : π (¬ (p ⇒ q)) → (π p → π (¬ q) → π ⊥) → π ⊥ ≔ λ h k, h (λ x, ⊥ₑ (k x (λ y, h (λ _, y))));\n",
+  "opaque symbol niff_e [p q] : π (¬ (p ⇔ q)) → (π p → π (¬ q) → π ⊥) → (π (¬ p) → π q → π ⊥) → π ⊥ ≔\n",
+  "  λ h k l, ∨ₑ (em p) (λ x, k x (λ y, h (∧ᵢ (λ _, y) (λ _, x))))\n",
+  "    (λ nx, ∨ₑ (em q) (λ y, l nx y) (λ ny, h (∧ᵢ (λ x, ⊥ₑ (nx x)) (λ y, ⊥ₑ (ny y)))));\n",
+  "opaque symbol ex_e [a] [p : τ a → Prop] : π (`∃ x, p x) → (Π x, π (p x) → π ⊥) → π ⊥ ≔ λ h k, ∃ₑ h k;\n",
+  "opaque symbol nall_e [a] [p : τ a → Prop] : π (¬ (`∀ x, p x)) → (Π x, π (¬ (p x)) → π ⊥) → π ⊥ ≔\n",
+  "  λ h k, h (λ x, ¬¬ₑ (p x) (λ n, k x n));\n",
+  "opaque symbol nex_e [a] [p : τ a → Prop] : π (¬ (`∃ x, p x)) → Π x, π (¬ (p x)) ≔ λ h x y, h (∃ᵢ x y);\n",
+  "constant symbol ∃ₜᵢ [p] (a : Set) : π (p a) → π (∃ₜ p);\n",
+  "symbol ∃ₜₑ [p] : π (∃ₜ p) → Π [q], (Π a, π (p a) → π q) → π q;\n",
+  "opaque symbol ex_t [p : Set → Prop] : π (`∃ₜ a, p a) → (Π a, π (p a) → π ⊥) → π ⊥ ≔ λ h k, ∃ₜₑ h k;\n",
+  "opaque symbol nall_t [p : Set → Prop] : π (¬ (`∀ₜ a, p a)) → (Π a, π (¬ (p a)) → π ⊥) → π ⊥ ≔\n",
+  "  λ h k, h (λ a, ¬¬ₑ (p a) (λ n, k a n));\n",
+  "opaque symbol nex_t [p : Set → Prop] : π (¬ (`∃ₜ a, p a)) → Π a, π (¬ (p a)) ≔ λ h a y, h (∃ₜᵢ a y);\n".
+rules --> [].
 
 /********************************************************************************
  * signature
@@ -75,7 +102,7 @@ params([P|Ps]) --> "Π (", term(P), " : Set), ", params(Ps).
 arrows([], Sort) --> sort(Sort).
 arrows([A|As], Sort) --> sort(A), " → ", arrows(As, Sort).
 
-classic --> { negated(_, _) }, !, " Stdlib.Classic".
+classic --> { negated(_, _) ; formula_step(_) }, !, " Stdlib.Classic".
 classic --> [].
 
 % sorts are terms of sort Set
@@ -162,12 +189,27 @@ input(Input) --> "{|", atom(Input), "²|}".
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
+proof(let(X, '!'(Bs, F), app('$nex', [], [M]), N)) --> !,
+  "let ", variable(X), " : π ", formula('!'(Bs, F)), " ≔ ", not_exists(Bs, operand(M)), " in ", proof(N).
 proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
+proof(app('$dne', [F], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
+% the eigenvariable of a δ rule may be a type
+proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
+  codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
+
+% ¬∃ over several variables becomes ∀¬ one variable at a time
+not_exists([_:S], M) --> !, not_exists(S), " ", call(M).
+not_exists([X:S|Bs], M) --> "λ (", term(X), " : ", sort(S), "), ", not_exists(Bs, not_exists_at(S, M, X)).
+
+not_exists_at(S, M, X) --> "(", not_exists(S), " ", call(M), " ", term(X), ")".
+
+not_exists('$tType') --> !, "nex_t".
+not_exists(_) --> "nex_e".
 
 % consecutive λs are merged
 binders(lam(X, _, M)) --> !, " ", variable(X), binders(M).
@@ -176,6 +218,7 @@ binders(M) --> ", ", proof(M).
 % lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
 % (without, inference can be very slow, e.g. PUZ017-1)
 value(lam(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(X, T), ")", binders(M).
+
 value(M) --> proof(M).
 
 % an eigenvariable has a sort, and a hypothesis a formula
@@ -185,9 +228,25 @@ annotation(_, F) --> "π ", formula(F).
 % a head is a built-in, a hypothesis or a step
 head('$sym') --> !, "sym".
 head('$refl') --> !, "refl".
+head('$trivial') --> !, "⊤ᵢ".
+head(Rule) --> { rule_symbol(Rule, Codes) }, !, codes(Codes).
 head(h(N)) --> !, hypothesis(h(N)).
 head(Name) --> { atom(Name), cone(Name), negated(N, _) }, !, "(", atom(Name), " ", atom(N), ")".
 head(Name) --> { atom(Name) }, atom(Name).
+
+rule_symbol('$and', "and_e").
+rule_symbol('$or', "or_e").
+rule_symbol('$imp', "imp_e").
+rule_symbol('$iff', "iff_e").
+rule_symbol('$nand', "nand_e").
+rule_symbol('$nor', "nor_e").
+rule_symbol('$nimp', "nimp_e").
+rule_symbol('$niff', "niff_e").
+rule_symbol('$ex', "ex_e").
+rule_symbol('$nall', "nall_e").
+
+type_rule('$ex', "ex_t").
+type_rule('$nall', "nall_t").
 
 variable(h(N)) --> !, hypothesis(h(N)).
 variable(X) --> term(X).
@@ -265,10 +324,11 @@ term(T) --> term(101, T).
 
 term(P, T) --> { term_priority(T, Q) }, lparen(P, Q), term_(T), rparen(P, Q).
 
-term_priority(T, 100) :- compound(T), T \= '$VAR'(_), !.
+term_priority(T, 100) :- compound(T), T \= '$VAR'(_), T \= '$BOUND'(_), !.
 term_priority(_, 101).
 
 term_('$VAR'(N)) --> !, "x", number(N).
+term_('$BOUND'(N)) --> !, "y", number(N).
 term_('$inhabited'(S)) --> !, "el ", term(S).
 term_('$i') --> !, "ι".
 term_(T) --> { T =.. [F|Ts], length(Ts, N) }, sym(F/N), variables(Ts).

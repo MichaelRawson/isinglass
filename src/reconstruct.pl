@@ -8,6 +8,7 @@ binders are Prolog variables, and are named h(N) afterwards.
 Clauses are stored with Prolog variables (db.pl), so retrieving a premise gives a fresh instance.
 The conclusion is made rigid by numbering its variables, and premise instances are found by
 unification with it, Prolog's backtracking performing the search.
+Steps between formulas are reconstructed by the descent (descent.pl), which has the same interface.
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
@@ -19,6 +20,8 @@ unification with it, Prolog's backtracking performing the search.
 :- use_module(signature).
 :- use_module(rup).
 :- use_module(close).
+:- use_module(matching).
+:- use_module(descent).
 
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
@@ -49,24 +52,24 @@ prove(Name) :-
   justify(How, Conclusion, Fresh, Justification),
   record(ir_step(Name, Conclusion, Justification)).
 
-% number the variables of a conclusion, in binder order; Fresh is the next index
+% number the variables of a clause, in binder order; Fresh is the next index
+% the bound variables of a formula are named canonically (see logic.pl), and any others numbered
 rigid(clause(Bs, _), Fresh) :- binder_variables(Bs, Xs), number_vars(Xs, 0, Fresh).
-rigid(formula(F), Fresh) :- term_variables(F, Vs), number_vars(Vs, 0, Fresh).
+rigid(formula(F), Fresh) :- canonical(F, _), term_variables(F, Vs), number_vars(Vs, 0, Fresh).
 
 justify(input(Role, Source), _, _, input(Role, Source)).
-justify(split_def(Symbol, Clause), _, _, split_def(Symbol, Clause)).
+% the defining clause is rigid as a clause is, not as part of the definition's formula
+justify(split_def(Symbol, _), _, _, split_def(Symbol, Clause)) :- split(Symbol, Clause), rigid(Clause, _).
 justify(negated_conjecture(Conjecture), _, _, negated_conjecture(Conjecture)).
 justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
   search(Tactic, Parents, Conclusion, Fresh, Justification).
 
-% the tactic finds a term of type ⊥ from hypotheses for the literals, abstracted over the conclusion
-search(Tactic, Parents, clause(Bs, Ls), Fresh, proof(M)) :-
-  hypotheses(Ls, Hs),
+% the tactic finds a term of type ⊥ from hypotheses that refute the conclusion
+search(Tactic, Parents, Conclusion, Fresh, proof(M)) :-
+  refutation(Conclusion, Hs, Body, M),
   once(call(Tactic, Fresh, Hs, Parents, Body)), !,
-  binders(Bs, Hs, Binders),
-  lambdas(Binders, Body, M),
   close_term(M).
 % ...or it fails, and the step is left to do
 search(Tactic, Parents, Conclusion, _, todo(Tactic, Parents)) :-
@@ -76,35 +79,18 @@ search(Tactic, Parents, Conclusion, _, todo(Tactic, Parents)) :-
 hypotheses([], []).
 hypotheses([L|Ls], [_-(~L)|Hs]) :- hypotheses(Ls, Hs).
 
+% M proves the conclusion, given Body : ⊥ from the hypotheses Hs: a clause is abstracted over its
+% eigenvariables and the hypotheses for its literals, and a formula F is proved classically, from ~F
+refutation(clause(Bs, Ls), Hs, Body, M) :-
+  hypotheses(Ls, Hs),
+  binders(Bs, Hs, Binders),
+  lambdas(Binders, Body, M).
+refutation(formula(F), [H-(~F)], Body, app('$dne', [F], [lam(H, ~F, Body)])).
+
 % binders X-T: eigenvariables X-Sort for the clause's binders Bs, then the hypotheses Hs
 binders(Bs, Hs, Binders) :- maplist(eigenvariable, Bs, Is), append(Is, Hs, Binders).
 
 eigenvariable(X:S, X-S).
-
-lambdas([], M, M).
-lambdas([X-T|Xs], M, lam(X, T, N)) :- lambdas(Xs, M, N).
-
-/********************************************************************************
- * literal matching
- ********************************************************************************/
-
-% a hypothesis refutes premise literal L, as M : ~L, or L is a trivial inequality S != S
-matches(Hs, L, M) :-
-  member(X-T, Hs),
-  refutes(T, X, L, M).
-matches(_, ~'$='(A, S, T), lam(K, ~'$='(A, S, S), app(K, [], [app('$refl', [A, S], [])]))) :-
-  unify_with_occurs_check(S, T).
-
-% refutes(T, X, L, M): X : T refutes L as M, modulo symmetry of equality
-refutes(~K, X, L, X) :- unify_with_occurs_check(K, L).
-refutes(~K, X, L, M) :- flip(K, F), unify_with_occurs_check(F, L), flipped(L, X, M).
-refutes(A, X, ~B, lam(K, ~B, app(K, [], [X]))) :- A \= ~_, unify_with_occurs_check(A, B).
-refutes('$='(A, S, T), X, ~B, lam(K, ~B, app(K, [], [app('$sym', [A, S, T], [X])]))) :-
-  unify_with_occurs_check('$='(A, T, S), B).
-
-% X refutes L with the equation the other way round
-flipped('$='(A, S, T), X, lam(E, '$='(A, S, T), app(X, [], [app('$sym', [A, S, T], [E])]))).
-flipped(~'$='(A, S, T), X, lam(K, ~'$='(A, S, T), app(X, [], [lam(E, '$='(A, T, S), app(K, [], [app('$sym', [A, T, S], [E])]))]))).
 
 % a fresh instance of a premise clause, with variables Ts
 premise(Name, Ts, Ls) :- step(Name, clause(Bs, Ls), _), binder_variables(Bs, Ts).
@@ -181,10 +167,6 @@ rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
 
 orientation('$='(S, A, B), E, S, A, B, E).
 orientation('$='(S, A, B), E, S, B, A, app('$sym', [S, A, B], [E])).
-
-% M : ~T applied to W : T; a λ is β-reduced to a let, so that heads stay variables or constants
-applied(M, W, app(M, [], [W])) :- var(M), !.
-applied(lam(V, T, B), W, let(V, T, W, B)).
 
 % literal K becomes K1 by rewriting L to R, of sort S, at some occurrences, which are Z in Motive;
 % rewrites are only where the sort is S (a variable side would otherwise unify with any term), which

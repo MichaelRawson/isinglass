@@ -55,22 +55,32 @@ how(_, inference(Rule, Info, Parents), _, todo(esa(Rule, Symbols), Parents)) :-
   new_symbols(Info, Symbols).
 how(_, inference(cnf_transformation, _, [Parent]), _, How) :-
   clausification(Parent, How), !.
+how(_, inference(Rule, _, [Parent]), ~A, How) :-
+  tactic(Rule, descent),
+  \+ connective(A, _),
+  denied(Parent, Negated), !,
+  How = tactic(deny, [Negated]).
 how(_, inference(Rule, _, Parents), _, How) :-
   tactic(Rule, Tactic), !,
   How = tactic(Tactic, Parents).
 how(_, inference(Rule, _, Parents), _, todo(Rule, Parents)) :- !.
 how(_, Source, _, todo(Source, [])).
 
-% clausification is reconstructed where it is trivial: a clause is only reordered, and the negated
-% conjecture is denied directly, whatever preprocessing came between, which is not trusted
+% clausification of a clause only reorders it, and the negated conjecture of an atom is denied
+% directly, as is its preprocessing, so that these steps stay constructive; otherwise clausification
+% and preprocessing are steps between formulas (descent.pl)
 clausification(Parent, tactic(variant, [Parent])) :- step(Parent, clause(_, _), _), !.
-clausification(Parent, tactic(deny, [Negated])) :-
-  denial(Parent, Negated),
+clausification(Parent, tactic(deny, [Negated])) :- denied(Parent, Negated), !.
+clausification(Parent, tactic(descent, [Parent])).
+
+% Name is the negated conjecture Negated, of an atom, or denies it
+denied(Name, Negated) :-
+  denial(Name, Negated),
   step(Negated, formula(~G), _),
   \+ connective(G, _).
 
-% Name is the negated conjecture Negated, up to preprocessing of one formula
 denial(Name, Name) :- step(Name, _, negated_conjecture(_)), !.
+denial(Name, Negated) :- step(Name, _, tactic(deny, [Negated])), !.
 denial(Name, Negated) :- step(Name, formula(_), todo(_, [Parent])), denial(Parent, Negated).
 
 new_symbols(Info, Symbols) :- findall(S, (member(I, Info), introduced_symbol(I, _, S)), Symbols).
@@ -99,6 +109,13 @@ tactic(forward_demodulation, paramodulate).
 tactic(backward_demodulation, paramodulate).
 tactic(equality_factoring, equality_factor).
 tactic(definition_unfolding, unfold).
+tactic(rectify, descent).
+tactic(flattening, descent).
+tactic(ennf_transformation, descent).
+tactic(nnf_transformation, descent).
+tactic(true_and_false_elimination, descent).
+tactic(pure_predicate_removal, descent).
+tactic(unused_predicate_definition_removal, descent).
 
 record_introduced(Source) :-
   each(introduced_symbol(Source, Kind, Symbol), record(introduced(Symbol, Kind))).

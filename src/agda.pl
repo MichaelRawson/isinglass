@@ -112,6 +112,9 @@ cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
 % a split symbol is defined as the type of its clause; formula steps have no proof terms
 emitted(step(_, _, split_def(Split, Clause))) --> !,
   definition(symbol(Split), codes("Set"), conclusion(Clause)).
+% a step between formulas is classical, so it is left as a hole
+emitted(step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
+  definition(atom(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
 emitted(step(Name, clause(Bs, Ls), proof(M))) --> !,
   definition(atom(Name), conclusion(clause(Bs, Ls)), proof(M)).
 emitted(step(Name, clause(Bs, Ls), todo(Record, _))) --> !,

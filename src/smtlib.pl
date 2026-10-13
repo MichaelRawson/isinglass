@@ -23,6 +23,7 @@ as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(db).
+:- use_module(ir).
 :- use_module(printing).
 :- use_module(signature).
 :- set_prolog_flag(double_quotes, codes).
@@ -71,6 +72,9 @@ sort_arguments([S|Ss]) --> " ", sort(S), sort_arguments(Ss).
 
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
+% a step between formulas has formulas for premises, which have no ground instances to assert
+check(proof(_), Name, _) --> { formula_step(Name) }, !,
+  "(echo \"warning: ", atom(Name), " (formula step) is not checked\")\n".
 check(proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
     facts(Env, M, Fs, []),

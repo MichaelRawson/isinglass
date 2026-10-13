@@ -77,10 +77,21 @@ instances(_, _) --> [].
 hole(Env, X:S, hole(Env, X, S)).
 
 instance_binders(_, _, [], []) :- !.
+instance_binders(Env, F, Ts, Bs) :-
+  member(X-T, Env),
+  X == F,
+  nonvar(T),
+  T = '!'(Bs0, _), !,
+  instantiated(Bs0, Ts, Bs).
 instance_binders(Env, F, Ts, Bs) :- head_binders(Env, F, Bs), !, binder_variables(Bs, Ts).
 instance_binders(_, F, Ts, _) :-
   warn(['error: no binders for the instance ', Ts, ' of ', F]),
   fail.
+
+% the binders of a quantified hypothesis, instantiated by Ts: the sort of each may depend on the
+% terms before it
+instantiated([], [], []).
+instantiated([X:S|Bs0], [T|Ts], [T:S|Bs]) :- substitute(X, T, Bs0, Bs1), instantiated(Bs1, Ts, Bs).
 
 % a step, a built-in, or a hypothesis whose type is a split symbol
 head_binders(_, F, Bs) :- atom(F), step(F, clause(Bs, _), _), !.

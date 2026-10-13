@@ -10,6 +10,11 @@ well sorted, as the prover gives them.
 Terms and their types are ground. The only Prolog variables bound in checking are the quantifier
 binders of fresh instances of steps, split definitions and built-ins, which are bound to ground
 terms (instantiation) or to eigenvariables (an unfolded split definition, under λs).
+
+Formulas are types too, compared up to the names of their bound variables: these are named
+canonically (see logic.pl), in the types of steps and in the annotations of terms, and a
+quantified hypothesis is instantiated by substitution. The expansion rules of the descent are
+typed by ir:rule_type/3.
 */
 :- module(checker, [emit_checker/0]).
 :- use_module(library(lists)).
@@ -36,9 +41,10 @@ checked(Name, Steps, Steps1) :-
   ).
 
 justified(proof(M), Conclusion, Steps) :- !,
-  clause_type(Conclusion, T),
-  ground(T),
+  step_type(Conclusion, T0),
+  ground(T0),
   ground(M),
+  conclusion_type(Conclusion, T0, T),
   empty_assoc(Gamma),
   check(Steps, Gamma, M, T).
 % G, refuting the hypothesis ~G
@@ -50,27 +56,33 @@ justified(conjecture(_, Negated, Refutation), formula(G), Steps) :- !,
   ir_step(Refutation, clause([], []), _).
 justified(_, _, _).
 
-% M : T, where M and T are ground, but for the binders of an unfolded split definition, which the
-% λs name; heads are closed instances, so their types are ground once instantiated
+% the binders of a clause are its eigenvariables, by name, and its literals have no others
+conclusion_type(clause(_, _), T, T).
+conclusion_type(formula(_), T0, T) :- canonical(T0, T).
+
+% M : T, where M and T are ground; heads are closed instances, so their types are ground once
+% instantiated. Types are canonical (see logic.pl), so they are compared syntactically, and
+% annotations are made so
 % Gamma is an assoc mapping hypotheses to their types, and eigenvariables to their sorts
 check(Steps, Gamma, lam(X, A, M), T0) :- !,
   unfold(T0, T),
-  (   T = '!'([Y:S|Ys], B)
+  (   T = '!'([Y:S|Bs], B)
   ->  eigenvariable(X),
-      \+ occurs(X, Gamma),
-      X = Y,
-      A = S,
+      \+ get_assoc(X, Gamma, _),
+      A == S,
       valid_sort(Gamma, S),
-      ( Ys == [] -> T1 = B ; T1 = '!'(Ys, B) ),
-      put_assoc(X, Gamma, A, Gamma1),
+      instantiated(Y, X, Bs, B, T1),
+      put_assoc(X, Gamma, S, Gamma1),
       check(Steps, Gamma1, M, T1)
-  ;   T = (A => B),
+  ;   T = (A1 => B),
       hypothesis(X),
-      put_assoc(X, Gamma, A, Gamma1),
+      ( A == A1 -> true ; canonical(A, A2), A2 == A1 ),
+      put_assoc(X, Gamma, A1, Gamma1),
       check(Steps, Gamma1, M, B)
   ).
-check(Steps, Gamma, let(X, F, M, M1), T) :- !,
+check(Steps, Gamma, let(X, F0, M, M1), T) :- !,
   hypothesis(X),
+  canonical(F0, F),
   check(Steps, Gamma, M, F),
   put_assoc(X, Gamma, F, Gamma1),
   check(Steps, Gamma1, M1, T).
@@ -89,40 +101,56 @@ check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
   T1 == T.
 
-% the type of an application is determined by its head, so is ground
+% the type of an application is determined by its head, or for an expansion rule (see ir.pl) by
+% the type of its first argument
+type(Steps, Gamma, app(Rule, [], [M|Ms]), T) :-
+  atom(Rule),
+  rule_type(Rule, _, _), !,
+  type(Steps, Gamma, M, T0),
+  rule_type(Rule, T0, T1),
+  arguments(Ms, Steps, Gamma, T1, T).
 type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
   head(Steps, Gamma, F, T0),
   instantiate(Gamma, Ts, T0, T1),
-  ground(T1),
-  arguments(Ms, Steps, Gamma, T1, T).
+  % a clause is ground by now, and has no bound variables
+  ( F \== '$dne', ground(T1) -> T2 = T1 ; canonical(T1, T2), ground(T2) ),
+  arguments(Ms, Steps, Gamma, T2, T).
 type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
 
-% the type of a head: steps, split definitions and built-ins are fresh instances
+% the type of a head: steps and built-ins are fresh instances
 head(_, Gamma, X, T) :- hypothesis(X), !, get_assoc(X, Gamma, T).
 head(_, _, Name, T) :- atom(Name), builtin_type(Name, T), !.
 head(Steps, _, Name, T) :-
   atom(Name),
   get_assoc(Name, Steps, true),
-  step(Name, Clause, _),
-  Clause = clause(_, _),
-  clause_type(Clause, T).
-% the negated conjecture, a hypothesis
-head(Steps, _, Name, T) :-
-  atom(Name),
-  get_assoc(Name, Steps, true),
-  step(Name, formula(T), negated_conjecture(_)).
+  step(Name, Conclusion, _),
+  step_type(Conclusion, T).
 
-% instantiation is unification, so T0 must be a fresh instance: a hypothesis of quantified type
-% (not yet possible) would need substitution instead; each term is of the sort of its binder,
-% which depends on the terms before it
+% each term is of the sort of its binder, which depends on the terms before it
 instantiate(_, [], T, T) :- !.
-instantiate(Gamma, Ts, T0, T) :- unfold(T0, '!'(Bs, T)), instances(Bs, Gamma, Ts).
+instantiate(Gamma, [U|Us], T0, T) :-
+  unfold(T0, '!'([X:S|Bs], F)),
+  sorted(Gamma, U, S),
+  instantiated(X, U, Bs, F, T1),
+  instantiate(Gamma, Us, T1, T).
 
-instances([], _, []).
-instances([X:S|Bs], Gamma, [T|Ts]) :- X = T, sorted(Gamma, T, S), instances(Bs, Gamma, Ts).
+% '!'([X:_|Bs], F) with U for X: X is a variable in a fresh instance, where instantiation is
+% unification, or U itself, an eigenvariable named after the binder of its clause, or else it is
+% canonical, and substituted. U is ground and has no bound variables (it is an eigenvariable, or
+% well sorted), so none is captured
+instantiated(X, U, Bs, F, T) :- var(X), !, X = U, quantified(Bs, F, T).
+instantiated(X, U, Bs, F, T) :- X == U, !, quantified(Bs, F, T).
+instantiated('$BOUND'(H), U, Bs0, F0, T) :-
+  substitute('$BOUND'(H), U, Bs0-F0, Bs-F),
+  quantified(Bs, F, T).
+
+quantified([], F, F) :- !.
+quantified(Bs, F, '!'(Bs, F)).
 
 % first-order term T is of sort S, which is ground; every variable is an eigenvariable of Gamma
 sorted(Gamma, '$VAR'(N), S) :- !, get_assoc('$VAR'(N), Gamma, S0), S0 == S.
+sorted(Gamma, '$BOUND'(H), S) :- !, get_assoc('$BOUND'(H), Gamma, S0), S0 == S.
+sorted(Gamma, F0, S) :- S == '$o', connective(F0, _), !, canonical(F0, F), well_sorted(Gamma, F).
 sorted(Gamma, T, S) :-
   ground(S),
   instance(T, Types, Us, Ss, S0),
@@ -136,9 +164,18 @@ sorted_type(Gamma, T) :- sorted(Gamma, T, '$tType').
 valid_sort(_, S) :- S == '$tType', !.
 valid_sort(Gamma, S) :- sorted(Gamma, S, '$tType').
 
-% formula F is well sorted, with its atoms of sort '$o'
+% canonical formula F is well sorted, with its atoms of sort '$o'
+well_sorted(Gamma, F) :-
+  F =.. [Q, Bs, G],
+  ( Q == '!' ; Q == '?' ), !,
+  foldl(binder, Bs, Gamma, Gamma1),
+  well_sorted(Gamma1, G).
 well_sorted(Gamma, F) :- connective(F, Gs), !, maplist(well_sorted(Gamma), Gs).
 well_sorted(Gamma, A) :- sorted(Gamma, A, '$o').
+
+binder('$BOUND'(H):S, Gamma, Gamma1) :-
+  valid_sort(Gamma, S),
+  put_assoc('$BOUND'(H), Gamma, S, Gamma1).
 
 arguments([], _, _, T, T).
 arguments([M|Ms], Steps, Gamma, T0, T) :-
@@ -156,6 +193,3 @@ closed(clause(Bs, Ls)) :- \+ \+ ( binder_variables(Bs, Xs), number_vars(Xs, 0, _
 
 hypothesis(h(N)) :- integer(N).
 eigenvariable('$VAR'(N)) :- integer(N).
-
-occurs(X, T) :- X == T, !.
-occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.

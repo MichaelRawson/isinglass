@@ -8,6 +8,8 @@
   flip/2,
   number_vars/3,
   substitute/4,
+  occurs/2,
+  canonical/2,
   connective/2
 ]).
 :- use_module(library(lists)).
@@ -68,3 +70,39 @@ substitute(X, S, A, B) :-
   A =.. [F|As],
   maplist(substitute(X, S), As, Bs),
   B =.. [F|Bs].
+
+% the term X occurs in T
+occurs(X, T) :- X == T, !.
+occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.
+
+% a formula with its bound variables named canonically, so that formulas are compared up to these
+% names syntactically: a bound variable is '$BOUND'(H), where H is the number of binders nested in
+% its scope. So a variable is bound outside any of the same name, and instantiating the outermost
+% keeps the rest canonical
+canonical(F0, F) :- canonical(F0, F, _).
+
+canonical(F0, F, H) :-
+  nonvar(F0),
+  F0 =.. [Q, Bs0, G0],
+  ( Q == '!' ; Q == '?' ), !,
+  canonical(G0, G1, H0),
+  bound(Bs0, G1, H0, H, Bs, G),
+  F =.. [Q, Bs, G].
+canonical(F0, F, H) :-
+  nonvar(F0),
+  connective(F0, Gs0), !,
+  F0 =.. [C|_],
+  foldl(canonical_part, Gs0, Gs, 0, H),
+  F =.. [C|Gs].
+canonical(A, A, 0).
+
+canonical_part(F0, F, H0, H) :- canonical(F0, F, H1), H is max(H0, H1).
+
+% the binders are named innermost first: a variable is bound in a fresh instance, and otherwise
+% substituted
+bound([], G, H, H, [], G).
+bound([X:S|Bs0], G0, H0, H, [B:S|Bs], G) :-
+  bound(Bs0, G0, H0, H1, Bs1, G1),
+  B = '$BOUND'(H1),
+  H is H1 + 1,
+  ( var(X) -> X = B, Bs = Bs1, G = G1 ; substitute(X, B, Bs1-G1, Bs-G) ).

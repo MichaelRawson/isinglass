@@ -96,8 +96,8 @@ normalise(V, F) :- var(V), !, F = V.
 normalise('!'(S0, '='(T0)), F) :- !, F = ~(S = T), term(S0, S), term(T0, T).
 normalise(S0 = T0, F) :- !, F = (S = T), term(S0, S), term(T0, T).
 normalise(~G, F) :- !, F = ~H, normalise(G, H).
-normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).
-normalise('?'(Xs) : G, F) :- !, F = '?'(Bs, H), maplist(binder, Xs, Bs), normalise(G, H).
+normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), quantified(Xs, G, Bs, H).
+normalise('?'(Xs) : G, F) :- !, F = '?'(Bs, H), quantified(Xs, G, Bs, H).
 normalise((G | H), F) :- !, F = (G1 | H1), normalise(G, G1), normalise(H, H1).
 normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
@@ -107,6 +107,21 @@ normalise('<~>'(G, H), F) :- !, F = ~((G1 <=> H1)), normalise(G, G1), normalise(
 normalise('~|'(G, H), F) :- !, F = ~((G1 | H1)), normalise(G, G1), normalise(H, H1).
 normalise('~&'(G, H), F) :- !, F = ~((G1 & H1)), normalise(G, G1), normalise(H, H1).
 normalise(A0, A) :- term(A0, A).
+
+% a quantifier's binders Xs and body G, with its variables renamed apart: read/1 gives binders of the
+% same name in one statement the same variable, but each binder must have its own, as instantiation
+% is unification
+quantified(Xs, G, Bs, H) :-
+  term_variables(Xs-G, Vs),
+  copy_term(Vs-Xs-G, Ws-Ys-G1),
+  maplist(binder, Xs, Bound),
+  maplist(kept(Bound), Vs, Ws),
+  maplist(binder, Ys, Bs),
+  normalise(G1, H).
+
+% a variable that the binders Bound do not bind is not renamed
+kept(Bound, V, _) :- member(X:_, Bound), X == V, !.
+kept(_, V, V).
 
 % a quantified variable X or X : Sort, as X : Sort
 binder(B, X:S) :- nonvar(B), B = (X : T), !, term(T, S).
