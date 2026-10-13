@@ -1,0 +1,3 @@
+#!/bin/sh
+
+timeout 10 ./ising vampire agda_file < "$1" > agda/`basename $1 | tr ._ --`.agda || basename $1

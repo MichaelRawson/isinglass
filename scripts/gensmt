@@ -1,0 +1,3 @@
+#!/bin/sh
+
+timeout 10 ./ising vampire smtlib < "$1" > smtlib/`basename $1`.smt2 || basename $1

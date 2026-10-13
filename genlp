@@ -1,3 +1,0 @@
-#!/bin/sh
-
-timeout 10 swipl -g 'run(lambdapi)' -t halt src/main.pl < "$1" > lambdapi/`basename $1`.lp || basename $1

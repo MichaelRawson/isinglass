@@ -1,3 +1,0 @@
-#!/bin/sh
-
-timeout 10 swipl -g 'run(smtlib)' -t halt src/main.pl < "$1" > smtlib/`basename $1`.smt2 || basename $1

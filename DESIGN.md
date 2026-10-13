@@ -1,12 +1,12 @@
 # Design
 
-`atp2itp` reads Vampire (and in future other ATPs') TSTP proofs (CNF, FOF, or TFF), reconstructs each inference as an intermediate representation, and emits the result through one of several back ends.
+Isinglass reads Vampire (and in future other ATPs') TSTP proofs (CNF, FOF, or TFF), reconstructs each inference as an intermediate representation, and emits the result through one of several back ends.
 Frontends, reconstruction and backends are kept separate, so that each prover and each output format can be treated separately.
 Reconstruction is done by backtracking _search_ over the space of possible instances of an inference like, say, "binary resolution".
 
 Overall: TSTP → frontend (e.g. 'Vampire') → ATP-agnostic proof → reconstruction → IR → backend (e.g. 'lambdapi')
 
-Usage: `swipl -g 'main(Backend)' src/main.pl < proof.p`, where `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. Scryer or Trealla have also been tested at some point.
+Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. The script runs `main(Frontend, Backend)` in `src/main.pl` with SWI.
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
@@ -170,7 +170,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 ## Files (`src/`)
 | File | Role |
 |---|---|
-| `main.pl` | `main(Backend)`: loads every module, runs, and exits with a status |
+| `main.pl` | `main(Frontend, Backend)`: loads every module, dispatches on both, and exits with a status |
 | `ops.pl` | Operators of the internal syntax |
 | `load.pl` | `read_tstp/1`: `read/1` with TPTP operators, then normalisation |
 | `db.pl` | The shared database: `step/3`, `symbol/4`, `introduced/2`, `ir_step/3`, `split/2`, and `record/1` to add to them |
@@ -194,10 +194,11 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Some slowness during reconstruction in places, under investigation - e.g. `PUZ135_1`'s self-superposition.
 - Descent: a step that needs two instances of one formula on a branch cannot be reconstructed, by design.
 - Descent terms annotate each hypothesis with its formula, so a parent with n conjuncts gives terms of size n² (e.g. `SYN504+1`, 89 conjuncts), slow to record, check and print.
-- cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `checksmt` would not notice a timeout.
+- cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `scripts/checksmt` would not notice a timeout.
 
 ## Testing
 To test: produce a corpus of TSTP proofs in `solutions/` if not already.
-Then use `gen*` scripts to produce transformed proofs (or just check the corpus with `check`).
+The scripts in `scripts/` each take one file and are run from the top level, e.g. `scripts/genlp solutions/PUZ001+1`.
+Use `gen*` to produce transformed proofs via `ising` (or just check the corpus with `check`).
 Finally, use `check*` to check the resulting proofs.
 All should produce noisy output on failure and play well with GNU parallel.
