@@ -30,8 +30,16 @@ load_statement(Flipping, annotated(Language, Name, Role, Formula0, Source0)) :-
 % cases, for any ⊥) or derived by clausal reasoning; the conjecture, its negation, preprocessing and
 % definitions are formulas
 conclusion(_, _, '$false', C) :- !, C = clause([], []).
-conclusion(Language, How, F, C) :- clausal(Language, How), formula_clause(F, C0), !, C = C0.
+conclusion(Language, How, F, C) :-
+  clausal(Language, How),
+  \+ quantified_disjunct(How, F),
+  formula_clause(F, C0), !,
+  C = C0.
 conclusion(_, _, F, formula(F)).
+
+% a Skolemised formula (! [X] : C) | L stays a formula, as the δ formula of its parent is under the
+% disjunction too, and only formulas are paired part by part (transform.pl)
+quantified_disjunct(tactic(transform(skolem), _), (F | G)) :- \+ \+ ( subterm((F | G), Q), Q = '!'(_, _) ).
 
 clausal(cnf, _).
 clausal(Language, How) :- ( Language == fof ; Language == tff ), clausal_step(How).
