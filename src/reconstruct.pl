@@ -76,6 +76,7 @@ justify(define(Symbol), Conclusion, _, Justification) :-
 justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
+  splits_first(Conclusion),
   search(Tactic, Parents, Conclusion, Fresh, Justification).
 
 % the tactic finds a term of type ⊥ from hypotheses that refute the conclusion
@@ -101,6 +102,13 @@ refutation(formula(F), [H-(~F)], Body, app('$dne', [F], [lam(H, ~F, Body)])).
 
 % a definition cites no steps, so those of the function symbols in T come first, by name
 definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).
+
+% so do the definitions of the split literals of a clause, which a step need not cite (sat_conversion)
+splits_first(clause(_, Ls)) :- each(( member(L, Ls), atom_of(L, A), atom(A), step(Name, _, split_def(A, _)) ), prove(Name)).
+splits_first(formula(_)).
+
+atom_of(~A, A) :- !.
+atom_of(A, A).
 
 % a function definition Symbol(Xs) = Body, either way round: Bs are the binders of Xs, in order
 defining(Symbol, clause(Cs, ['$='(_, A, B)]), Bs, Body) :-
@@ -164,7 +172,10 @@ resolve_literal(Hs, Minors, K, lam(X, K, app(Minor, Ts, Ms))) :-
 % a unit clause, but for AVATAR's split literals, which are in the conclusion
 unit(Ls) :- exclude(avatar_literal, Ls, [_]).
 
-avatar_literal(L) :- ( L = ~A -> true ; A = L ), atom(A), split(A, _), !.
+avatar_literal(L) :- atom_of(L, A), atom(A), split(A, _), !.
+
+% the first tactic of Tactics that succeeds
+first(Tactics, Fresh, Hs, Parents, M) :- member(Tactic, Tactics), call(Tactic, Fresh, Hs, Parents, M), !.
 
 % the hypotheses Hs with the defined atoms of their literals unfolded (see ir.pl), where the body is a
 % literal: Inner then refutes the conclusion as if it were stated with the bodies, from its first parent
@@ -196,24 +207,68 @@ unfolded_literal(A, B) :- A \= ~_, defined_atom(A, B), literal(B).
 literal(~A) :- !, \+ connective(A, _).
 literal(A) :- \+ connective(A, _).
 
-% the conclusion is a tautology, of equality: the hypotheses ~~A for its negative literals give facts
-% A, and one is refuted by a hypothesis, or rewritten by another, or a positive literal is reflexive
+% the conclusion is a ground tautology of equality: the hypotheses ~~A for its negative literals give
+% facts A, whose equations are completed into rewrite rules (rigid variables are constants); then, with
+% every literal in normal form, a fact is refuted by a hypothesis, or a positive literal is reflexive
 tautology(Fresh, Hs, _, M) :-
-  partition(fact_hypothesis, Hs, Gs, Ns),
-  foldl(fact, Gs, Facts, M, M1),
-  closed(Fresh, Ns, Facts, M1).
+  partition(fact_hypothesis, Hs, Gs, Ns0),
+  foldl(fact, Gs, Facts0, M, M0),
+  partition(equation_fact, Facts0, Equations, Facts1),
+  completed(Fresh, Equations, [], Rules, M0, M1),
+  normalised_all(Fresh, Rules, Facts1, Facts, M1, M2),
+  normalised_all(Fresh, Rules, Ns0, Ns, M2, M3),
+  closed(Ns, Facts, M3).
 
 fact_hypothesis(_-(~(~A))) :- \+ connective(A, _).
 
 fact(X-(~(~A)), E-A, app(X, [], [lam(E, A, M)]), M).
 
-closed(_, Ns, _, app(N, [], [app('$refl', [S, T], [])])) :- member(N-(~'$='(S, T, U)), Ns), T == U.
-closed(_, Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
-closed(Fresh, Ns, Facts, M) :-
-  select(Y-K, Facts, Others),
-  member(E-Eq, Others),
-  Eq = '$='(_, _, _),
-  rewrite_literal(Fresh, Ns, K, Y, E, Eq, M).
+equation_fact(_-'$='(_, _, _)).
+
+closed(Ns, _, app(N, [], [app('$refl', [S, T], [])])) :- member(N-(~'$='(S, T, U)), Ns), T == U.
+closed(Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
+
+% ground completion: each equation E : S = T, in normal form, is a rule from the greater side to the
+% smaller, and the rules that it rewrites are completed again
+completed(_, [], Rules, Rules, M, M).
+completed(Fresh, [Equation0|Equations], Rules0, Rules, M, M1) :-
+  normalised(Fresh, Rules0, Equation0, E-'$='(S, A, B), M, M0),
+  (   A == B
+  ->  completed(Fresh, Equations, Rules0, Rules, M0, M1)
+  ;   oriented(E, S, A, B, Rule),
+      Rule = _-'$='(_, L, _),
+      partition(reducible(L), Rules0, Reducible, Irreducible),
+      append(Reducible, Equations, Equations1),
+      completed(Fresh, Equations1, [Rule|Irreducible], Rules, M0, M1)
+  ).
+
+oriented(E, S, A, B, E-'$='(S, A, B)) :- smaller(B, A), !.
+oriented(E, S, A, B, app('$sym', [S, A, B], [E])-'$='(S, B, A)).
+
+% terms are ordered by size, then in the standard order: a total order, closed under contexts
+smaller(T, U) :- size(T, N), size(U, K), N-T @< K-U.
+
+size(T, N) :- compound(T), !, T =.. [_|Ts], foldl(add_size, Ts, 1, N).
+size(_, 1).
+
+add_size(T, N0, N) :- size(T, K), N is N0 + K.
+
+reducible(L, _-'$='(_, A, B)) :- ( occurs(L, A) ; occurs(L, B) ), !.
+
+normalised_all(_, _, [], [], M, M).
+normalised_all(Fresh, Rules, [H0|Hs0], [H|Hs], M, M1) :-
+  normalised(Fresh, Rules, H0, H, M, M0),
+  normalised_all(Fresh, Rules, Hs0, Hs, M0, M1).
+
+% X : T is Y : T1, in normal form: each rule E : L = R rewrites every occurrence of L, by a let
+normalised(Fresh, Rules, X-T, H, M, M1) :-
+  member(E-'$='(S, L, R), Rules),
+  occurs(L, T), !,
+  substitute(L, '$VAR'(Fresh), T, Motive),
+  substitute(L, R, T, T0),
+  M = let(Y, T0, rewrite('$VAR'(Fresh):S, Motive, E, X), M0),
+  normalised(Fresh, Rules, Y-T0, H, M0, M1).
+normalised(_, _, H, H, M, M).
 
 % paramodulation: literals of the Into premise are either in the conclusion, or rewritten by an
 % equation of (an instance of) the From premise, the rest of which is in the conclusion

@@ -78,7 +78,10 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
 - Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
 - Definition folding replaces each instance of the body of a function definition by the defined term. It is proved the other way round, from the conclusion: each defined term in a conclusion literal is unfolded by one rewrite, at every occurrence at once, as folded terms can be large (in SWV545-1.010, 885k nodes, with 59049 occurrences of one instance). As each rewrite states the whole literal, a premise literal of more than 100k nodes is not attempted.
-- Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses are unfolded, where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`, of equality (reflexivity, symmetry, transitivity), with no premise.
+- Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses are unfolded, where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`.
+- A ground tautology of equality (`tautology`, no premise) is closed by ground completion: the facts of its negative literals give equations, oriented by size and then the standard order and inter-reduced into rules, and each literal is normalised by rewrites. Then a fact is refuted by a hypothesis, or a positive equation is reflexive. Rigid variables are constants.
+- `first(Tactics)` is the first of `Tactics` that succeeds.
+- A clausal step proves the definitions of its split literals first, whether or not it cites them (`sat_conversion` does not), so that back ends define them before use.
 - A failed tactic leaves the step as `todo`, with a warning.
 
 ### Preprocessing (`normal.pl`, `transform.pl`)
@@ -115,7 +118,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | Vampire rules | Tactic |
 |---|---|
 | resolution, forward/backward_subsumption_resolution, unit_resulting_resolution, forward_literal_rewriting, extensionality_resolution | `resolve` |
-| factoring, duplicate_literal_removal, sat_conversion, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution | `variant` |
+| factoring, duplicate_literal_removal, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution | `variant` |
 | superposition, forward/backward_demodulation, forward/backward_subsumption_demodulation | `paramodulate` |
 | equality_factoring | `equality_factor` |
 | definition_unfolding | `unfold` |
@@ -126,6 +129,8 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
+| sat_conversion | `first([variant, avatar_split])` |
+| theory_tautology_sat_conflict (introduced) | `tautology` |
 | avatar_split_clause | `avatar_split` |
 | avatar_component_clause | `avatar_component` |
 | rat | `rup` |

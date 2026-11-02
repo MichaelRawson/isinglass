@@ -59,6 +59,7 @@ how(_, introduced(definition, Info, [Kind]), F, tactic(Tactic, [Name])) :-
   new_symbols(Info, [Symbol]),
   predicate_definition(Kind, F, Symbol, _, Tactic), !,
   definition_name(Symbol, Name).
+how(_, introduced(theory, [theory_tautology_sat_conflict], []), _, tactic(tautology, [])) :- !.
 how(_, introduced(definition, Info, _), _, todo(esa(definition, Symbols), [])) :- !,
   new_symbols(Info, Symbols).
 how(_, inference(negated_conjecture, _, [Conjecture]), _, negated_conjecture(Conjecture)) :- !.
@@ -270,7 +271,7 @@ tactic(consistent_polarity_flipping, defined(variant)).
 tactic(equality_proxy_axiom, defined(tautology)).
 tactic(factoring, variant).
 tactic(duplicate_literal_removal, variant).
-tactic(sat_conversion, variant).
+tactic(sat_conversion, first([variant, avatar_split])).
 tactic(avatar_contradiction_clause, variant).
 tactic(avatar_sat_refutation, variant).
 tactic(avatar_split_clause, avatar_split).
