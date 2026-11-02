@@ -1,6 +1,6 @@
 /*
 Refuting a formula by a hypothesis, and the proof terms that this builds (see ir.pl), shared by the
-tactics of reconstruct.pl and descent.pl. Hypotheses Hs are a list of X-T pairs, where X : T.
+tactics of reconstruct.pl and transform.pl. Hypotheses Hs are a list of X-T pairs, where X : T.
 */
 :- module(matching, [matches/3, refutes/4, flipped/3, applied/3, lambdas/3]).
 :- use_module(library(lists)).

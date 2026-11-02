@@ -22,7 +22,8 @@ against the working directory, but finds a module that is already loaded.
 :- use_module(rup).
 :- use_module(close).
 :- use_module(matching).
-:- use_module(descent).
+:- use_module(normal).
+:- use_module(transform).
 :- use_module(reconstruct).
 :- use_module(lambdapi).
 :- use_module(smtlib).

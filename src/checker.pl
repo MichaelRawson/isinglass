@@ -13,7 +13,7 @@ terms (instantiation) or to eigenvariables (an unfolded split definition, under 
 
 Formulas are types too, compared up to the names of their bound variables: these are named
 canonically (see logic.pl), in the types of steps and in the annotations of terms, and a
-quantified hypothesis is instantiated by substitution. The expansion rules of the descent are
+quantified hypothesis is instantiated by substitution. The expansion rules (ir.pl) are
 typed by ir:rule_type/3.
 */
 :- module(checker, [emit_checker/0]).
@@ -76,7 +76,7 @@ check(Steps, Gamma, lam(X, A, M), T0) :- !,
       check(Steps, Gamma1, M, T1)
   ;   T = (A1 => B),
       hypothesis(X),
-      ( A == A1 -> true ; canonical(A, A2), A2 == A1 ),
+      ( A == '$inferred' -> true ; A == A1 -> true ; canonical(A, A2), A2 == A1 ),
       put_assoc(X, Gamma, A1, Gamma1),
       check(Steps, Gamma1, M, B)
   ).

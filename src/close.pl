@@ -25,7 +25,7 @@ Back ends decide what it stands for: a constructive back end (Agda, say) may not
 :- use_module(db).
 
 close_term(M) :-
-  instances([], M, Holes, []),
+  instances([], _, M, Holes, []),
   maplist(close_type, Holes),
   maplist(close_variable, Holes),
   name_binders(M, 0, _).
@@ -63,16 +63,52 @@ argument(Depth, Env, S, U) :- small_term(Depth, Env, S, U), !.
 
 % a hole(Env, X, S) for each binder X : S of the instances in M, with X unified with the term
 % instantiating it; Env holds the types of the λ and let binders in scope, as X-T, where a
-% hypothesis X is still a variable and an eigenvariable is not
-instances(_, V) --> { var(V) }, !.
-instances(Env, lam(X, T, M)) --> !, instances([X-T|Env], M).
-instances(Env, let(X, F, M, M1)) --> !, instances(Env, M), instances([X-F|Env], M1).
-instances(Env, rewrite(_, _, E, M)) --> !, instances(Env, E), instances(Env, M).
-instances(Env, app(F, Ts, Ms)) --> !,
-  { instance_binders(Env, F, Ts, Bs), maplist(hole(Env), Bs, Holes) },
+% hypothesis X is still a variable and an eigenvariable is not. T is the type of M, if known: a
+% binder annotated '$inferred' takes its type from it
+instances(_, _, V) --> { var(V) }, !.
+instances(Env, T, lam(X, A, M)) --> !, { abstraction(T, X, A, A1, T1) }, instances([X-A1|Env], T1, M).
+instances(Env, _, let(X, F, M, M1)) --> !, instances(Env, F, M), instances([X-F|Env], _, M1).
+instances(Env, _, rewrite(_, _, E, M)) --> !, instances(Env, _, E), instances(Env, _, M).
+instances(Env, _, app(F, Ts, Ms)) --> !,
+  { instance_binders(Env, F, Ts, Bs), maplist(hole(Env), Bs, Holes), argument_types(Env, F, Ms, Types) },
   list(Holes),
-  foldl(instances(Env), Ms).
-instances(_, _) --> [].
+  foldl(instances(Env), Types, Ms).
+instances(_, _, _) --> [].
+
+% λ X : A of type T has the binder X : A1, and the body of type T1
+abstraction(T, X, _, S, T1) :- nonvar(T), T = '!'([Y:S|Bs], B), !, substitute(Y, X, Bs-B, Bs1-B1), quantified(Bs1, B1, T1).
+abstraction(T, _, _, A, B) :- nonvar(T), T = (A => B), !.
+abstraction(T, _, _, A, '$false') :- nonvar(T), T = ~A, !.
+abstraction(_, _, A, A, _).
+
+quantified([], B, B) :- !.
+quantified(Bs, B, '!'(Bs, B)).
+
+% the types of the arguments Ms of F, where known: those of an expansion rule follow from the type of
+% its first argument, a hypothesis, and those of a hypothesis that is not quantified from its type
+argument_types(Env, F, Ms, Types) :-
+  same_length(Ms, Types),
+  ( known_types(Env, F, Ms, Types) -> true ; true ).
+
+known_types(Env, Rule, [M|Ms], [T0|Ts]) :-
+  atom(Rule),
+  rule_type(Rule, _, _), !,
+  var(M),
+  typed(Env, M, T0),
+  rule_type(Rule, T0, T1),
+  premises(Ms, T1, Ts).
+known_types(Env, X, Ms, Ts) :-
+  var(X),
+  typed(Env, X, T),
+  T \= '!'(_, _),
+  premises(Ms, T, Ts).
+
+typed(Env, X, T) :- member(Y-T, Env), Y == X, !, nonvar(T), T \== '$inferred'.
+
+premises([], _, []).
+premises([_|Ms], (A => B), [A|Ts]) :- !, premises(Ms, B, Ts).
+premises([_|Ms], ~A, [A|Ts]) :- !, premises(Ms, '$false', Ts).
+premises([_|Ms], _, [_|Ts]) :- premises(Ms, '$false', Ts).
 
 hole(Env, X:S, hole(Env, X, S)).
 

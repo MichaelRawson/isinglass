@@ -38,6 +38,7 @@ Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `
 - `clause(Bs, [L₀…Lₙ₋₁])` has type `Π Bs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`.
 - `formula(F)` has type `F`.
 - Formulas are taken apart by expansion rules, as in a tableau (`ir:rule_type/3`): a built-in head applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`.
+- The hypotheses that an expansion rule binds are annotated `'$inferred'` rather than with their formulas, which follow from the rule's first argument: annotating the parts of a conjunction would make terms quadratic in its size. The checker and `close.pl` infer them; back ends that print binder types must too.
 - The rules for `?` and `~!` bind an eigenvariable. `'$nex'` turns `~?` into `!~`.
 - Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
 - The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed. The IR is therefore sound under any reading of `⊥`: classical falsity, or the conjecture of the A-translation.
@@ -58,7 +59,7 @@ Future constructive backends may use an A-translation to produce a constructive 
 - An A-translation takes `⊥ := G` and the negated conjecture `nc := id`, so the theorem is `refutation id`.
 - If a conjecture does not appear in the proof (whether or not one was given) the IR ends at `$false`.
 
-## Reconstruction (`reconstruct.pl`, `descent.pl`, `rup.pl`, `close.pl`)
+## Reconstruction (`reconstruct.pl`, `transform.pl`, `rup.pl`, `close.pl`)
 Reconstruction tries to build an IR term with the conclusion's type given that the step is e.g. "resolution".
 
 - Conclusion variables and eigenvariables are numbered `'$VAR'(N)` _before_ search, so unification cannot instantiate them.
@@ -73,24 +74,25 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
 - A failed tactic leaves the step as `todo`, with a warning.
 
-### Descent (`descent.pl`)
+### Preprocessing (`normal.pl`, `transform.pl`)
 Transformation to normal form is an entailment from one parent, transformed structurally.
-It is tempting to use a tableau-style search for these, bounded because universal variables in the parent need only be instantiated once per branch.
-Unfortunately a general tableau blows up, as it must guess which of many parts to destructure next.
-However, here the parent and the refuted conclusion have the same structure, so they are two _sides_ that are taken apart in lockstep, and only against each other.
+A general tableau search for these blows up, as it must guess which of many parts to take apart next.
+Instead, each prover rule names the transformation it performs, and the tactic checks just that one, with no search.
 
-The specialised tableau procedure `descend` does the following:
-- A branch closes if there is `F` on one side and `~F` on the other, modulo symmetry of equality.
-- If not, certain rules are applied greedily (α, `~~`, `~?`: so nested conjunctions are flat).
-- Any other rules (β, γ, δ) "waits".
-- Where exactly one formula waits on each side they are _counterparts_.
-- Counterparts are developed in lockstep: β first (each branch then has its own γ instance), then δ together with a γ that waits alone on the other side, so that neither side runs ahead.
-- Where several wait on a side, it is _narrowed_ to one of them, dropping the rest. This is the only search, besides the order of γ formulas and alternative ways to close a branch.
-- A formula that waits alone may have its counterpart in several parts (a β formula against a conjunction; `<=>` once it is replaced by other connectives), so it is also developed with the other side as it is.
-- Variables are rigid: a formula is developed at most once on a branch, and an eigenvariable may not occur in an instance made before it was introduced.
-- A sub-descent that closes without instantiating a variable from outside it is kept: no other way to close it would help the rest.
-- One tactic, `descent`, for all normal-form transformations.
-- `descent` not replicate any particular algorithm, tolerating reordering, renaming, flipped equations, vacuous quantifiers and weakening.
+- Each transformation has a _normal form_ (`normal:normal/3`), a ground key that forgets what the transformation may change: `base` (renaming, `~~`, `=>`, nesting of `&`/`|` and their units, operand order, equation orientation, vacuous and grouped quantifiers), `ennf` (and negation pushed to atoms, keeping `<=>`), `nnf` (and `<=>` expanded), `simplify` (and `$true`/`$false`), `pure(Ss)` (pure predicates replaced by `$true`/`$false`).
+- The keys are approximate, so that small implementation differences (reordering, renaming, flipped equations, vacuous quantifiers) do not matter.
+- `transform(Mode)` fails at once unless the parent and conclusion have the same key.
+- The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
+  - literals close modulo symmetry;
+  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones;
+  - otherwise the conjunctive side is expanded into a _pool_ of parts by key, and each branch of the other side is looked up in it, or split further.
+- In nnf the negation of an expanded `<=>` is a disjunction of conjunctions, so there both formulas are also compared the other way round.
+- Weakening steps:
+  - `pure`: the pure predicates are those of the parent that are not in the conclusion.
+  - `definition`: one `<=>` of the parent becomes the `=>` that makes the keys equal.
+- `clausify` reconstructs `cnf_transformation` of a formula: the clause's literals refute the parent, by one part of each conjunction and every branch of each disjunction, closing literals by unification.
+  Its only search is the choice of conjunct, pruned to those whose literals the clause's predicates and signs could refute (`fits`).
+- A clause conclusion whose variables are not the parent's outermost universal ones (Vampire's AVATAR shape `(! [X] : C) | ~p`) is refuted in the same way.
 
 ## Frontends
 The job of a frontend is to load the proof of a given system in its own idiom, then match its inference rules to the existing ATP-generic 'tactics' that we know how to reconstruct.
@@ -108,12 +110,18 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | rat | `rup` |
 | cnf_transformation of a clause | `variant` |
 | cnf_transformation of the negated conjecture, an atom | `deny` |
-| various other normal-form transformations | `descent` |
+| rectify, flattening | `transform(base)` |
+| ennf_transformation | `transform(ennf)` |
+| nnf_transformation | `transform(nnf)` |
+| true_and_false_elimination | `transform(simplify)` |
+| pure_predicate_removal | `transform(pure)` |
+| unused_predicate_definition_removal | `transform(definition)` |
+| cnf_transformation of a formula | `clausify` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
 Steps that preserve only satisfiability are not yet handled: Skolemisation, and introducing or folding definitions.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
-A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters the descent by the type of its clause.
+A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause.
 
 ## Backends
 
@@ -179,7 +187,8 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `signature.pl` | The signature: symbol instances and term sorts, typing equations, default sorts for undeclared symbols (any front end); `overloaded/1` |
 | `reconstruct.pl` | Proof search and the tactics |
 | `matching.pl` | Refuting a literal or formula by a hypothesis, shared by the tactics |
-| `descent.pl` | The tactic for steps between formulas: preprocessing and clausification |
+| `normal.pl` | Normal forms of formulas for each preprocessing transformation, as keys |
+| `transform.pl` | The tactics for steps between formulas: preprocessing (`transform`) and clausification (`clausify`) |
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
 | `ir.pl` | IR documentation; `clause_type/2`, `step_type/2`, `builtin_type/2`, `rule_type/3`, `formula_step/1`, `reference/2` |
@@ -192,8 +201,6 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Backend scaling: for some backends (lambdapi, Agda) some large (e.g. `HWV057`, `SWV424-1.200`) or otherwise-tricky proofs time out or run out of memory. Not our problem, will be reported upstream if relevant.
 - One failure at `read/1`: SYN986+1.004 blows the stack with its deep `succ` terms, but checks with `ulimit -s unlimited`.
 - Some slowness during reconstruction in places, under investigation - e.g. `PUZ135_1`'s self-superposition.
-- Descent: a step that needs two instances of one formula on a branch cannot be reconstructed, by design.
-- Descent terms annotate each hypothesis with its formula, so a parent with n conjuncts gives terms of size n² (e.g. `SYN504+1`, 89 conjuncts), slow to record, check and print.
 - cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `scripts/checksmt` would not notice a timeout.
 
 ## Testing

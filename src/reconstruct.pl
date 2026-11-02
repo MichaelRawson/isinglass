@@ -3,12 +3,13 @@ Reconstruct steps into ir_step/3 facts by searching for proof terms (see ir.pl f
 
 The search procedures below are given hypotheses Hs, a list of X-T pairs where X : T is a
 variable, and build a term of type ⊥, which is then abstracted over the conclusion (checker.pl
-type-checks it). Each λ is annotated with its binder's type when it is built. During search,
-binders are Prolog variables, and are named h(N) afterwards.
+type-checks it). Each λ is annotated with its binder's type when it is built (but for those of the
+expansion rules in transform.pl, '$inferred'). During search, binders are Prolog variables, and
+are named h(N) afterwards.
 Clauses are stored with Prolog variables (db.pl), so retrieving a premise gives a fresh instance.
 The conclusion is made rigid by numbering its variables, and premise instances are found by
 unification with it, Prolog's backtracking performing the search.
-Steps between formulas are reconstructed by the descent (descent.pl), which has the same interface.
+Steps between formulas are reconstructed by the tactics of transform.pl, which have the same interface.
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
@@ -21,7 +22,7 @@ Steps between formulas are reconstructed by the descent (descent.pl), which has 
 :- use_module(rup).
 :- use_module(close).
 :- use_module(matching).
-:- use_module(descent).
+:- use_module(transform).
 
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-

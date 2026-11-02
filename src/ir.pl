@@ -31,7 +31,9 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
 
   M ::= X                 a hypothesis h(N)
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
-      | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort
+      | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort; T is
+                          '$inferred' for a hypothesis of an expansion rule, whose type follows
+                          from the rule's first argument
       | let(X, F, M, M')  X : F is M, in M' (a lemma)
       | rewrite(X:S, A, E, M)
                           E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
@@ -42,7 +44,7 @@ A split symbol is a defined proposition: it unfolds to the type of its defining 
       | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
       | '$trivial'        built-in: '$true'
       | '$dne'            built-in: '!'([F:'$o'], ~ ~F => F), classical
-      | Rule              an expansion rule (descent.pl), below
+      | Rule              an expansion rule (transform.pl), below
 
 A hypothesis of type '!'(Bs, F) is applied to terms, as a step is. An expansion rule is applied to
 a proof of a formula, whose type is inferred as for E above, and then to a refutation of each
@@ -88,10 +90,11 @@ implications([L|Ls], (~L => F)) :- implications(Ls, F).
 step_type(clause(Bs, Ls), T) :- clause_type(clause(Bs, Ls), T).
 step_type(formula(F), F).
 
-% a step between formulas, reconstructed by the descent (descent.pl): its proof uses the expansion
-% rules, and its parent as a formula, or as the type of its clause
+% a step between formulas, preprocessing or clausification (transform.pl): its proof uses the
+% expansion rules, and its parent as a formula, or as the type of its clause
 formula_step(Name) :-
-  step(Name, _, tactic(descent, _)).
+  step(Name, _, tactic(Tactic, _)),
+  ( Tactic = transform(_) ; Tactic == clausify ), !.
 
 % the types of the built-in heads
 builtin_type('$sym', '!'([A:'$tType', X:A, Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))).

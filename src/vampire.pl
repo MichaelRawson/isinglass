@@ -56,7 +56,7 @@ how(_, inference(Rule, Info, Parents), _, todo(esa(Rule, Symbols), Parents)) :-
 how(_, inference(cnf_transformation, _, [Parent]), _, How) :-
   clausification(Parent, How), !.
 how(_, inference(Rule, _, [Parent]), ~A, How) :-
-  tactic(Rule, descent),
+  tactic(Rule, transform(_)),
   \+ connective(A, _),
   denied(Parent, Negated), !,
   How = tactic(deny, [Negated]).
@@ -68,10 +68,10 @@ how(_, Source, _, todo(Source, [])).
 
 % clausification of a clause only reorders it, and the negated conjecture of an atom is denied
 % directly, as is its preprocessing, so that these steps stay constructive; otherwise clausification
-% and preprocessing are steps between formulas (descent.pl)
+% and preprocessing are steps between formulas (transform.pl)
 clausification(Parent, tactic(variant, [Parent])) :- step(Parent, clause(_, _), _), !.
 clausification(Parent, tactic(deny, [Negated])) :- denied(Parent, Negated), !.
-clausification(Parent, tactic(descent, [Parent])).
+clausification(Parent, tactic(clausify, [Parent])).
 
 % Name is the negated conjecture Negated, of an atom, or denies it
 denied(Name, Negated) :-
@@ -109,13 +109,13 @@ tactic(forward_demodulation, paramodulate).
 tactic(backward_demodulation, paramodulate).
 tactic(equality_factoring, equality_factor).
 tactic(definition_unfolding, unfold).
-tactic(rectify, descent).
-tactic(flattening, descent).
-tactic(ennf_transformation, descent).
-tactic(nnf_transformation, descent).
-tactic(true_and_false_elimination, descent).
-tactic(pure_predicate_removal, descent).
-tactic(unused_predicate_definition_removal, descent).
+tactic(rectify, transform(base)).
+tactic(flattening, transform(base)).
+tactic(ennf_transformation, transform(ennf)).
+tactic(nnf_transformation, transform(nnf)).
+tactic(true_and_false_elimination, transform(simplify)).
+tactic(pure_predicate_removal, transform(pure)).
+tactic(unused_predicate_definition_removal, transform(definition)).
 
 record_introduced(Source) :-
   each(introduced_symbol(Source, Kind, Symbol), record(introduced(Symbol, Kind))).
