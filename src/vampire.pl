@@ -1,6 +1,7 @@
 % Vampire front end: interpret TSTP statements as step/3 facts
 :- module(vampire, [load_vampire/1]).
 :- use_module(library(lists)).
+:- use_module(library(pairs)).
 :- use_module(utils).
 :- use_module(ops).
 :- use_module(logic).
@@ -10,11 +11,13 @@
 % type declarations first, so that every equation can be given its sort
 load_vampire(Statements) :-
   each(member(annotated(_, _, type, Type, _), Statements), declare(Type)),
-  each(member(Statement, Statements), load_statement(Statement)).
+  polarity_flipping(Statements, Flipping),
+  each(member(Statement, Statements), load_statement(Flipping, Statement)).
 
-load_statement(annotated(_, _, type, _, _)) :- !.
-load_statement(annotated(Language, Name, Role, Formula0, Source)) :-
-  typed([], Formula0, Formula),
+load_statement(_, annotated(_, _, type, _, _)) :- !.
+load_statement(Flipping, annotated(Language, Name, Role, Formula0, Source0)) :-
+  typed([], Formula0, Formula1),
+  flipped_statement(Flipping, Name, Source0, Formula1, Source, Formula),
   record_definition(Source, Formula),
   how(Role, Source, Formula, How),
   conclusion(Language, How, Formula, Conclusion),
@@ -156,6 +159,104 @@ new_symbols(Info, Symbols) :- findall(S, (member(I, Info), introduced_symbol(I, 
 % folded symbols, which are reconstructed above, for functions in clauses and predicates in formulas
 esa(definition_folding).
 
+/*
+Consistent polarity flipping replaces a predicate P by its negation, but keeps its name: so the steps
+after it, all but its ancestors, are stated with P_flipped for P, where P_flipped is defined as ~P
+(the step P_flipped_def). A flipped predicate of a flipping step is one whose literals in the parent
+and conclusion differ in sign. Flipping is flips(Predicates, Ancestors)
+*/
+polarity_flipping(Statements, flips(Predicates, Ancestors)) :-
+  findall(P-F, member(annotated(_, _, _, F, inference(consistent_polarity_flipping, _, [P])), Statements), Flips),
+  findall(Q, ( member(P-F, Flips), memberchk(annotated(_, P, _, F0, _), Statements), flipped_predicate(F0, F, Q) ), Qs),
+  sort(Qs, Predicates),
+  each(member(Q, Predicates), record_flipped(Q)),
+  pairs_keys(Flips, Parents),
+  ancestors(Parents, Statements, [], Ancestors).
+
+% the predicate P/N, monomorphic, has a different number of positive literals in F0 and F
+flipped_predicate(F0, F, P/N) :-
+  setof(P/N, S^A^( signed_atom(F0, S, A), functor(A, P, N) ), Ps),
+  member(P/N, Ps),
+  \+ symbol(P, [_|_], _, _),
+  positive_literals(F0, P/N, K0),
+  positive_literals(F, P/N, K),
+  K0 =\= K.
+
+positive_literals(F, P/N, K) :- findall(A, ( signed_atom(F, +, A), functor(A, P, N) ), As), length(As, K).
+
+% a predicate atom A of a formula, positive (+) or negative (-)
+signed_atom(F, S, A) :- signed_atom(F, +, S, A).
+
+signed_atom(~F, S0, S, A) :- !, opposite(S0, S1), signed_atom(F, S1, S, A).
+signed_atom(F, S0, S, A) :- connective(F, Gs), !, member(G, Gs), signed_atom(G, S0, S, A).
+signed_atom(A, S, S, A) :- A \= (_ = _).
+
+opposite(+, -).
+opposite(-, +).
+
+% P_flipped(Xs) is defined as ~P(Xs), of the signature of P, or of individuals if P is untyped
+record_flipped(P/N) :-
+  flipped_name(P, P1),
+  length(Xs, N),
+  (   symbol(P, [], Ss, '$o')
+  ->  record(symbol(P1, [], Ss, '$o'))
+  ;   length(Ss, N), maplist(=('$i'), Ss)
+  ),
+  maplist(binder, Xs, Ss, Bs),
+  A =.. [P|Xs],
+  A1 =.. [P1|Xs],
+  ( Bs == [] -> D = (A1 <=> ~A) ; D = '!'(Bs, (A1 <=> ~A)) ),
+  record(introduced(P1, definition)),
+  definition_name(P1, Name),
+  record(step(Name, formula(D), define(P1))).
+
+flipped_name(P, P1) :- atom_concat(P, '_flipped', P1).
+
+binder(X, S, X:S).
+
+% the names of the ancestors of steps Ns, by their parents
+ancestors([], _, As, As).
+ancestors([N|Ns], Statements, As0, As) :-
+  (   memberchk(N, As0)
+  ->  ancestors(Ns, Statements, As0, As)
+  ;   ( memberchk(annotated(_, N, _, _, inference(_, _, Ps)), Statements) -> true ; Ps = [] ),
+      append(Ps, Ns, Ns1),
+      ancestors(Ns1, Statements, [N|As0], As)
+  ).
+
+% a step after flipping is stated with the flipped predicates renamed; inputs and the ancestors of the
+% flipping steps are not; a flipping step cites the definitions too
+flipped_statement(flips([], _), _, Source, F, Source, F) :- !.
+flipped_statement(_, _, file(N, I), F, file(N, I), F) :- !.
+flipped_statement(flips(_, Ancestors), Name, Source, F, Source, F) :- memberchk(Name, Ancestors), !.
+flipped_statement(flips(Ps, _), _, Source0, F0, Source, F) :-
+  flipped_source(Ps, Source0, Source),
+  flipped_formula(Ps, F0, F).
+
+flipped_source(Ps, inference(consistent_polarity_flipping, Info, [Parent]), Source) :- !,
+  findall(D, ( member(P/_, Ps), flipped_name(P, P1), definition_name(P1, D) ), Ds),
+  Source = inference(consistent_polarity_flipping, Info, [Parent|Ds]).
+flipped_source(_, Source, Source).
+
+flipped_formula(Ps, F0, F) :-
+  compound(F0),
+  F0 =.. [Q, Bs, G0],
+  ( Q == '!' ; Q == '?' ), !,
+  flipped_formula(Ps, G0, G),
+  F =.. [Q, Bs, G].
+flipped_formula(Ps, F0, F) :-
+  connective(F0, _), !,
+  F0 =.. [C|Gs0],
+  maplist(flipped_formula(Ps), Gs0, Gs),
+  F =.. [C|Gs].
+flipped_formula(Ps, A0, A) :-
+  functor(A0, P, N),
+  memberchk(P/N, Ps), !,
+  flipped_name(P, P1),
+  A0 =.. [P|Ts],
+  A =.. [P1|Ts].
+flipped_formula(_, A, A).
+
 % Vampire inference rules and the generic tactics that reconstruct them
 tactic(resolution, resolve).
 tactic(forward_subsumption_resolution, resolve).
@@ -165,6 +266,7 @@ tactic(forward_literal_rewriting, resolve).
 tactic(extensionality_resolution, resolve).
 tactic(equality_proxy_replacement, defined(variant)).
 tactic(inequality_splitting, defined(variant)).
+tactic(consistent_polarity_flipping, defined(variant)).
 tactic(equality_proxy_axiom, defined(tautology)).
 tactic(factoring, variant).
 tactic(duplicate_literal_removal, variant).

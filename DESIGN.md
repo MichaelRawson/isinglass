@@ -124,7 +124,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | function_definition (introduced) | `definition` |
 | predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `F \| ~P(Xs)` (introduced) | `transform(base)`, or `transform(definition)`, from `P_def` |
 | inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
-| equality_proxy_replacement, inequality_splitting | `defined(variant)` |
+| equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
 | avatar_split_clause | `avatar_split` |
 | avatar_component_clause | `avatar_component` |
@@ -141,7 +141,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | cnf_transformation of a formula | `clausify` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
-Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. The other steps that preserve only satisfiability are not yet handled: renaming (`consistent_polarity_flipping`) and general splitting.
+Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step but the inputs and the ancestors of the flipping steps states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites). The flipped predicates are those whose literals differ in sign between a flipping step and its parent. General splitting, which also preserves only satisfiability, is not yet handled.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause.
 
@@ -212,7 +212,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `load.pl` | `read_tstp/1`: `read/1` with TPTP operators, then normalisation |
 | `db.pl` | The shared database: `step/3`, `symbol/4`, `introduced/2`, `ir_step/3`, `split/2`, and `record/1` to add to them |
 | `logic.pl` | Formulas and clauses: `formula_clause`, `clause_formula`, `binder_variables`, `complement`, `flip`, `number_vars`, `substitute`, `occurs`, `canonical` |
-| `vampire.pl` | Vampire front end: clause or formula, rule table, inputs, the conjecture and AVATAR definitions; unknown rules become `todo` |
+| `vampire.pl` | Vampire front end: clause or formula, rule table, inputs, the conjecture, AVATAR and predicate definitions, renaming flipped predicates; unknown rules become `todo` |
 | `signature.pl` | The signature: symbol instances and term sorts, typing equations, default sorts for undeclared symbols (any front end); `overloaded/1` |
 | `reconstruct.pl` | Proof search and the tactics |
 | `matching.pl` | Refuting a literal or formula by a hypothesis, shared by the tactics |
