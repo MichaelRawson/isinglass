@@ -143,8 +143,15 @@ predicate_definition(_, F, Symbol, D, Tactic) :- definition_shape(F, Symbol, [],
 % Symbol(Xs) <=> Body, where the arguments of the atom are the variables Xs
 definition_shape((A <=> B), Symbol, Xs, (A <=> B), transform(base)) :- definiendum(A, Symbol, Xs), !.
 definition_shape((B <=> A), Symbol, Xs, (A <=> B), transform(base)) :- definiendum(A, Symbol, Xs), !.
-definition_shape((B | ~A), Symbol, Xs, (A <=> B), transform(definition)) :- definiendum(A, Symbol, Xs), !.
-definition_shape((~A | B), Symbol, Xs, (A <=> B), transform(definition)) :- definiendum(A, Symbol, Xs).
+% ...or one way: a disjunction of ~Symbol(Xs) and the disjuncts of Body, anywhere among them
+definition_shape(F, Symbol, Xs, (A <=> B), transform(definition)) :-
+  disjuncts(F, Ds),
+  select(~A, Ds, Bs),
+  definiendum(A, Symbol, Xs), !,
+  disjunction(Bs, B).
+
+disjuncts((F | G), Ds) :- !, disjuncts(F, Ds0), disjuncts(G, Ds1), append(Ds0, Ds1, Ds).
+disjuncts(F, [F]).
 
 definiendum(A, Symbol, Xs) :-
   nonvar(A),

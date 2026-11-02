@@ -125,7 +125,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | definition_folding of function definitions, in a clause | `fold` |
 | definition_folding of predicate definitions, in a formula | `transform(fold)` |
 | function_definition (introduced) | `definition` |
-| predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `F \| ~P(Xs)` (introduced) | `transform(base)`, or `transform(definition)`, from `P_def` |
+| predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `~P(Xs)` among the disjuncts of `F` (introduced) | `transform(base)`, or `transform(definition)`, from `P_def` |
 | inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
