@@ -112,6 +112,15 @@ cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
 % a split symbol is defined as the type of its clause; formula steps have no proof terms
 emitted(step(_, _, split_def(Split, Clause))) --> !,
   definition(symbol(Split), codes("Set"), conclusion(Clause)).
+% a function symbol is defined by its term, so that its equation holds by reflexivity
+emitted(step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
+  { binder_variables(Bs, Xs), binder_variables(Cs, Ys), append(Ys, [h(0)], Zs) },
+  definition(symbol(Symbol), symbol_type(Symbol), defined(Xs, Body)),
+  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, app(h(0), [], ['$refl']))).
+% ...and a predicate by its body, where Agda can state it (formulas of clauses), else a hole
+emitted(step(_, formula(_), definition(Symbol, Bs, Body))) --> !,
+  { binder_variables(Bs, Xs) },
+  definition(symbol(Symbol), symbol_type(Symbol), defined_predicate(Xs, Body)).
 % a step between formulas is classical, so it is left as a hole
 emitted(step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
   definition(atom(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
@@ -124,6 +133,28 @@ emitted(_) --> [].
 definition(Name, Type, Body) -->
   "    ", call(Name), " : ", call(Type), "\n",
   "    ", call(Name), " = ", call(Body), "\n".
+
+defined([], Body) --> !, body(Body).
+defined(Xs, Body) --> "λ", foldl(spaced_variable, Xs), " → ", body(Body).
+
+spaced_variable(X) --> " ", variable(X).
+
+defined_predicate(Xs, Body) --> { stated(Body) }, !, defined(Xs, formula(Body)).
+defined_predicate(_, _) --> "{! !}".
+
+stated('!'(_, F)) :- !, stated(F).
+stated((F => G)) :- !, stated(F), stated(G).
+stated(~F) :- !, stated(F).
+stated(F) :- \+ connective(F, _).
+
+body(app(F, Ts, Ms)) --> !, proof(app(F, Ts, Ms)).
+body(formula(F)) --> !, type(F).
+body(T) --> term(T).
+
+% a polymorphic symbol takes its type arguments first
+symbol_type(S) -->
+  { symbol(S, Ps, Args, Sort), number_vars(Ps, 0, _) },
+  foldl(type_parameter, Ps), foldl(argument_sort, Args), sort(Sort).
 
 todo(esa(Rule, _)) --> !, "{! ", atom(Rule), " !}".
 todo(Record) --> { functor(Record, Rule, _) }, "{! ", atom(Rule), " !}".
@@ -273,7 +304,7 @@ argument(T) --> " ", term(T).
  ********************************************************************************/
 
 file -->
-  { findall(S-(Ps-Args-Sort), ( symbol(S, Ps, Args, Sort), \+ split(S, _) ), Symbols),
+  { findall(S, ( symbol(S, _, _, _), \+ split(S, _), \+ ir_step(_, _, definition(S, _, _)) ), Symbols),
     leaves(Leaves) },
   "{-# OPTIONS --allow-unsolved-metas #-}\n",
   "open import Agda.Builtin.Equality\n",
@@ -287,10 +318,8 @@ file -->
   "\ngoal : ", goal(Leaves), "\n",
   "goal = ", fragment.
 
-% a polymorphic symbol takes its type arguments first
-declaration(S-(Ps-Args-Sort)) -->
-  { number_vars(Ps, 0, _) },
-  "  ", symbol(S), " : ", foldl(type_parameter, Ps), foldl(argument_sort, Args), sort(Sort), "\n".
+% split symbols and defined function symbols are defined in the proof
+declaration(S) --> "  ", symbol(S), " : ", symbol_type(S), "\n".
 
 type_parameter(P) --> pi(P:'$tType').
 

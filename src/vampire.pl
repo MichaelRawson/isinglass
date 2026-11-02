@@ -15,6 +15,7 @@ load_vampire(Statements) :-
 load_statement(annotated(_, _, type, _, _)) :- !.
 load_statement(annotated(Language, Name, Role, Formula0, Source)) :-
   typed([], Formula0, Formula),
+  record_definition(Source, Formula),
   how(Role, Source, Formula, How),
   conclusion(Language, How, Formula, Conclusion),
   record_introduced(Source),
@@ -33,6 +34,7 @@ clausal(cnf, _).
 clausal(Language, How) :- ( Language == fof ; Language == tff ), clausal_step(How).
 
 clausal_step(input(_, _)).
+clausal_step(define(_)).
 clausal_step(tactic(_, _)).
 clausal_step(todo(cnf_transformation, _)) :- !.
 % an unknown rule from clauses only
@@ -48,9 +50,23 @@ how(conjecture, file(_, Input), _, conjecture(Input)) :- !.
 how(Role, file(_, Input), _, input(Role, Input)) :- !.
 how(_, introduced(definition, _, [avatar_definition]), (Symbol <=> Component), split_def(Symbol, C)) :-
   formula_clause(Component, C), !.
+how(_, introduced(definition, Info, [function_definition]), _, define(Symbol)) :-
+  new_symbols(Info, [Symbol]), !.
+how(_, introduced(definition, Info, [Kind]), F, tactic(Tactic, [Name])) :-
+  new_symbols(Info, [Symbol]),
+  predicate_definition(Kind, F, Symbol, _, Tactic), !,
+  definition_name(Symbol, Name).
 how(_, introduced(definition, Info, _), _, todo(esa(definition, Symbols), [])) :- !,
   new_symbols(Info, Symbols).
 how(_, inference(negated_conjecture, _, [Conjecture]), _, negated_conjecture(Conjecture)) :- !.
+how(_, inference(definition_folding, _, [Parent|Definitions]), _, tactic(fold, [Parent|Definitions])) :-
+  step(Parent, clause(_, _), _),
+  Definitions \== [],
+  each(member(D, Definitions), function_definition(D)), !.
+how(_, inference(definition_folding, _, [Parent|Definitions]), _, tactic(transform(fold), [Parent|Definitions])) :-
+  step(Parent, formula(_), _),
+  Definitions \== [],
+  each(member(D, Definitions), from_definition(D)), !.
 how(_, inference(Rule, Info, Parents), _, todo(esa(Rule, Symbols), Parents)) :-
   \+ tactic(Rule, _),
   ( memberchk(status(esa), Info) ; esa(Rule) ), !,
@@ -85,16 +101,70 @@ denial(Name, Name) :- step(Name, _, negated_conjecture(_)), !.
 denial(Name, Negated) :- step(Name, _, tactic(deny, [Negated])), !.
 denial(Name, Negated) :- step(Name, formula(_), todo(_, [Parent])), denial(Parent, Negated).
 
+% a unit equation, one side of which is a term of a function symbol introduced by definition
+function_definition(Name) :-
+  step(Name, clause(_, ['$='(_, A, B)]), _),
+  ( defined_term(A) ; defined_term(B) ), !.
+
+defined_term(T) :- nonvar(T), functor(T, F, _), introduced(F, definition).
+
+% a step that follows from the definition of a predicate
+from_definition(Name) :- step(Name, _, tactic(_, [D])), step(D, formula(_), define(_)).
+
+/*
+A predicate definition is printed as Vampire uses it: as Symbol(Xs) <=> Body, in one direction only,
+Body | ~Symbol(Xs), or for an inequality split, ~Symbol(T), where Symbol(X) is X != T. The definition
+itself, ![Xs] : (Symbol(Xs) <=> Body), is recorded first, as the step Symbol_def, and the printed
+statement is proved from it by the Tactic
+*/
+record_definition(introduced(definition, Info, [Kind]), F) :-
+  new_symbols(Info, [Symbol]),
+  predicate_definition(Kind, F, Symbol, Definition, _), !,
+  definition_name(Symbol, Name),
+  record(step(Name, formula(Definition), define(Symbol))).
+record_definition(_, _).
+
+definition_name(Symbol, Name) :- atom_concat(Symbol, '_def', Name).
+
+predicate_definition(_, '!'(Bs, F), Symbol, '!'(Bs, D), Tactic) :- !,
+  binder_variables(Bs, Xs),
+  definition_shape(F, Symbol, Xs, D, Tactic).
+predicate_definition(inequality_splitting_name_introduction, ~A, Symbol, '!'([X:S], D), defined(tautology)) :-
+  A =.. [Symbol, T],
+  term_sort([], T, S), !,
+  D = (B <=> ~'$='(S, X, T)),
+  B =.. [Symbol, X].
+predicate_definition(_, F, Symbol, D, Tactic) :- definition_shape(F, Symbol, [], D, Tactic).
+
+% Symbol(Xs) <=> Body, where the arguments of the atom are the variables Xs
+definition_shape((A <=> B), Symbol, Xs, (A <=> B), transform(base)) :- definiendum(A, Symbol, Xs), !.
+definition_shape((B <=> A), Symbol, Xs, (A <=> B), transform(base)) :- definiendum(A, Symbol, Xs), !.
+definition_shape((B | ~A), Symbol, Xs, (A <=> B), transform(definition)) :- definiendum(A, Symbol, Xs), !.
+definition_shape((~A | B), Symbol, Xs, (A <=> B), transform(definition)) :- definiendum(A, Symbol, Xs).
+
+definiendum(A, Symbol, Xs) :-
+  nonvar(A),
+  A =.. [Symbol|As],
+  maplist(var, As),
+  sort(As, Vs),
+  sort(Xs, Vs),
+  same_length(As, Vs).
+
 new_symbols(Info, Symbols) :- findall(S, (member(I, Info), introduced_symbol(I, _, S)), Symbols).
 
-% rules that are not entailments, though Vampire does not say so: a predicate definition is
-% printed in one direction only, and folding needs the other
+% rules that are not entailments, though Vampire does not say so: folding needs the definitions of the
+% folded symbols, which are reconstructed above, for functions in clauses and predicates in formulas
 esa(definition_folding).
 
 % Vampire inference rules and the generic tactics that reconstruct them
 tactic(resolution, resolve).
 tactic(forward_subsumption_resolution, resolve).
 tactic(backward_subsumption_resolution, resolve).
+tactic(unit_resulting_resolution, resolve).
+tactic(forward_literal_rewriting, resolve).
+tactic(equality_proxy_replacement, defined(variant)).
+tactic(inequality_splitting, defined(variant)).
+tactic(equality_proxy_axiom, defined(tautology)).
 tactic(factoring, variant).
 tactic(duplicate_literal_removal, variant).
 tactic(sat_conversion, variant).

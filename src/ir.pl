@@ -11,6 +11,12 @@ The intermediate representation (IR) of proofs, and the types of clauses.
                                                     ?[Y:S|Ys] : G (T is ?[Ys] : G) or ~![Y:S|Ys] : G
                                                     (T is ~![Ys] : G); its conclusion is the choice axiom
                                                     ![Bs] : (F => T[Symbol(Xs)/Y]) (choice_axiom/4)
+                  | definition(Symbol, Bs, Body)    Symbol(Xs) is defined as Body, for the binders
+                                                    Bs = Xs : Sorts; for a function symbol, Body is a
+                                                    term, and the conclusion is the unit clause
+                                                    [Symbol(Xs) = Body], either way round; for a
+                                                    predicate, Body is a formula, and the conclusion is
+                                                    ![Bs] : (Symbol(Xs) <=> Body)
                   | proof(M)                        M is a proof term of the conclusion clause
                   | negated_conjecture(Conjecture)  the hypothesis ~G, discharged by Conjecture
                   | conjecture(Source, Negated, Refutation)
@@ -33,6 +39,8 @@ are compared syntactically.
 
 So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
 A split symbol is a defined proposition: it unfolds to the type of its defining clause.
+A defined predicate unfolds to its body, so a formula is also of any type that differs from it only by
+unfolding defined atoms (expanded/2): a proof uses this only at a let, which states the unfolded type.
 
   M ::= X                 a hypothesis h(N)
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
@@ -79,7 +87,8 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4]).
+:- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4,
+  defined_atom/2, expanded/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(db).
@@ -131,6 +140,46 @@ choice_axiom(Symbol, Bs, F, A) :-
   Term =.. [Symbol|Xs],
   substitute(Y, Term, T, T1),
   quantified('!', Bs, (F => T1), A).
+
+% the atom A of a defined predicate unfolds to Body, the definition's body for the arguments of A
+defined_atom(A, Body) :-
+  compound(A),
+  A =.. [P|Ts],
+  ir_step(_, formula(_), definition(P, Bs, Body0)),
+  binder_variables(Bs, Xs),
+  foldl(abstract, Xs, Vs, Body0, Body),
+  Vs = Ts.
+defined_atom(A, Body) :-
+  atom(A),
+  ir_step(_, formula(_), definition(A, [], Body)).
+
+abstract(X, V, F0, F) :- substitute(X, V, F0, F).
+
+% the canonical formula F0 with each defined atom unfolded, throughout (definitions are not circular)
+expanded(F0, F) :- opened(F0, F1), unfolded(F1, F2), canonical(F2, F).
+
+% the bound variables of a canonical formula as Prolog variables: the names on a path are distinct
+opened(F0, F) :-
+  compound(F0),
+  F0 =.. [Q, Bs0, G0],
+  ( Q == '!' ; Q == '?' ), !,
+  foldl(open_binder, Bs0, Bs, Bs0-G0, _-G1),
+  opened(G1, G),
+  F =.. [Q, Bs, G].
+opened(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(opened, Gs0, Gs), F =.. [C|Gs].
+opened(A, A).
+
+open_binder(X:S, V:S, Bs0-G0, Bs-G) :- substitute(X, V, Bs0-G0, Bs-G).
+
+unfolded(F0, F) :-
+  compound(F0),
+  F0 =.. [Q, Bs, G0],
+  ( Q == '!' ; Q == '?' ), !,
+  unfolded(G0, G),
+  F =.. [Q, Bs, G].
+unfolded(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(unfolded, Gs0, Gs), F =.. [C|Gs].
+unfolded(A, F) :- defined_atom(A, Body0), !, opened(Body0, Body), unfolded(Body, F).
+unfolded(A, A).
 
 % a quantifier over binders Bs, if any
 quantified(_, [], F, F) :- !.

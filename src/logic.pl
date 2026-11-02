@@ -9,6 +9,7 @@
   number_vars/3,
   substitute/4,
   occurs/2,
+  subterm/2,
   canonical/2,
   connective/2
 ]).
@@ -74,6 +75,10 @@ substitute(X, S, A, B) :-
 % the term X occurs in T
 occurs(X, T) :- X == T, !.
 occurs(X, T) :- compound(T), T =.. [_|Ts], member(S, Ts), occurs(X, S), !.
+
+% a subterm S of T that is not a variable
+subterm(T, T) :- nonvar(T).
+subterm(T, S) :- compound(T), T =.. [_|Ts], member(U, Ts), subterm(U, S).
 
 % a formula with its bound variables named canonically, so that formulas are compared up to these
 % names syntactically: a bound variable is '$BOUND'(H), where H is the number of binders nested in

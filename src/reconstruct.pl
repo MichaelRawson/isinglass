@@ -23,6 +23,7 @@ Steps between formulas are reconstructed by the tactics of transform.pl, which h
 :- use_module(close).
 :- use_module(matching).
 :- use_module(transform).
+:- use_module(ir).
 
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
@@ -60,8 +61,18 @@ rigid(formula(F), Fresh) :- canonical(F, _), term_variables(F, Vs), number_vars(
 
 justify(input(Role, Source), _, _, input(Role, Source)).
 % the defining clause is rigid as a clause is, not as part of the definition's formula
-justify(split_def(Symbol, _), _, _, split_def(Symbol, Clause)) :- split(Symbol, Clause), rigid(Clause, _).
+justify(split_def(Symbol, _), _, _, split_def(Symbol, Clause)) :-
+  split(Symbol, Clause),
+  rigid(Clause, _),
+  definitions_first(Clause).
 justify(negated_conjecture(Conjecture), _, _, negated_conjecture(Conjecture)).
+justify(define(Symbol), Conclusion, _, Justification) :-
+  (   defining(Symbol, Conclusion, Bs, Body)
+  ->  definitions_first(Body),
+      Justification = definition(Symbol, Bs, Body)
+  ;   warn(['warning: ', Symbol, ' is not defined by ', Conclusion]),
+      Justification = todo(esa(definition, [Symbol]), [])
+  ).
 justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
@@ -87,6 +98,24 @@ refutation(clause(Bs, Ls), Hs, Body, M) :-
   binders(Bs, Hs, Binders),
   lambdas(Binders, Body, M).
 refutation(formula(F), [H-(~F)], Body, app('$dne', [F], [lam(H, ~F, Body)])).
+
+% a definition cites no steps, so those of the function symbols in T come first, by name
+definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).
+
+% a function definition Symbol(Xs) = Body, either way round: Bs are the binders of Xs, in order
+defining(Symbol, clause(Cs, ['$='(_, A, B)]), Bs, Body) :-
+  ( A =.. [Symbol|Xs], Body = B ; B =.. [Symbol|Xs], Body = A ), !,
+  maplist(argument_binder(Cs), Xs, Bs).
+% ...or a predicate definition ![Cs] : (Symbol(Xs) <=> Body), whose binders become eigenvariables
+defining(Symbol, formula(F), Bs, Body) :-
+  ( F = '!'(Cs0, D0) -> foldl(eigenvariable_binder, Cs0, Cs, 0-D0, _-D) ; Cs = [], D = F ),
+  D = (A <=> Body),
+  A =.. [Symbol|Xs],
+  maplist(argument_binder(Cs), Xs, Bs).
+
+eigenvariable_binder(X:S, '$VAR'(N):S, N-F0, N1-F) :- N1 is N + 1, substitute(X, '$VAR'(N), F0, F).
+
+argument_binder(Cs, X, X:S) :- member(Y:S, Cs), Y == X, !.
 
 % binders X-T: eigenvariables X-Sort for the clause's binders Bs, then the hypotheses Hs
 binders(Bs, Hs, Binders) :- maplist(eigenvariable, Bs, Is), append(Is, Hs, Binders).
@@ -114,20 +143,77 @@ deny(_, [H-(~(~A))], [Negated], app(H, [], [M])) :-
 denied(G, Negated, A, app(Negated, [], [])) :- unify_with_occurs_check(G, A).
 denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A, Negated, M).
 
-% binary resolution: literals of the major premise are either in the conclusion,
-% or refuted by (an instance of) the minor premise
-% only positive literals are refuted by the minor: one resolved literal is positive, and either premise
-% may be the major, so this is complete, and avoids an exponential search on wide negative clauses
+% resolution: literals of the major premise are either in the conclusion, or refuted by (an instance
+% of) a minor premise; binary, or with unit minors (unit-resulting resolution)
+% in binary resolution, only positive literals are refuted by the minor: one resolved literal is
+% positive, and either premise may be the major, so this is complete, and avoids an exponential search
+% on wide negative clauses; with several minors, negative literals are refuted by units (but for split
+% literals)
 resolve(_, Hs, Premises, app(Major, Ts, Ms)) :-
-  select(Major, Premises, [Minor]),
+  select(Major, Premises, Minors),
   premise(Major, Ts, Ks),
-  maplist(resolve_literal(Hs, Minor), Ks, Ms).
+  maplist(resolve_literal(Hs, Minors), Ks, Ms).
 
 resolve_literal(Hs, _, K, M) :- matches(Hs, K, M).
-resolve_literal(Hs, Minor, K, lam(X, K, app(Minor, Ts, Ms))) :-
-  K \= ~_,
+resolve_literal(Hs, Minors, K, lam(X, K, app(Minor, Ts, Ms))) :-
+  member(Minor, Minors),
   premise(Minor, Ts, Ls),
+  ( K \= ~_ ; Minors = [_, _|_], unit(Ls) ),
   maplist(matches([X-K|Hs]), Ls, Ms).
+
+% a unit clause, but for AVATAR's split literals, which are in the conclusion
+unit(Ls) :- exclude(avatar_literal, Ls, [_]).
+
+avatar_literal(L) :- ( L = ~A -> true ; A = L ), atom(A), split(A, _), !.
+
+% the hypotheses Hs with the defined atoms of their literals unfolded (see ir.pl), where the body is a
+% literal: Inner then refutes the conclusion as if it were stated with the bodies, from its first parent
+defined(Inner, Fresh, Hs, [Parent|_], M) :-
+  unfolded_hypotheses(Hs, Hs1, M, M1),
+  call(Inner, Fresh, Hs1, [Parent], M1).
+
+% M binds the hypotheses Hs1 and then is M1
+unfolded_hypotheses([], [], M, M).
+unfolded_hypotheses([H0|Hs0], [H|Hs], M, M1) :-
+  unfolded_hypothesis(H0, H, M, M0),
+  unfolded_hypotheses(Hs0, Hs, M0, M1).
+
+% X : ~L is Y : ~L1, where L1 is the literal L with its atom unfolded, by a let that states the
+% unfolded type; a hypothesis ~~~C is ~C, refuting C, by one more let
+unfolded_hypothesis(X-(~L), H, M, M1) :-
+  unfolded_literal(L, L1), !,
+  (   L1 = ~(~C)
+  ->  H = Y-(~C),
+      M = let(Z, ~L1, X, let(Y, ~C, lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))])), M1))
+  ;   H = Y-(~L1),
+      M = let(Y, ~L1, X, M1)
+  ).
+unfolded_hypothesis(H, H, M, M).
+
+unfolded_literal(~A, ~B) :- defined_atom(A, B), literal(B).
+unfolded_literal(A, B) :- A \= ~_, defined_atom(A, B), literal(B).
+
+literal(~A) :- !, \+ connective(A, _).
+literal(A) :- \+ connective(A, _).
+
+% the conclusion is a tautology, of equality: the hypotheses ~~A for its negative literals give facts
+% A, and one is refuted by a hypothesis, or rewritten by another, or a positive literal is reflexive
+tautology(Fresh, Hs, _, M) :-
+  partition(fact_hypothesis, Hs, Gs, Ns),
+  foldl(fact, Gs, Facts, M, M1),
+  closed(Fresh, Ns, Facts, M1).
+
+fact_hypothesis(_-(~(~A))) :- \+ connective(A, _).
+
+fact(X-(~(~A)), E-A, app(X, [], [lam(E, A, M)]), M).
+
+closed(_, Ns, _, app(N, [], [app('$refl', [S, T], [])])) :- member(N-(~'$='(S, T, U)), Ns), T == U.
+closed(_, Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
+closed(Fresh, Ns, Facts, M) :-
+  select(Y-K, Facts, Others),
+  member(E-Eq, Others),
+  Eq = '$='(_, _, _),
+  rewrite_literal(Fresh, Ns, K, Y, E, Eq, M).
 
 % paramodulation: literals of the Into premise are either in the conclusion, or rewritten by an
 % equation of (an instance of) the From premise, the rest of which is in the conclusion
@@ -221,6 +307,61 @@ definiendum(D, def(D, F/N, Side)) :-
   ( Side = left, Def = A ; Side = right, Def = B ),
   pattern(Def),
   functor(Def, F, N).
+
+% definition folding replaces each instance of the body of a function definition sF(Xs) = body by
+% sF(...): it is proved the other way round, from the conclusion, whose hypothesis for each folded
+% literal is unfolded until it refutes the premise's. Folded terms can be large, with many occurrences
+% of each instance, so each instance is unfolded by one rewrite, at every occurrence at once
+fold(Fresh, Hs, [Clause|Definitions], M) :-
+  sort(Definitions, Ds),
+  maplist(folded_symbol, Ds, Defs),
+  premise(Clause, Ts, Ks),
+  foldl(fold_literal(ctx('$VAR'(Fresh), Defs), Hs), Ks, Ms, [], Instances),
+  foldl(opened, Instances, app(Clause, Ts, Ms), M).
+
+% the side of the definition that is a symbol introduced by definition
+folded_symbol(D, def(D, F/N, Side)) :-
+  premise(D, _, ['$='(_, A, B)]),
+  ( Side = left, Def = A ; Side = right, Def = B ),
+  pattern(Def),
+  functor(Def, F, N),
+  introduced(F, definition), !.
+
+% premise literal K is refuted by M, as it is, or by the hypothesis X : ~K1 of a conclusion literal,
+% unfolded to ~K (or its flip). Each rewrite states the literal, so a large K (as in SWV545-1.010)
+% is not attempted: the proof would be too large to print
+fold_literal(_, Hs, K, M, Is, Is) :- matches(Hs, K, M).
+fold_literal(Ctx, Hs, K, M, Is0, Is) :-
+  nodes_within(K, 100000, _),
+  member(X-(~K1), Hs),
+  unfold_all(K1, Ctx, K2, [], Steps, Is0, Is),
+  Steps \== [],
+  Ctx = ctx(Z, _),
+  chain(Steps, Z, X, W),
+  (   unify_with_occurs_check(K2, K)
+  ->  M = W
+  ;   flip(K2, K3),
+      unify_with_occurs_check(K3, K),
+      M = let(Y, ~K2, W, M1),
+      flipped(K, Y, M1)
+  ).
+
+% T has at most N0 nodes, N0 - N of them
+nodes_within(T, N0, N) :- N0 > 0, N1 is N0 - 1, ( compound(T) -> T =.. [_|Ts], foldl(nodes_within, Ts, N1, N) ; N = N1 ).
+
+% T becomes T1 as each defined term in it is replaced by its body, at every occurrence, outermost first
+unfold_all(T, Ctx, T1, Steps0, Steps, Is0, Is) :-
+  Ctx = ctx(Z, Defs),
+  (   subterm(T, U), functor(U, F, N), memberchk(def(D, F/N, Side), Defs)
+  ->  premise(D, Us, [Eq]),
+      Eq = '$='(Sort, _, _),
+      oriented(Side, Eq, E, U, Body, Equation),
+      substitute(U, Z, T, Motive),
+      substitute(Z, Body, Motive, T0),
+      opening(D, Us, Eq, E, Is0, Is1),
+      unfold_all(T0, Ctx, T1, [step(Sort, ~Motive, Equation)|Steps0], Steps, Is1, Is)
+  ;   T1 = T, Steps = Steps0, Is = Is0
+  ).
 
 % f(X_1, ..., X_n) with distinct variables
 pattern(T) :-

@@ -38,8 +38,17 @@ header -->
   "(set-option :print-success false)\n",
   "(declare-sort I 0)\n",
   "(declare-sort |$inhabited| 0)\n",
-  { findall(S-(Args-Sort), symbol(S, [], Args, Sort), Symbols) },
-  declarations(Symbols).
+  { findall(S-(Args-Sort), ( symbol(S, [], Args, Sort), \+ defined_predicate(S, _, _) ), Symbols),
+    findall(S-(Bs-Body), defined_predicate(S, Bs, Body), Definitions) },
+  declarations(Symbols),
+  foldl(predicate_definition, Definitions).
+
+% a monomorphic predicate defined by its body (see ir.pl), in the order of the steps
+defined_predicate(S, Bs, Body) :- ir_step(_, formula(_), definition(S, Bs, Body)), symbol(S, [], _, _).
+
+predicate_definition(S-(Bs-Body)) -->
+  { length(Bs, N) },
+  "(define-fun ", sym(S/N), " (", binders(Bs), ") Bool ", formula(Body), ")\n".
 
 % types are sorts; polymorphic symbols are declared by instance, in each check
 declarations([]) --> [].
@@ -74,6 +83,9 @@ check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 % Skolem symbols are uninterpreted, and their definitions not checked
 check(skolem_def(_, _, _), _, _) --> [].
+% nor are definitions: the equations of functions are premises of later steps, and predicates are
+% defined in the header
+check(definition(_, _, _), _, _) --> [].
 % a step between formulas has formulas for premises, which have no ground instances to assert
 check(proof(_), Name, _) --> { formula_step(Name) }, !,
   "(echo \"warning: ", atom(Name), " (formula step) is not checked\")\n".
@@ -224,6 +236,7 @@ binders([B|Bs]) --> binder(B), " ", binders(Bs).
 binder(X:S) --> "(", term(X), " ", sort(S), ")".
 
 term('$VAR'(N)) --> !, "x", number(N).
+term('$BOUND'(N)) --> !, "y", number(N).
 term(T) --> { polymorphic(T, F, N, Types, []) }, !, instance_name(F/N, Types).
 term(T) --> { polymorphic(T, F, N, Types, Us) }, !, "(", instance_name(F/N, Types), arguments(Us), ")".
 term(T) --> { atomic(T) }, !, sym(T/0).

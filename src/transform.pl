@@ -47,8 +47,21 @@ the clause's predicates and signs.
 
 % a clause conclusion whose variables are not those of the outermost universal quantifiers of the parent,
 % as in Vampire's AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
-transform(Mode0, Fresh, Hs, [Parent], M) :-
+% definition folding: the parent and the conclusion are the same once the defined predicates of both
+% are unfolded (see ir.pl), and these unfolded types are stated by lets
+transform(fold, Fresh, Hs0, [Parent|_], M) :- !,
+  expanded_hypotheses(Hs0, Hs, M, M0),
+  step(Parent, Conclusion, _),
+  step_type(Conclusion, F0),
+  canonical(F0, F1),
+  expanded(F1, F),
+  M0 = let(X, F, app(Parent, [], []), M1),
+  transformed_from(base, Fresh, Hs, X-F, M1).
+transform(Mode, Fresh, Hs, [Parent], M) :-
   parent(Parent, X, F, M, M1),
+  transformed_from(Mode, Fresh, Hs, X-F, M1).
+
+transformed_from(Mode0, Fresh, Hs, X-F, M1) :-
   eigenvariables(Hs, Es),
   goal(Hs, G),
   context(Mode0, F, G, Fresh, Ctx),
@@ -58,6 +71,13 @@ transform(Mode0, Fresh, Hs, [Parent], M) :-
       choices(Defs)
   ;   refuted(X-F, Hs, M1)
   ).
+
+% M binds the hypotheses Hs, which are Hs0 with their types unfolded, and then is M1
+expanded_hypotheses([], [], M, M).
+expanded_hypotheses([X-T|Hs0], [H|Hs], M, M1) :-
+  expanded(T, T1),
+  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = let(Y, T1, X, M0) ),
+  expanded_hypotheses(Hs0, Hs, M0, M1).
 
 % Ctx is ctx(Mode, Fresh, Defs), with Defs the Skolem definitions so far, an open list; the Skolem
 % symbols are those of the conclusion G that are not in the parent F
@@ -123,10 +143,6 @@ value(neg, '$false').
 skolem_symbols(F, G, Ss) :-
   findall(S, ( subterm(G, T), functor(T, S, _), introduced(S, skolem), \+ ( subterm(F, U), functor(U, S, _) ) ), Ss0),
   sort(Ss0, Ss).
-
-% a subterm S of T that is not a variable
-subterm(T, T) :- nonvar(T).
-subterm(T, S) :- compound(T), T =.. [_|Ts], member(U, Ts), subterm(U, S).
 
 % one definition F <=> G of the formula is weakened to F => G, or G => F
 weaken_definition((F <=> G), (F => G)).

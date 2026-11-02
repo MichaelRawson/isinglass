@@ -70,7 +70,35 @@ justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A1),
   A1 == A.
+% a function symbol, defined once, by a well-sorted term of its arguments only, and its step is the
+% unit clause of its definition, either way round
+justified(definition(Symbol, Bs, Body), clause(Cs, [Eq]), Steps) :- !,
+  defined_once(Symbol, Bs, Body, Steps, Sort, Gamma, Term),
+  msort(Bs, Sorted), msort(Cs, Sorted),
+  sorted(Gamma, Body, Sort),
+  ( Eq == '$='(Sort, Term, Body) ; Eq == '$='(Sort, Body, Term) ), !.
+% ...and a predicate, by a well-sorted formula, and its step is ![Bs] : (Symbol(Xs) <=> Body)
+justified(definition(Symbol, Bs, Body), formula(F), Steps) :- !,
+  defined_once(Symbol, Bs, Body, Steps, '$o', Gamma, Term),
+  canonical(Body, Body1),
+  Body1 == Body,
+  well_sorted(Gamma, Body),
+  ( Bs == [] -> F0 = (Term <=> Body) ; F0 = '!'(Bs, (Term <=> Body)) ),
+  canonical(F0, F1),
+  F1 == F.
 justified(_, _, _).
+
+% Symbol is introduced by definition, and not yet defined, and the symbols of Body are not defined
+% later, so definitions unfold; Term is Symbol(Xs), for its binders Bs, in Gamma
+defined_once(Symbol, Bs, Body, Steps, Sort, Gamma, Term) :-
+  introduced(Symbol, definition),
+  \+ ( ir_step(Name, _, definition(Symbol, _, _)), get_assoc(Name, Steps, true) ),
+  argument_binders(Symbol, Bs, Sort),
+  \+ ( subterm(Body, T), functor(T, F, _), ir_step(Name, _, definition(F, _, _)), \+ get_assoc(Name, Steps, true) ),
+  empty_assoc(Empty),
+  foldl(argument, Bs, Empty, Gamma),
+  binder_variables(Bs, Xs),
+  Term =.. [Symbol|Xs].
 
 % the binders Bs of Sk(Xs) are distinct eigenvariables, of the sorts of its arguments, and Sk is of Sort
 argument_binders(Sk, Bs, Sort) :-
@@ -132,7 +160,11 @@ check(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   AU == T.
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
-  T1 == T.
+  convertible(T1, T).
+
+% types are the same, or the same once defined predicates are unfolded (see ir.pl)
+convertible(T1, T) :- T1 == T, !.
+convertible(T1, T) :- expanded(T1, U), expanded(T, U1), U == U1.
 
 % the type of an application is determined by its head, or for an expansion rule (see ir.pl) by
 % the type of its first argument
