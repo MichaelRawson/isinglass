@@ -71,8 +71,8 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Closing (`close.pl`) runs after search: binders are named `h(N)`, and it tries to fill term-level variables left unconstrained with a suitable inhabitant (else `'$inhabited'(S)`)
 - RUP (`rup.pl`): ground reverse unit propagation as in a SAT solver, split out into a separate module.
 - Many rules are simply variants of a parent, up to instantiation, factoring, reflexivity, literal re-ordering, and symmetry of equality.
-- Resolution finds the pivot literal and then matches remaining literals in the same way. Unit-resulting resolution is the same, with a unit minor premise for each pivot (unit but for AVATAR split literals, which are in the conclusion).
-- Paramodulation is similar: each literal is matched to a premise, or rewritten using one positive equation `A = B` from a premise.
+- Resolution finds the pivot literal and then matches remaining literals in the same way. Unit-resulting resolution is the same, with a unit minor premise for each pivot (unit but for AVATAR split literals, which are in the conclusion). Extensionality resolution is binary resolution of an extensionality clause's `X = Y` with a disequation.
+- Paramodulation is similar: each literal is matched to a premise, or rewritten using one positive equation `A = B` from a premise. So is subsumption demodulation, whose conditional equation's other literals are in the conclusion.
 - Equality factoring is the same, but the equation comes from a hypothesis for a conclusion literal `A != B`
 - Denial: derive `~A` from the negated conjecture `~A`, modulo symmetry.
 - Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
@@ -114,9 +114,9 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 ### Vampire (`vampire.pl`)
 | Vampire rules | Tactic |
 |---|---|
-| resolution, forward/backward_subsumption_resolution, unit_resulting_resolution, forward_literal_rewriting | `resolve` |
+| resolution, forward/backward_subsumption_resolution, unit_resulting_resolution, forward_literal_rewriting, extensionality_resolution | `resolve` |
 | factoring, duplicate_literal_removal, sat_conversion, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution | `variant` |
-| superposition, forward/backward_demodulation | `paramodulate` |
+| superposition, forward/backward_demodulation, forward/backward_subsumption_demodulation | `paramodulate` |
 | equality_factoring | `equality_factor` |
 | definition_unfolding | `unfold` |
 | definition_folding of function definitions, in a clause | `fold` |

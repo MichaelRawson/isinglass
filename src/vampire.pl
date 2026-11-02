@@ -162,6 +162,7 @@ tactic(forward_subsumption_resolution, resolve).
 tactic(backward_subsumption_resolution, resolve).
 tactic(unit_resulting_resolution, resolve).
 tactic(forward_literal_rewriting, resolve).
+tactic(extensionality_resolution, resolve).
 tactic(equality_proxy_replacement, defined(variant)).
 tactic(inequality_splitting, defined(variant)).
 tactic(equality_proxy_axiom, defined(tautology)).
@@ -179,6 +180,8 @@ tactic(equality_resolution, variant).
 tactic(superposition, paramodulate).
 tactic(forward_demodulation, paramodulate).
 tactic(backward_demodulation, paramodulate).
+tactic(forward_subsumption_demodulation, paramodulate).
+tactic(backward_subsumption_demodulation, paramodulate).
 tactic(equality_factoring, equality_factor).
 tactic(definition_unfolding, unfold).
 tactic(rectify, transform(base)).
