@@ -118,9 +118,9 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | Vampire rules | Tactic |
 |---|---|
 | resolution, forward/backward_subsumption_resolution, unit_resulting_resolution, forward_literal_rewriting, extensionality_resolution | `resolve` |
-| factoring, duplicate_literal_removal, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution | `variant` |
+| factoring, duplicate_literal_removal, avatar_contradiction_clause, avatar_sat_refutation, reorient_equations, trivial_inequality_removal, equality_resolution, condensation | `variant` |
 | superposition, forward/backward_demodulation, forward/backward_subsumption_demodulation | `paramodulate` |
-| equality_factoring | `equality_factor` |
+| equality_factoring, inner_rewriting | `equality_factor` |
 | definition_unfolding | `unfold` |
 | definition_folding of function definitions, in a clause | `fold` |
 | definition_folding of predicate definitions, in a formula | `transform(fold)` |

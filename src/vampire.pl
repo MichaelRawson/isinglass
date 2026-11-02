@@ -280,12 +280,14 @@ tactic(rat, rup).
 tactic(reorient_equations, variant).
 tactic(trivial_inequality_removal, variant).
 tactic(equality_resolution, variant).
+tactic(condensation, variant).
 tactic(superposition, paramodulate).
 tactic(forward_demodulation, paramodulate).
 tactic(backward_demodulation, paramodulate).
 tactic(forward_subsumption_demodulation, paramodulate).
 tactic(backward_subsumption_demodulation, paramodulate).
 tactic(equality_factoring, equality_factor).
+tactic(inner_rewriting, equality_factor).
 tactic(definition_unfolding, unfold).
 tactic(rectify, transform(base)).
 tactic(flattening, transform(base)).
