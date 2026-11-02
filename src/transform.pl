@@ -24,6 +24,13 @@ where the key of G is that of ~F:
 Some steps only weaken their parent: the pure predicates are those of the parent but not of the
 conclusion, and an unused definition F <=> G is weakened to F => G or G => F.
 
+Skolemisation is an entailment once each Skolem symbol is defined by choice: sK(xs) := ε Y. T, for
+a δ formula of the parent ?[Y] : T (or ~![Y] : G, where T is ~G). The Skolem symbols are those of
+the conclusion that are not in the parent; their keys forget them (normal.pl). A δ formula of the
+parent is opened by the choice axiom of a Skolem term in its counterpart (skolem_def, see ir.pl):
+the term is read off the conclusion, so no convention of the prover is assumed. The definitions
+that the proof uses are recorded as steps, before the step itself.
+
 clausify: the conclusion is a clause of the conjunctive normal form of the parent. The literals of the
 conclusion refute the parent: one part of a conjunction, every branch of a disjunction, and a literal
 by unification. The only search is the choice of part, of those that can be refuted by literals of
@@ -40,21 +47,29 @@ the clause's predicates and signs.
 
 % a clause conclusion whose variables are not those of the outermost universal quantifiers of the parent,
 % as in Vampire's AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
-transform(Mode, Fresh, Hs, [Parent], M) :-
+transform(Mode0, Fresh, Hs, [Parent], M) :-
   parent(Parent, X, F, M, M1),
   eigenvariables(Hs, Es),
-  (   instantiated(Es, X-F, H, M1, M2)
-  ->  transformed(Mode, Fresh, H, Hs, M2)
+  goal(Hs, G),
+  context(Mode0, F, G, Fresh, Ctx),
+  (   instantiated(Ctx, Es, Hs, X-F, H, M1, M2)
+  ->  transformed(Ctx, H, G, Hs, M2),
+      Ctx = ctx(_, _, Defs),
+      choices(Defs)
   ;   refuted(X-F, Hs, M1)
   ).
 
-transformed(Mode0, Fresh, H, Hs, M) :-
+% Ctx is ctx(Mode, Fresh, Defs), with Defs the Skolem definitions so far, an open list; the Skolem
+% symbols are those of the conclusion G that are not in the parent F
+context(skolem, F, G, Fresh, ctx(skolem(Ss), Fresh, _)) :- !, skolem_symbols(F, G, Ss).
+context(Mode, _, _, Fresh, ctx(Mode, Fresh, _)).
+
+transformed(ctx(Mode0, Fresh, Defs), H, G, Hs, M) :-
   H = _-F,
-  goal(Hs, G),
   weakened(Mode0, F, G, F1, Mode),
   normal(Mode, G, K),
   normal(Mode, F1, K), !,
-  conclusion(ctx(Mode, Fresh), H, Hs, M).
+  conclusion(ctx(Mode, Fresh, Defs), H, Hs, M).
 
 % the parent is the hypothesis X : F, its formula or the type of its clause
 parent(Parent, X, F, let(X, F, app(Parent, [], []), M), M) :-
@@ -69,12 +84,19 @@ eigenvariables_in(T, [T|Es], Es) :- nonvar(T), T = '$VAR'(_), !.
 eigenvariables_in(T, Es0, Es) :- compound(T), !, T =.. [_|Ts], foldl(eigenvariables_in, Ts, Es0, Es).
 eigenvariables_in(_, Es, Es).
 
-% a clause conclusion instantiates the outermost universal variables of the parent
-instantiated([], H, H, M, M) :- !.
-instantiated(Es, H0, H, M, M1) :-
-  universals(H0, Vs, H, M, M1),
-  H = _-F,
-  occurring(Vs, F, Es).
+% a clause conclusion instantiates the outermost universal variables of the parent, in order, but
+% for those of its δ formulas that are Skolemised by the conclusion's hypotheses Hs
+instantiated(_, [], _, H, H, M, M) :- !.
+instantiated(Ctx, Es, Hs, H0, H, M, M2) :-
+  universals(H0, [V|Vs], H1, M, M1), !,
+  H1 = _-F,
+  occurring([V|Vs], F, Os),
+  append(Os, Es1, Es),
+  instantiated(Ctx, Es1, Hs, H1, H, M1, M2).
+instantiated(Ctx, Es, Hs, H0, H, M, M2) :-
+  findall(F, member(_-F, Hs), Fs),
+  skolemised(Ctx, H0, Fs, H1, M, M1),
+  instantiated(Ctx, Es, Hs, H1, H, M1, M2).
 
 % the variables Vs that occur in F
 occurring([], _, []).
@@ -96,6 +118,15 @@ pure_symbols(F, G, Ss) :-
 
 value(pos, '$true').
 value(neg, '$false').
+
+% the Skolem symbols of G that are not in F
+skolem_symbols(F, G, Ss) :-
+  findall(S, ( subterm(G, T), functor(T, S, _), introduced(S, skolem), \+ ( subterm(F, U), functor(U, S, _) ) ), Ss0),
+  sort(Ss0, Ss).
+
+% a subterm S of T that is not a variable
+subterm(T, T) :- nonvar(T).
+subterm(T, S) :- compound(T), T =.. [_|Ts], member(U, Ts), subterm(U, S).
 
 % one definition F <=> G of the formula is weakened to F => G, or G => F
 weaken_definition((F <=> G), (F => G)).
@@ -124,7 +155,7 @@ conclusion(Ctx, H, [Y-G], M) :- !, pair(Ctx, H, Y-G, M).
 conclusion(Ctx, H, Hs, M) :- keyed(Ctx, Hs, Pool), close(Ctx, [H], Pool, M).
 
 /********************************************************************************
- * pairing counterparts: Ctx is ctx(Mode, Fresh), with Fresh the next eigenvariable
+ * pairing counterparts: Ctx is ctx(Mode, Fresh, Defs), with Fresh the next eigenvariable
  ********************************************************************************/
 
 pair(_, X-F, _, M) :- closes(F, X, M), !.
@@ -132,6 +163,8 @@ pair(_, _, Y-G, M) :- closes(G, Y, M), !.
 pair(_, X-F, Y-G, M) :- literal(F), literal(G), !, refutes(G, Y, F, R), !, applied(R, X, M).
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, X-F, Y-G, M), !.
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, Y-G, X-F, M), !.
+pair(Ctx, X-F, Y-G, M) :- skolemised(Ctx, X-F, [G], H, M, M1), pair(Ctx, H, Y-G, M1), !.
+pair(Ctx, X-F, Y-G, M) :- skolemised(Ctx, Y-G, [F], H, M, M1), pair(Ctx, X-F, H, M1), !.
 pair(Ctx, X-F, Y-G, M) :- alpha_like(F), !, pool(Ctx, [X-F], Pool, M, M1), close(Ctx, [Y-G], Pool, M1).
 pair(Ctx, X-F, Y-G, M) :- alpha_like(G), !, pool(Ctx, [Y-G], Pool, M, M1), close(Ctx, [X-F], Pool, M1).
 pair(Ctx, X-F, Y-G, M) :- split(X-F, Branches, M), !, branches(Ctx, Branches, Y-G).
@@ -146,25 +179,35 @@ branches(Ctx, [Es-M|Branches], H) :-
 
 % D : δ formula, and G its counterpart, a γ formula: the eigenvariables of the one, but for those
 % that are vacuous, are the variables of the other, in order. Either may be vacuous, and the other
-% not a quantifier at all
-quantifiers(ctx(Mode, Fresh0), D, G, M) :-
-  existentials(Fresh0, D, Es0, D1, Fresh, M, M1),
+% not a quantifier at all. In Skolemisation, a ? of the parent may come between its universals, so
+% only as many δ formulas are opened as there are universals
+quantifiers(ctx(Mode, Fresh0, Defs), D, G, M) :-
   universals(G, Vs0, G1, M1, M2),
+  limit(Mode, Vs0, Limit),
+  existentials(Fresh0, Limit, D, Es0, D1, Fresh, M, M1),
   ( Es0 = [_|_] ; Vs0 = [_|_] ), !,
   D1 = _-F1, G1 = _-T1,
   occurring(Es0, F1, Es),
   occurring(Vs0, T1, Vs),
   Vs = Es,
-  pair(ctx(Mode, Fresh), G1, D1, M2).
+  pair(ctx(Mode, Fresh, Defs), G1, D1, M2).
 
-% the δ formulas nested outermost in X : F, with an eigenvariable for each variable, are Y : G
-existentials(Fresh0, X-F, [E|Es], H, Fresh, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
+limit(skolem(_), Vs, Vs) :- !.
+limit(_, _, unlimited).
+
+% the δ formulas nested outermost in X : F, up to the Limit, with an eigenvariable for each
+% variable, are Y : G
+existentials(Fresh0, Limit0, X-F, [E|Es], H, Fresh, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
+  fewer(Limit0, Limit),
   delta(F, Rule, B:S, T0), !,
   E = '$VAR'(Fresh0),
   Fresh1 is Fresh0 + 1,
   substitute(B, E, T0, T),
-  existentials(Fresh1, Y-T, Es, H, Fresh, M0, M).
-existentials(Fresh, H, [], H, Fresh, M, M).
+  existentials(Fresh1, Limit, Y-T, Es, H, Fresh, M0, M).
+existentials(Fresh, _, H, [], H, Fresh, M, M).
+
+fewer(unlimited, unlimited).
+fewer([_|Limit], Limit).
 
 % the γ formulas nested outermost in X : F, with fresh variables Vs, are Y : G
 universals(X-'!'(Bs, F), Vs, H, let(Y, G, app(X, Us, []), M0), M) :- !,
@@ -187,14 +230,15 @@ pool(Ctx, Hs, Pool, M, M1) :- parts(Hs, Ps, M, M1), keyed(Ctx, Ps, Pool).
 
 keyed(_, [], []).
 keyed(Ctx, [X-F|Hs], [keys(K, K1)-X-F|Pool]) :-
-  Ctx = ctx(Mode, _),
+  Ctx = ctx(Mode, _, _),
   normal(Mode, ~F, K),
   ( Mode == nnf -> normal(Mode, F, K1) ; true ),
   keyed(Ctx, Hs, Pool).
 
 % the counterpart Y : G of F in the pool, whose key is that of ~F. In nnf, the negation of an expanded
 % <=> is a disjunction of conjunctions, but ~(F <=> G) is expanded as a conjunction, so F is also
-% compared the other way round
+% compared the other way round. Skolem keys forget terms, so there each counterpart is tried
+counterpart(skolem(Ss), F, Pool, Y-G) :- !, normal(skolem(Ss), F, K), member(keys(K, _)-Y-G, Pool).
 counterpart(Mode, F, Pool, Y-G) :- normal(Mode, F, K), memberchk(keys(K, _)-Y-G, Pool), !.
 counterpart(nnf, F, Pool, Y-G) :- normal(nnf, ~F, K), memberchk(keys(_, K)-Y-G, Pool).
 
@@ -208,11 +252,18 @@ parts([X-F|Hs], Ps, M, M1) :-
 
 % the branch closes by itself, or one of its formulas has a counterpart in the pool, or one of them
 % is expanded or split. A disjunction is not looked up: its counterpart is a conjunction, whose parts
-% are in the pool already
+% are in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
+% forget terms, each counterpart is tried, and then the other ways to close the branch
 close(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
 close(_, _, Pool, M) :- member(_-X-F, Pool), closes(F, X, M), !.
 close(Ctx, Branch, Pool, M) :-
-  Ctx = ctx(Mode, _),
+  Ctx = ctx(skolem(Ss), _, _),
+  member(X-F, Branch),
+  counterpart(skolem(Ss), F, Pool, Y-G),
+  pair(Ctx, X-F, Y-G, M), !.
+close(Ctx, Branch, Pool, M) :-
+  Ctx = ctx(Mode, _, _),
+  Mode \= skolem(_),
   member(X-F, Branch),
   \+ disjunctive(Mode, F),
   counterpart(Mode, F, Pool, Y-G), !,
@@ -224,6 +275,11 @@ close(Ctx, Branch, Pool, M) :-
   close(Ctx, Branch1, Pool, M1).
 close(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
+  findall(G, member(_-_-G, Pool), Gs),
+  skolemised(Ctx, X-F, Gs, H, M, M1),
+  close(Ctx, [H|Rest], Pool, M1), !.
+close(Ctx, Branch, Pool, M) :-
+  select(X-F, Branch, Rest),
   split(X-F, Branches, M), !,
   close_branches(Ctx, Branches, Rest, Pool).
 
@@ -232,6 +288,89 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
   append(Es, Rest, Branch),
   close(Ctx, Branch, Pool, M),
   close_branches(Ctx, Branches, Rest, Pool).
+
+/********************************************************************************
+ * Skolemisation
+ ********************************************************************************/
+
+% the δ formula X : F is opened by the choice of a Skolem term sK(As), of a symbol Ss, in the
+% formulas Gs, as Y : T[sK(As)/B]. Its arguments As are distinct eigenvariables, among them those of
+% F, and sK is not in F, whose choice it is; its definition agrees with any other in Defs
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, let(Y, T1, app(Name, As, [X]), M), M) :-
+  delta(F, _, B:_, T),
+  ground(F),
+  eigenvariables_in(F, Vs, []),
+  findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Ss) ), Us0),
+  sort(Us0, Us),
+  member(Term, Us),
+  Term =.. [Sk|As],
+  distinct_eigenvariables(As),
+  each_member(Vs, As),
+  \+ ( subterm(F, U), functor(U, Sk, _) ),
+  plausible(Ss, B, T, Term, Gs),
+  defined(Defs, Sk, As, F),
+  substitute(B, Term, T, T1),
+  choice_name(Sk, Name).
+
+% Term might be chosen for B in T: each atom of T in which B occurs is an atom of Gs with Term in
+% its place, up to other Skolem terms, variables, and the orientation of equations. This
+% prunes the choices early, as several ? may be Skolemised at once
+plausible(Ss, B, T, Term, Gs) :-
+  findall(K, ( signed_atom(T, pos, A, _), occurs(B, A), substitute(B, '$chosen', A, A1), blur(Ss, A1, K) ), Ks0),
+  sort(Ks0, Ks),
+  findall(K, ( member(G, Gs), signed_atom(G, pos, A, _), occurs(Term, A), substitute(Term, '$chosen', A, A1), blur(Ss, A1, K) ), Ls0),
+  sort(Ls0, Ls),
+  each_atom(Ks, Ls).
+
+each_atom([], _).
+each_atom([K|Ks], Ls) :- ( memberchk(K, Ls) -> true ; flip(K, K1), memberchk(K1, Ls) ), each_atom(Ks, Ls).
+
+% variables (bound, or eigenvariables) and Skolem terms are '$skolem'
+blur(_, '$BOUND'(_), '$skolem') :- !.
+blur(_, '$VAR'(_), '$skolem') :- !.
+blur(Ss, T, '$skolem') :- functor(T, F, _), memberchk(F, Ss), !.
+blur(_, T, T) :- \+ compound(T), !.
+blur(Ss, T0, T) :- T0 =.. [F|As0], maplist(blur(Ss), As0, As), T =.. [F|As].
+
+distinct_eigenvariables([]).
+distinct_eigenvariables([A|As]) :- nonvar(A), A = '$VAR'(_), \+ memberchk(A, As), distinct_eigenvariables(As).
+
+each_member([], _).
+each_member([V|Vs], As) :- memberchk(V, As), each_member(Vs, As).
+
+% sK(As) is defined by F, as in Defs, or as a new definition at its end
+defined(Defs, Sk, As, F) :- var(Defs), !, Defs = [def(Sk, As, F)|_].
+defined([def(Sk1, As1, F1)|_], Sk, As, F) :- Sk1 == Sk, !, abstracted(As1, F1, Ws, G), abstracted(As, F, Ws, G).
+defined([_|Defs], Sk, As, F) :- defined(Defs, Sk, As, F).
+
+% F with the eigenvariables As replaced by the variables Ws
+abstracted([], F, [], F).
+abstracted([A|As], F0, [W|Ws], F) :- substitute(A, W, F0, F1), abstracted(As, F1, Ws, F).
+
+choice_name(Sk, Name) :- atom_concat(Sk, '_def', Name).
+
+% each definition is recorded as a step, whose conclusion is its choice axiom, with its eigenvariables
+% renumbered from 0, and of the sorts of the arguments of its symbol
+choices(Defs) :- var(Defs), !, Defs = [].
+choices([]).
+choices([def(Sk, As, F0)|Defs]) :-
+  abstracted(As, F0, Xs, F1),
+  number_vars(Xs, 0, _),
+  canonical(F1, F),
+  symbol(Sk, Ps, Args, _),
+  append(Ps, _, Xs),
+  findall('$tType', member(_, Ps), Ts),
+  append(Ts, Args, Sorts),
+  binders(Xs, Sorts, Bs),
+  choice_axiom(Sk, Bs, F, A0),
+  canonical(A0, A),
+  choice_name(Sk, Name),
+  record(step(Name, formula(A), skolem_def(Sk, Bs, F))),
+  record(ir_step(Name, formula(A), skolem_def(Sk, Bs, F))),
+  choices(Defs).
+
+binders([], [], []).
+binders([X|Xs], [S|Ss], [X:S|Bs]) :- binders(Xs, Ss, Bs).
 
 /********************************************************************************
  * clausification

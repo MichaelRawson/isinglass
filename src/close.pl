@@ -112,7 +112,8 @@ premises([_|Ms], _, [_|Ts]) :- premises(Ms, '$false', Ts).
 
 hole(Env, X:S, hole(Env, X, S)).
 
-instance_binders(_, _, [], []) :- !.
+% a ground instance has nothing to close (as a choice axiom's, see transform.pl)
+instance_binders(_, _, Ts, []) :- ground(Ts), !.
 instance_binders(Env, F, Ts, Bs) :-
   member(X-T, Env),
   X == F,

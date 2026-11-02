@@ -42,7 +42,8 @@ clausal_step(todo(Rule, Parents)) :-
   each(member(P, Parents), step(P, clause(_, _), _)).
 
 % the conjecture is a goal, proved by refuting its negation, a hypothesis (see reconstruct.pl);
-% steps that only preserve satisfiability (status esa) introduce symbols, and are not entailments
+% steps that only preserve satisfiability (status esa) introduce symbols, and are not entailments,
+% unless a tactic defines the symbols (Skolemisation, by choice: see transform.pl)
 how(conjecture, file(_, Input), _, conjecture(Input)) :- !.
 how(Role, file(_, Input), _, input(Role, Input)) :- !.
 how(_, introduced(definition, _, [avatar_definition]), (Symbol <=> Component), split_def(Symbol, C)) :-
@@ -51,6 +52,7 @@ how(_, introduced(definition, Info, _), _, todo(esa(definition, Symbols), [])) :
   new_symbols(Info, Symbols).
 how(_, inference(negated_conjecture, _, [Conjecture]), _, negated_conjecture(Conjecture)) :- !.
 how(_, inference(Rule, Info, Parents), _, todo(esa(Rule, Symbols), Parents)) :-
+  \+ tactic(Rule, _),
   ( memberchk(status(esa), Info) ; esa(Rule) ), !,
   new_symbols(Info, Symbols).
 how(_, inference(cnf_transformation, _, [Parent]), _, How) :-
@@ -116,6 +118,7 @@ tactic(nnf_transformation, transform(nnf)).
 tactic(true_and_false_elimination, transform(simplify)).
 tactic(pure_predicate_removal, transform(pure)).
 tactic(unused_predicate_definition_removal, transform(definition)).
+tactic(skolemize, transform(skolem)).
 
 record_introduced(Source) :-
   each(introduced_symbol(Source, Kind, Symbol), record(introduced(Symbol, Kind))).

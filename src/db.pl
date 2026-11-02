@@ -14,7 +14,8 @@
 % Conclusion is clause(Binders, Literals) or formula(F), with Prolog variables:
 % each retrieval is a fresh instance
 % How is input(Role, Source), conjecture(Source), negated_conjecture(Conjecture),
-% split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents)
+% split_def(Symbol, Clause), tactic(Procedure, Parents) or todo(Record, Parents); reconstruction adds
+% the choice axioms of Skolem symbols, skolem_def(Symbol, Binders, F) (see ir.pl), so that proofs cite them
 step(Name, Conclusion, How) :- step_(Name, Conclusion, How).
 
 % symbol(Name, Params, ArgumentSorts, Sort): signature (see signature.pl), with Params the type

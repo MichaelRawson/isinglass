@@ -14,6 +14,9 @@ equivalent. Mode is the transformation that the step performs, and decides what 
   nnf          as ennf, and <=> is expanded
   simplify     as base, and $true and $false are simplified away
   pure(Ss)     as simplify, with the atoms of a predicate N/A replaced by V, for each N/A-V in Ss
+  skolem(Ss)   as ennf, and Skolemisation is forgotten: bound variables and the terms of the
+               Skolem symbols Ss are all '$skolem' (a ? of the parent is a ! of its complement, so
+               the variables of both are)
 
 The key of F & G is and(Ks), and of F | G or(Ks), where Ks are the keys of the operands, flattened,
 sorted and without duplicates.
@@ -32,6 +35,7 @@ normal(Mode, F, K) :-
 
 pushes(ennf).
 pushes(nnf).
+pushes(skolem(_)).
 
 simplifies(simplify).
 simplifies(pure(_)).
@@ -44,6 +48,7 @@ shape(Mode, (F | G), K) :- !, shape(Mode, F, A), shape(Mode, G, B), disjunction(
 shape(Mode, (F => G), K) :- !, shape(Mode, (~F | G), K).
 shape(nnf, (F <=> G), K) :- !, shape(nnf, ((~F | G) & (F | ~G)), K).
 shape(Mode, (F <=> G), K) :- !, shape(Mode, F, A), shape(Mode, G, B), equivalence(Mode, A, B, K).
+shape(skolem(Ss), F, K) :- quantified(F, _, Bs, G), !, blurred_binders(Bs, G, G1), shape(skolem(Ss), G1, K).
 shape(Mode, F, K) :-
   quantified(F, Q, Bs, G), !,
   opened(Bs, G, Vs, G1),
@@ -51,6 +56,7 @@ shape(Mode, F, K) :-
   occurring(Vs, B, Bs1),
   quantify(Q, Bs1, B, K).
 shape(pure(Ss), A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
+shape(skolem(Ss), A, K) :- !, blurred(Ss, A, K).
 shape(_, A, A).
 
 % the shape of ~F
@@ -95,6 +101,18 @@ opened([], G, [], G).
 opened([X:S|Bs], G0, [V:S|Vs], G) :-
   substitute(X, V, Bs-G0, Bs1-G1),
   opened(Bs1, G1, Vs, G).
+
+% the binders Bs, bound in G, replaced by '$skolem'
+blurred_binders([], G, G).
+blurred_binders([X:_|Bs0], G0, G) :-
+  substitute(X, '$skolem', Bs0-G0, Bs-G1),
+  blurred_binders(Bs, G1, G).
+
+% the terms of the Skolem symbols Ss in T replaced by '$skolem'
+blurred(_, T, T) :- var(T), !.
+blurred(Ss, T, '$skolem') :- functor(T, F, _), memberchk(F, Ss), !.
+blurred(_, T, T) :- \+ compound(T), !.
+blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As].
 
 % the binders that occur in F
 occurring([], _, []).

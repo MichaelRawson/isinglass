@@ -6,6 +6,11 @@ The intermediate representation (IR) of proofs, and the types of clauses.
   Conclusion    ::= clause(Bs, Literals) | formula(F)
   Justification ::= input(Role, Source)             an axiom (never the conjecture)
                   | split_def(Symbol, Clause)       Symbol is defined as Clause (AVATAR)
+                  | skolem_def(Symbol, Bs, F)       Symbol(Xs), for the binders Bs = Xs : Sorts, is
+                                                    defined by choice, as ε Y. T, where F is a δ formula
+                                                    ?[Y:S|Ys] : G (T is ?[Ys] : G) or ~![Y:S|Ys] : G
+                                                    (T is ~![Ys] : G); its conclusion is the choice axiom
+                                                    ![Bs] : (F => T[Symbol(Xs)/Y]) (choice_axiom/4)
                   | proof(M)                        M is a proof term of the conclusion clause
                   | negated_conjecture(Conjecture)  the hypothesis ~G, discharged by Conjecture
                   | conjecture(Source, Negated, Refutation)
@@ -57,6 +62,7 @@ branch, which binds the formulas of the branch, and first an eigenvariable for ?
   '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
 
 '$nex' is not a refutation: applied to a proof of ~ ?[Xs] : F it proves ![Xs] : ~F.
+Skolemisation is not a rule: a δ formula is opened by its choice axiom, a step (skolem_def).
 '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so the steps that use them
 are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.
 
@@ -73,10 +79,11 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1]).
+:- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(db).
+:- use_module(logic).
 
 % the type of proofs of a clause: '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
 clause_type(clause(Bs, Ls), T) :-
@@ -115,6 +122,15 @@ rule_type('$niff', ~((F <=> G)), ((F => (~G => '$false')) => ((~F => (G => '$fal
 rule_type('$ex', '?'([B|Bs], F), ('!'([B], (G => '$false')) => '$false')) :- quantified('?', Bs, F, G).
 rule_type('$nall', ~'!'([B|Bs], F), ('!'([B], (~G => '$false')) => '$false')) :- quantified('!', Bs, F, G).
 rule_type('$nex', ~'?'(Bs, F), '!'(Bs, ~F)).
+
+% the choice axiom of Symbol, defined for binders Bs as ε Y. T, where T is the body of the δ formula F
+choice_axiom(Symbol, Bs, F, A) :-
+  ( Rule = '$ex' ; Rule = '$nall' ),
+  rule_type(Rule, F, ('!'([Y:_], (T => '$false')) => '$false')), !,
+  binder_variables(Bs, Xs),
+  Term =.. [Symbol|Xs],
+  substitute(Y, Term, T, T1),
+  quantified('!', Bs, (F => T1), A).
 
 % a quantifier over binders Bs, if any
 quantified(_, [], F, F) :- !.

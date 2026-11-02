@@ -46,6 +46,8 @@ Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
 - Clause splits: a split symbol is a defined proposition that unfolds to the type of its clause.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
+- Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`: `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`) or `~![Y:S|Ys] : G` (`T` is `~![Ys] : G`).
+  It is a step named `Sk_def`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
 
 ## Classical Logic and Conjectures
 The IR does not pre-suppose classical logic, and large chunks of ATP proofs are intuitionistically valid, which may be surprising.
@@ -53,6 +55,7 @@ Future constructive backends may use an A-translation to produce a constructive 
 
 - Proof terms stay in minimal logic with an abstract ⊥. No DNE or excluded middle appears in the clausal IR, but may in steps between formulas.
 - Of the formula expansion rules, those for `~(F => G)`, `~(F <=> G)` and `~!` are not valid in minimal logic.
+- Neither is the choice axiom of a Skolem symbol for `~!` (a counterexample is chosen); that for `?` needs only choice.
 - The other rules are valid for any `⊥`, so a step from a formula to a clause is often constructive.
 - The negated conjecture is a parameter, not an axiom. Its type is `G → ⊥`, and only the `conjecture` step discharges it.
 - A classical back end proves `G` by double-negation elimination.
@@ -79,7 +82,7 @@ Transformation to normal form is an entailment from one parent, transformed stru
 A general tableau search for these blows up, as it must guess which of many parts to take apart next.
 Instead, each prover rule names the transformation it performs, and the tactic checks just that one, with no search.
 
-- Each transformation has a _normal form_ (`normal:normal/3`), a ground key that forgets what the transformation may change: `base` (renaming, `~~`, `=>`, nesting of `&`/`|` and their units, operand order, equation orientation, vacuous and grouped quantifiers), `ennf` (and negation pushed to atoms, keeping `<=>`), `nnf` (and `<=>` expanded), `simplify` (and `$true`/`$false`), `pure(Ss)` (pure predicates replaced by `$true`/`$false`).
+- Each transformation has a _normal form_ (`normal:normal/3`), a ground key that forgets what the transformation may change: `base` (renaming, `~~`, `=>`, nesting of `&`/`|` and their units, operand order, equation orientation, vacuous and grouped quantifiers), `ennf` (and negation pushed to atoms, keeping `<=>`), `nnf` (and `<=>` expanded), `simplify` (and `$true`/`$false`), `pure(Ss)` (pure predicates replaced by `$true`/`$false`), `skolem(Ss)` (as `ennf`, with bound variables and terms of the Skolem symbols `Ss` all `'$skolem'`).
 - The keys are approximate, so that small implementation differences (reordering, renaming, flipped equations, vacuous quantifiers) do not matter.
 - `transform(Mode)` fails at once unless the parent and conclusion have the same key.
 - The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
@@ -90,6 +93,12 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 - Weakening steps:
   - `pure`: the pure predicates are those of the parent that are not in the conclusion.
   - `definition`: one `<=>` of the parent becomes the `=>` that makes the keys equal.
+- Skolemisation (`transform(skolem)`) is an entailment once each Skolem symbol is defined by choice (see IR):
+  - the Skolem symbols are those of the conclusion that are `introduced(_, skolem)` and not in the parent;
+  - a δ formula of the parent is opened by the choice axiom of a Skolem term `sK(As)` in its counterpart, so the term is read off the conclusion, and no prover convention (e.g. argument order) is assumed. Its arguments must be distinct eigenvariables, including those of the δ formula, and the definitions of a symbol must agree;
+  - the keys forget Skolem terms, so lookups are ambiguous: each counterpart is tried, a disjunction is looked up too (its counterpart may be a `?` not yet opened), and a choice is pruned unless each atom with the bound variable is in the counterpart with the term in its place (`plausible`), as several `?` may be Skolemised at once;
+  - a `?` may come between the parent's universals, so a δ formula of the conclusion opens only as many eigenvariables as its counterpart has universals, and a clause conclusion instantiates the parent's universals around its Skolemised `?`;
+  - a type may be chosen too (a δ over `$tType`), as in TF1.
 - `clausify` reconstructs `cnf_transformation` of a formula: the clause's literals refute the parent, by one part of each conjunction and every branch of each disjunction, closing literals by unification.
   Its only search is the choice of conjunct, pruned to those whose literals the clause's predicates and signs could refute (`fits`).
 - A clause conclusion whose variables are not the parent's outermost universal ones (Vampire's AVATAR shape `(! [X] : C) | ~p`) is refuted in the same way.
@@ -116,10 +125,11 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | true_and_false_elimination | `transform(simplify)` |
 | pure_predicate_removal | `transform(pure)` |
 | unused_predicate_definition_removal | `transform(definition)` |
+| skolemize | `transform(skolem)` |
 | cnf_transformation of a formula | `clausify` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
-Steps that preserve only satisfiability are not yet handled: Skolemisation, and introducing or folding definitions.
+Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; the other steps that preserve only satisfiability are not yet handled: introducing or folding definitions.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause.
 
@@ -132,6 +142,7 @@ An independent-ish type checker of each ground, annotated term against the type 
 - An expansion rule is typed by its first argument (`ir:rule_type/3`).
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
+- A Skolem symbol is defined once, by a well-sorted δ formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
 - A term that fails to check is a reconstruction bug: the step is reported and the run fails.
 - Other back ends do not run the checker.
 
@@ -145,6 +156,8 @@ Uses the `Stdlib` encoding of first-order logic.:
 - Type quantification: Stdlib's `` `∀ `` ranges over the elements of a `Set`, not over `Set`, so our prelude adds a binder `∀ₜ : (Set → Prop) → Prop` with `π (∀ₜ p) ↪ Π a : Set, π (p a)`.
 - `∃ₜ` is declared with its introduction and elimination rules.
 - The expansion rules are lemmas of the prelude (`and_e`, `nall_e`, ...), proved from Stdlib; the classical ones use `Stdlib.Classic`. Rules over type variables are separate lemmas (`ex_t`, `nall_t`, `nex_t`).
+- Skolem symbols are declared with the signature (as `symbol`, so they may be given a rule). A `skolem_def` gives the rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`), so that `sK xs` unfolds, and proves its choice axiom by `εᵢ`; for `~!`, by a classical prelude lemma `nall_ε`.
+  A type is chosen by `εₜ : (Set → Prop) → Set`, which Stdlib lacks, so it is postulated with its introduction rule `εₜᵢ`, like `∃ₜ` (and `nall_εₜ`).
 - Canonical bound variables are printed `yN`, eigenvariables `xN`.
 - Type annotations are used where this was shown to improve checking performance, although it should not really be necessary.
 
@@ -158,7 +171,7 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - Input clauses are transformed to the usual clause type in continuation-passing style.
 - Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms. Only the prover's own symbols are renamed (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place).
 - Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
-- `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps are not printed.
+- `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps and Skolem definitions are not printed.
 - A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
 - Everything is in `Set`: no universe levels, so no split definitions over type variables.
 - `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with names mangled such that TPTP names are Agda identifiers.
@@ -171,6 +184,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Sorts are sorts, declared with their arity (`(declare-sort |t.list| 1)`), but polymorphic symbols are _monomorphised_: each instance used in a check is declared in its scope.
 - SMT-LIB `declare-sort-parameter` could support polymorphism but is not yet supported by mainstream SMT solvers.
 - Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
+- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas).
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
 - Neither are steps between formulas (`ir:formula_step/1`): a formula with `?` under `!` has no ground instance to assert. Asserting the parent and the negated conclusion with their quantifiers would check them, but not in the manner of "Ground Truth".

@@ -54,7 +54,40 @@ justified(conjecture(_, Negated, Refutation), formula(G), Steps) :- !,
   N == ~G,
   get_assoc(Refutation, Steps, true),
   ir_step(Refutation, clause([], []), _).
+% the choice axiom of a Skolem symbol, defined once, by a well-sorted δ formula of its arguments only
+justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
+  introduced(Sk, _),
+  \+ ( ir_step(Name, _, skolem_def(Sk, _, _)), get_assoc(Name, Steps, true) ),
+  argument_binders(Sk, Bs, Sort),
+  empty_assoc(Empty),
+  foldl(argument, Bs, Empty, Gamma),
+  canonical(F, F1),
+  F1 == F,
+  well_sorted(Gamma, F),
+  ( Rule = '$ex' ; Rule = '$nall' ),
+  rule_type(Rule, F, ('!'([_:S], _) => _)), !,
+  S == Sort,
+  choice_axiom(Sk, Bs, F, A0),
+  canonical(A0, A1),
+  A1 == A.
 justified(_, _, _).
+
+% the binders Bs of Sk(Xs) are distinct eigenvariables, of the sorts of its arguments, and Sk is of Sort
+argument_binders(Sk, Bs, Sort) :-
+  binder_variables(Bs, Xs),
+  maplist(eigenvariable, Xs),
+  sort(Xs, Ys),
+  same_length(Xs, Ys),
+  symbol(Sk, Ps, Args, Sort),
+  append(Ps, _, Xs),
+  findall('$tType', member(_, Ps), Ts),
+  append(Ts, Args, Sorts),
+  binder_sorts(Bs, Sorts).
+
+binder_sorts([], []).
+binder_sorts([_:S|Bs], [S0|Ss]) :- S == S0, binder_sorts(Bs, Ss).
+
+argument(X:S, Gamma, Gamma1) :- valid_sort(Gamma, S), put_assoc(X, Gamma, S, Gamma1).
 
 % the binders of a clause are its eigenvariables, by name, and its literals have no others
 conclusion_type(clause(_, _), T, T).

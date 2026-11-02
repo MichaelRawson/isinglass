@@ -72,6 +72,8 @@ sort_arguments([S|Ss]) --> " ", sort(S), sort_arguments(Ss).
 
 check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
+% Skolem symbols are uninterpreted, and their definitions not checked
+check(skolem_def(_, _, _), _, _) --> [].
 % a step between formulas has formulas for premises, which have no ground instances to assert
 check(proof(_), Name, _) --> { formula_step(Name) }, !,
   "(echo \"warning: ", atom(Name), " (formula step) is not checked\")\n".
