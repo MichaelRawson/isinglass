@@ -208,6 +208,11 @@ fact(Env, F, [], [M]) -->
   { get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
     binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
   { disjunction(Ls, D) }, [(D => Split)].
+% ...and so does a component C of a general split, of clause type T (ir:typed_clause/2), refuting F : ~T
+fact(Env, F, [], [M]) -->
+  { get_assoc(F, Env, ~T), typed_clause(T, clause(Bs, Ls)),
+    binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
+  { disjunction(Ls, D) }, [(D => T)].
 fact(_, _, _, _) --> [].
 
 eigenvariables(lam('$VAR'(N), _, M), ['$VAR'(N)|Xs]) :- !, eigenvariables(M, Xs).

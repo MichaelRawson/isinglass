@@ -81,6 +81,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses are unfolded, where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`.
 - A ground tautology of equality (`tautology`, no premise) is closed by ground completion: the facts of its negative literals give equations, oriented by size and then the standard order and inter-reduced into rules, and each literal is normalised by rewrites. Then a fact is refuted by a hypothesis, or a positive equation is reflexive. Rigid variables are constants.
 - `first(Tactics)` is the first of `Tactics` that succeeds.
+- General splitting (`components`): as for an AVATAR split, the hypothesis `~~P(ts)` of the cited definition's symbol, as `~T` for the clause type `T` of the component (two `let`s), is refuted by proving `T` with eigenvariables and hypotheses for its literals; then the conclusion is a variant of the parent.
 - A clausal step proves the definitions of its split literals first, whether or not it cites them (`sat_conversion` does not), so that back ends define them before use.
 - A failed tactic leaves the step as `todo`, with a warning.
 
@@ -129,6 +130,8 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
+| general_splitting_component_introduction: `![Xs] : (C <=> ~P(Xs))` (introduced) | `transform(nnf)` from `P_def`, where `P(Xs)` is `~` the type of the clause `C` |
+| general_splitting | `components` |
 | sat_conversion | `first([variant, avatar_split])` |
 | theory_tautology_sat_conflict (introduced) | `tautology` |
 | avatar_split_clause | `avatar_split` |
@@ -146,7 +149,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | cnf_transformation of a formula | `clausify` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
-Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step but the inputs and the ancestors of the flipping steps states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites). The flipped predicates are those whose literals differ in sign between a flipping step and its parent. General splitting, which also preserves only satisfiability, is not yet handled.
+Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step but the inputs and the ancestors of the flipping steps states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites). The flipped predicates are those whose literals differ in sign between a flipping step and its parent. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `P_def`, since grouped binders commute.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause. Except: a Skolemised `(! [X] : C) | L` stays a formula, as the δ formula of its parent is under the disjunction too, and only formulas are paired part by part.
 
@@ -206,6 +209,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
 - Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: the equations of functions are premises of later checks, and monomorphic predicates are defined in the header by `define-fun`.
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
+- A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T`, is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
 - Neither are steps between formulas (`ir:formula_step/1`): a formula with `?` under `!` has no ground instance to assert. Asserting the parent and the negated conclusion with their quantifiers would check them, but not in the manner of "Ground Truth".
 

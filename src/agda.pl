@@ -145,6 +145,7 @@ defined_predicate(_, _) --> "{! !}".
 stated('!'(_, F)) :- !, stated(F).
 stated((F => G)) :- !, stated(F), stated(G).
 stated(~F) :- !, stated(F).
+stated('$false') :- !.
 stated(F) :- \+ connective(F, _).
 
 body(app(F, Ts, Ms)) --> !, proof(app(F, Ts, Ms)).
@@ -194,6 +195,7 @@ operand(X) --> head(X).
 
 variable(h(N)) --> !, "h", number(N).
 variable('$VAR'(N)) --> "x", number(N).
+variable('$BOUND'(N)) --> "y", number(N).
 
 /********************************************************************************
  * rewriting
@@ -276,6 +278,7 @@ sort(S) --> term(S).
 
 % an arbitrary individual, or type, is left as a hole
 term('$VAR'(N)) --> !, variable('$VAR'(N)).
+term('$BOUND'(N)) --> !, variable('$BOUND'(N)).
 term('$inhabited'(_)) --> !, "{! !}".
 term('$i') --> !, "ι".
 term(T) --> { T =.. [F|Ts] }, symbol(F), arguments(Ts).

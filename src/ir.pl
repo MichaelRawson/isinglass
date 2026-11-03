@@ -88,7 +88,7 @@ an arbitrary individual of sort S for a variable that search left unconstrained,
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
 :- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4,
-  defined_atom/2, expanded/2]).
+  defined_atom/2, expanded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(db).
@@ -101,6 +101,12 @@ clause_type(clause(Bs, Ls), T) :-
 
 implications([], '$false').
 implications([L|Ls], (~L => F)) :- implications(Ls, F).
+
+% the clause of a canonical clause type T, with Prolog variables for its binders
+typed_clause(T0, clause(Bs, Ls)) :-
+  opened(T0, T),
+  ( T = '!'(Bs, F) -> true ; Bs = [], F = T ),
+  implications(Ls, F).
 
 % the type of a step: that of its clause, or its formula
 step_type(clause(Bs, Ls), T) :- clause_type(clause(Bs, Ls), T).

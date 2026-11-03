@@ -195,11 +195,34 @@ unfolded_hypothesis(X-(~L), H, M, M1) :-
   unfolded_literal(L, L1), !,
   (   L1 = ~(~C)
   ->  H = Y-(~C),
-      M = let(Z, ~L1, X, let(Y, ~C, lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))])), M1))
+      triple_negation(X, C, Y, M, M1)
   ;   H = Y-(~L1),
       M = let(Y, ~L1, X, M1)
   ).
 unfolded_hypothesis(H, H, M, M).
+
+% X : ~~~C is Y : ~C, by two lets
+triple_negation(X, C, Y, let(Z, ~(~(~C)), X, let(Y, ~C, lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))])), M)), M).
+
+% general splitting: a hypothesis ~~P(ts), where P is the symbol of the cited definition, defined as the
+% negation of the type of a component clause, is refuted by proving the component, with hypotheses for
+% its literals; then the conclusion is a variant of the parent clause
+components(Fresh, Hs0, [Parent, Definition], M) :-
+  step(Definition, _, tactic(_, [Name])),
+  step(Name, _, define(P)),
+  component_hypotheses(Hs0, P, Fresh, Hs, M, M1),
+  variant(_, Hs, [Parent], M1).
+
+component_hypotheses([], _, _, [], M, M).
+component_hypotheses([X-(~(~A))|Hs0], P, Fresh0, Hs, M, M1) :-
+  functor(A, P, _),
+  defined_atom(A, ~T),
+  typed_clause(T, Clause), !,
+  triple_negation(X, T, Y, M, app(Y, [], [Intro])),
+  clause_intro(Clause, Fresh0, Fresh, Hs1, Hs, M0, Intro),
+  component_hypotheses(Hs0, P, Fresh, Hs1, M0, M1).
+component_hypotheses([H|Hs0], P, Fresh, [H|Hs], M, M1) :- component_hypotheses(Hs0, P, Fresh, Hs, M, M1).
+
 
 unfolded_literal(~A, ~B) :- defined_atom(A, B), literal(B).
 unfolded_literal(A, B) :- A \= ~_, defined_atom(A, B), literal(B).
@@ -527,7 +550,11 @@ avatar_component(Fresh, Hs, [_], app(H, [], [Intro])) :-
 
 % Intro proves the definition of Split by M, with eigenvariables from Fresh0 and hypotheses for its literals
 intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro) :-
-  split(Split, clause(Bs, Ls)),
+  split(Split, Clause),
+  clause_intro(Clause, Fresh0, Fresh, Hs, Hs1, M, Intro).
+
+% Intro proves the clause by M, with eigenvariables from Fresh0 and hypotheses for its literals, then Hs
+clause_intro(clause(Bs, Ls), Fresh0, Fresh, Hs, Hs1, M, Intro) :-
   binder_variables(Bs, Xs),
   number_vars(Xs, Fresh0, Fresh),
   hypotheses(Ls, Gs),

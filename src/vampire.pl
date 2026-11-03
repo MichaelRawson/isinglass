@@ -7,6 +7,7 @@
 :- use_module(logic).
 :- use_module(db).
 :- use_module(signature).
+:- use_module(ir).
 
 % type declarations first, so that every equation can be given its sort
 load_vampire(Statements) :-
@@ -17,8 +18,8 @@ load_vampire(Statements) :-
 load_statement(_, annotated(_, _, type, _, _)) :- !.
 load_statement(Flipping, annotated(Language, Name, Role, Formula0, Source0)) :-
   typed([], Formula0, Formula1),
-  flipped_statement(Flipping, Name, Source0, Formula1, Source, Formula),
-  record_definition(Source, Formula),
+  flipped_statement(Flipping, Name, Source0, Formula1, Source, Formula2),
+  definition_statement(Source, Formula2, Formula),
   how(Role, Source, Formula, How),
   conclusion(Language, How, Formula, Conclusion),
   record_introduced(Source),
@@ -125,19 +126,39 @@ from_definition(Name) :- step(Name, _, tactic(_, [D])), step(D, formula(_), defi
 
 /*
 A predicate definition is printed as Vampire uses it: as Symbol(Xs) <=> Body, in one direction only,
-Body | ~Symbol(Xs), or for an inequality split, ~Symbol(T), where Symbol(X) is X != T. The definition
-itself, ![Xs] : (Symbol(Xs) <=> Body), is recorded first, as the step Symbol_def, and the printed
-statement is proved from it by the Tactic
+Body | ~Symbol(Xs), for an inequality split, ~Symbol(T), where Symbol(X) is X != T, or for a general
+split, C <=> ~Symbol(Xs). The definition itself, ![Xs] : (Symbol(Xs) <=> Body), is recorded first, as
+the step Symbol_def, and the printed statement is proved from it by the Tactic
 */
-record_definition(introduced(definition, Info, [Kind]), F) :-
+definition_statement(introduced(definition, Info, [Kind]), F0, F) :-
   new_symbols(Info, [Symbol]),
-  predicate_definition(Kind, F, Symbol, Definition, _), !,
+  predicate_definition(Kind, F0, Symbol, Definition0, _), !,
+  argument_order(Definition0, Definition),
+  same_binders(F0, Definition, F),
   definition_name(Symbol, Name),
   record(step(Name, formula(Definition), define(Symbol))).
-record_definition(_, _).
+definition_statement(_, F, F).
+
+% the binders of a definition, in the order of the arguments of its atom; the printed statement has its
+% binders in the same order, as grouped binders commute
+argument_order('!'(Bs0, (A <=> B)), '!'(Bs, (A <=> B))) :- !,
+  A =.. [_|Xs],
+  maplist(binder_of(Bs0), Xs, Bs).
+argument_order(D, D).
+
+binder_of(Bs, X, Y:S) :- member(Y:S, Bs), Y == X, !.
+
+same_binders('!'(_, G), '!'(Bs, _), '!'(Bs, G)) :- !.
+same_binders(F, _, F).
 
 definition_name(Symbol, Name) :- atom_concat(Symbol, '_def', Name).
 
+predicate_definition(general_splitting_component_introduction, F, Symbol, D, transform(nnf)) :- !,
+  ( F = '!'(Bs, (C <=> ~A)) -> true ; F = (C <=> ~A), Bs = [] ),
+  binder_variables(Bs, Xs),
+  definiendum(A, Symbol, Xs),
+  component_type(C, T),
+  ( Bs == [] -> D = (A <=> ~T) ; D = '!'(Bs, (A <=> ~T)) ).
 predicate_definition(_, '!'(Bs, F), Symbol, '!'(Bs, D), Tactic) :- !,
   binder_variables(Bs, Xs),
   definition_shape(F, Symbol, Xs, D, Tactic).
@@ -147,6 +168,14 @@ predicate_definition(inequality_splitting_name_introduction, ~A, Symbol, '!'([X:
   D = (B <=> ~'$='(S, X, T)),
   B =.. [Symbol, X].
 predicate_definition(_, F, Symbol, D, Tactic) :- definition_shape(F, Symbol, [], D, Tactic).
+
+% general splitting names a component C of a clause, over the variables Xs that it shares with the
+% rest, by ![Xs] : (C <=> ~Symbol(Xs)): Symbol(Xs) is defined as the negation of the type of the clause
+% C (ir:clause_type/2), so that a proof refutes ~~Symbol(Xs) as it does an AVATAR split
+component_type(C, T) :-
+  ( C = '!'(Ys, G) -> true ; Ys = [], G = C ),
+  disjuncts(G, Ls),
+  clause_type(clause(Ys, Ls), T).
 
 % Symbol(Xs) <=> Body, where the arguments of the atom are the variables Xs
 definition_shape((A <=> B), Symbol, Xs, (A <=> B), transform(base)) :- definiendum(A, Symbol, Xs), !.
@@ -283,6 +312,7 @@ tactic(extensionality_resolution, resolve).
 tactic(equality_proxy_replacement, defined(variant)).
 tactic(inequality_splitting, defined(variant)).
 tactic(consistent_polarity_flipping, defined(variant)).
+tactic(general_splitting, components).
 tactic(equality_proxy_axiom, defined(tautology)).
 tactic(factoring, variant).
 tactic(duplicate_literal_removal, variant).
