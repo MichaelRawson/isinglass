@@ -46,8 +46,8 @@ Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
 - Clause splits: a split symbol is a defined proposition that unfolds to the type of its clause.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
-- Function definitions: `definition(F, Bs, T)` defines `F(Xs)`, for binders `Bs = Xs : Sorts`, as the term `T`. It is the prover's own step, whose conclusion is the unit clause `F(Xs) = T`, either way round: a conservative extension, so the step is an axiom.
-- Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. Like a split symbol, a defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms (`ir:expanded/2`). Proofs use this only at a `let`, which states the unfolded type, so the back ends need only define the predicate. A body cites only definitions before it, so unfolding terminates.
+- Function definitions: `definition(F, Bs, T)` defines `F(Xs)`, for binders `Bs = Xs : Sorts`, as the term `T`. It is the prover's own step, whose conclusion is the unit clause `F(Xs) = T`, either way round: a conservative extension, so the step is an axiom. A defined function term unfolds to its term, by definition, as the back ends define the symbol.
+- Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. Like a split symbol, a defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms and function terms (`ir:expanded/2`), as the back ends define the symbols. A body cites only definitions before it, so unfolding terminates.
 - Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`: `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`) or `~![Y:S|Ys] : G` (`T` is `~![Ys] : G`).
   It is a step named `Sk_def`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
 
@@ -77,7 +77,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Denial: derive `~A` from the negated conjecture `~A`, modulo symmetry.
 - Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
 - Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
-- Definition folding replaces each instance of the body of a function definition by the defined term. It is proved the other way round, from the conclusion: each defined term in a conclusion literal is unfolded by one rewrite, at every occurrence at once, as folded terms can be large (in SWV545-1.010, 885k nodes, with 59049 occurrences of one instance). As each rewrite states the whole literal, a premise literal of more than 100k nodes is not attempted.
+- Definition folding replaces each instance of the body of a function definition by the defined term. As defined terms unfold by definition, the conclusion's hypotheses refute the premise as they are, once the function terms of both are unfolded (`ir:terms_unfolded/2`; defined atoms are the same on both sides). So the proof has no rewrites, which matters as folded terms can be large: in SWV545-1.010, 885k nodes, with 59049 occurrences of one instance.
 - Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses are unfolded, where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`.
 - A ground tautology of equality (`tautology`, no premise) is closed by ground completion: the facts of its negative literals give equations, oriented by size and then the standard order and inter-reduced into rules, and each literal is normalised by rewrites. Then a fact is refuted by a hypothesis, or a positive equation is reflexive. Rigid variables are constants.
 - `first(Tactics)` is the first of `Tactics` that succeeds.
@@ -158,7 +158,7 @@ A clause-shaped conclusion of a preprocessing step is a clause, like any other, 
 ### Checker (`checker.pl`)
 An independent-ish type checker of each ground, annotated term against the type of its conclusion.
 - First-order terms are checked against the signature.
-- Formula types are kept canonical, so they are compared syntactically (or, failing that, with defined predicates unfolded), and a quantified hypothesis is instantiated by substitution.
+- Formula types are kept canonical, so they are compared syntactically, or failing that up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
 - An expansion rule is typed by its first argument (`ir:rule_type/3`).
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
@@ -207,7 +207,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Sorts are sorts, declared with their arity (`(declare-sort |t.list| 1)`), but polymorphic symbols are _monomorphised_: each instance used in a check is declared in its scope.
 - SMT-LIB `declare-sort-parameter` could support polymorphism but is not yet supported by mainstream SMT solvers.
 - Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
-- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: the equations of functions are premises of later checks, and monomorphic predicates are defined in the header by `define-fun`.
+- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun`, as proofs unfold them by definition.
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
 - A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T`, is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
@@ -237,6 +237,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 
 ## Known Issues
 - Backend scaling: for some backends (lambdapi, Agda) some large (e.g. `HWV057`, `SWV424-1.200`) or otherwise-tricky proofs time out or run out of memory. Not our problem, will be reported upstream if relevant.
+- Our lambdapi printer builds its output in memory, and overflows the stack on SWV545-1.010's 885k-node terms.
 - One failure at `read/1`: SYN986+1.004 blows the stack with its deep `succ` terms, but checks with `ulimit -s unlimited`.
 - Some slowness during reconstruction in places, under investigation - e.g. `PUZ135_1`'s self-superposition.
 - cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `scripts/checksmt` would not notice a timeout.

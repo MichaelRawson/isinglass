@@ -386,60 +386,16 @@ definiendum(D, def(D, F/N, Side)) :-
   pattern(Def),
   functor(Def, F, N).
 
-% definition folding replaces each instance of the body of a function definition sF(Xs) = body by
-% sF(...): it is proved the other way round, from the conclusion, whose hypothesis for each folded
-% literal is unfolded until it refutes the premise's. Folded terms can be large, with many occurrences
-% of each instance, so each instance is unfolded by one rewrite, at every occurrence at once
-fold(Fresh, Hs, [Clause|Definitions], M) :-
-  sort(Definitions, Ds),
-  maplist(folded_symbol, Ds, Defs),
-  premise(Clause, Ts, Ks),
-  foldl(fold_literal(ctx('$VAR'(Fresh), Defs), Hs), Ks, Ms, [], Instances),
-  foldl(opened, Instances, app(Clause, Ts, Ms), M).
+% definition folding replaces each instance of the body of a function definition by the defined term:
+% the conclusion is a variant of the premise once their defined function terms are unfolded, which the
+% IR does by definition (ir:expanded/2), so the hypotheses of the conclusion refute the premise as they are
+fold(_, Hs, [Clause|_], app(Clause, Ts, Ms)) :-
+  maplist(unfolded_hypothesis_terms, Hs, Us),
+  premise(Clause, Ts, Ks0),
+  maplist(terms_unfolded, Ks0, Ks),
+  maplist(matches(Us), Ks, Ms).
 
-% the side of the definition that is a symbol introduced by definition
-folded_symbol(D, def(D, F/N, Side)) :-
-  premise(D, _, ['$='(_, A, B)]),
-  ( Side = left, Def = A ; Side = right, Def = B ),
-  pattern(Def),
-  functor(Def, F, N),
-  introduced(F, definition), !.
-
-% premise literal K is refuted by M, as it is, or by the hypothesis X : ~K1 of a conclusion literal,
-% unfolded to ~K (or its flip). Each rewrite states the literal, so a large K (as in SWV545-1.010)
-% is not attempted: the proof would be too large to print
-fold_literal(_, Hs, K, M, Is, Is) :- matches(Hs, K, M).
-fold_literal(Ctx, Hs, K, M, Is0, Is) :-
-  nodes_within(K, 100000, _),
-  member(X-(~K1), Hs),
-  unfold_all(K1, Ctx, K2, [], Steps, Is0, Is),
-  Steps \== [],
-  Ctx = ctx(Z, _),
-  chain(Steps, Z, X, W),
-  (   unify_with_occurs_check(K2, K)
-  ->  M = W
-  ;   flip(K2, K3),
-      unify_with_occurs_check(K3, K),
-      M = let(Y, ~K2, W, M1),
-      flipped(K, Y, M1)
-  ).
-
-% T has at most N0 nodes, N0 - N of them
-nodes_within(T, N0, N) :- N0 > 0, N1 is N0 - 1, ( compound(T) -> T =.. [_|Ts], foldl(nodes_within, Ts, N1, N) ; N = N1 ).
-
-% T becomes T1 as each defined term in it is replaced by its body, at every occurrence, outermost first
-unfold_all(T, Ctx, T1, Steps0, Steps, Is0, Is) :-
-  Ctx = ctx(Z, Defs),
-  (   subterm(T, U), functor(U, F, N), memberchk(def(D, F/N, Side), Defs)
-  ->  premise(D, Us, [Eq]),
-      Eq = '$='(Sort, _, _),
-      oriented(Side, Eq, E, U, Body, Equation),
-      substitute(U, Z, T, Motive),
-      substitute(Z, Body, Motive, T0),
-      opening(D, Us, Eq, E, Is0, Is1),
-      unfold_all(T0, Ctx, T1, [step(Sort, ~Motive, Equation)|Steps0], Steps, Is1, Is)
-  ;   T1 = T, Steps = Steps0, Is = Is0
-  ).
+unfolded_hypothesis_terms(X-T0, X-T) :- terms_unfolded(T0, T).
 
 % f(X_1, ..., X_n) with distinct variables
 pattern(T) :-

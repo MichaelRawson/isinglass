@@ -38,17 +38,20 @@ header -->
   "(set-option :print-success false)\n",
   "(declare-sort I 0)\n",
   "(declare-sort |$inhabited| 0)\n",
-  { findall(S-(Args-Sort), ( symbol(S, [], Args, Sort), \+ defined_predicate(S, _, _) ), Symbols),
-    findall(S-(Bs-Body), defined_predicate(S, Bs, Body), Definitions) },
+  { findall(S-(Args-Sort), ( symbol(S, [], Args, Sort), \+ defined_symbol(S, _, _) ), Symbols),
+    findall(S-(Bs-Body), defined_symbol(S, Bs, Body), Definitions) },
   declarations(Symbols),
-  foldl(predicate_definition, Definitions).
+  foldl(symbol_definition, Definitions).
 
-% a monomorphic predicate defined by its body (see ir.pl), in the order of the steps
-defined_predicate(S, Bs, Body) :- ir_step(_, formula(_), definition(S, Bs, Body)), symbol(S, [], _, _).
+% a monomorphic symbol defined by its body, a formula or a term (see ir.pl), in the order of the steps
+defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _).
 
-predicate_definition(S-(Bs-Body)) -->
-  { length(Bs, N) },
-  "(define-fun ", sym(S/N), " (", binders(Bs), ") Bool ", formula(Body), ")\n".
+symbol_definition(S-(Bs-Body)) -->
+  { length(Bs, N), symbol(S, [], _, Sort) },
+  "(define-fun ", sym(S/N), " (", binders(Bs), ") ", sort(Sort), " ", defined_body(Sort, Body), ")\n".
+
+defined_body('$o', F) --> !, formula(F).
+defined_body(_, T) --> term(T).
 
 % types are sorts; polymorphic symbols are declared by instance, in each check
 declarations([]) --> [].
@@ -83,8 +86,7 @@ check(input(_, _), _, _) --> [].
 check(split_def(_, _), _, _) --> [].
 % Skolem symbols are uninterpreted, and their definitions not checked
 check(skolem_def(_, _, _), _, _) --> [].
-% nor are definitions: the equations of functions are premises of later steps, and predicates are
-% defined in the header
+% nor are definitions: monomorphic symbols are defined in the header
 check(definition(_, _, _), _, _) --> [].
 % a step between formulas has formulas for premises, which have no ground instances to assert
 check(proof(_), Name, _) --> { formula_step(Name) }, !,

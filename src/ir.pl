@@ -39,8 +39,8 @@ are compared syntactically.
 
 So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
 A split symbol is a defined proposition: it unfolds to the type of its defining clause.
-A defined predicate unfolds to its body, so a formula is also of any type that differs from it only by
-unfolding defined atoms (expanded/2): a proof uses this only at a let, which states the unfolded type.
+A defined predicate unfolds to its body, and a defined function term to its term, so a formula is also
+of any type that differs from it only by unfolding these (expanded/2), as back ends unfold definitions.
 
   M ::= X                 a hypothesis h(N)
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
@@ -88,7 +88,7 @@ an arbitrary individual of sort S for a variable that search left unconstrained,
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
 :- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4,
-  defined_atom/2, expanded/2, typed_clause/2]).
+  defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(db).
@@ -161,8 +161,9 @@ defined_atom(A, Body) :-
 
 abstract(X, V, F0, F) :- substitute(X, V, F0, F).
 
-% the canonical formula F0 with each defined atom unfolded, throughout (definitions are not circular)
-expanded(F0, F) :- opened(F0, F1), unfolded(F1, F2), canonical(F2, F).
+% the canonical formula F0 with each defined atom and term unfolded, throughout (definitions are not
+% circular)
+expanded(F0, F) :- opened(F0, F1), unfolded(F1, F2), ( F2 == F1 -> F = F0 ; canonical(F2, F) ).
 
 % the bound variables of a canonical formula as Prolog variables: the names on a path are distinct
 opened(F0, F) :-
@@ -184,8 +185,32 @@ unfolded(F0, F) :-
   unfolded(G0, G),
   F =.. [Q, Bs, G].
 unfolded(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(unfolded, Gs0, Gs), F =.. [C|Gs].
-unfolded(A, F) :- defined_atom(A, Body0), !, opened(Body0, Body), unfolded(Body, F).
-unfolded(A, A).
+unfolded(A0, F) :-
+  unfolded_arguments(A0, A),
+  ( defined_atom(A, Body0) -> opened(Body0, Body), unfolded(Body, F) ; F = A ).
+
+unfolded_arguments(A0, A) :- compound(A0), !, A0 =.. [P|Ts0], maplist(unfolded_term, Ts0, Ts), A =.. [P|Ts].
+unfolded_arguments(A, A).
+
+% a quantifier-free formula with each defined function term unfolded, but not its defined atoms
+terms_unfolded(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(terms_unfolded, Gs0, Gs), F =.. [C|Gs].
+terms_unfolded(A0, A) :- unfolded_arguments(A0, A).
+
+% a term with each defined function term unfolded, outermost first
+unfolded_term(T, T) :- var(T), !.
+unfolded_term(T0, T) :- defined_term(T0, T1), !, unfolded_term(T1, T).
+unfolded_term(T0, T) :- unfolded_arguments(T0, T).
+
+% the term T of a defined function symbol unfolds to Body, the definition's body for its arguments
+defined_term(T, Body) :-
+  functor(T, F, N),
+  introduced(F, definition),
+  ir_step(_, clause(_, _), definition(F, Bs, Body0)),
+  length(Bs, N), !,
+  T =.. [F|Ts],
+  binder_variables(Bs, Xs),
+  foldl(abstract, Xs, Vs, Body0, Body),
+  Vs = Ts.
 
 % a quantifier over binders Bs, if any
 quantified(_, [], F, F) :- !.
