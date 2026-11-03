@@ -200,7 +200,7 @@ branches(Ctx, [Es-M|Branches], H) :-
 quantifiers(ctx(Mode, Fresh0, Defs), D, G, M) :-
   universals(G, Vs0, G1, M1, M2),
   limit(Mode, Vs0, Limit),
-  existentials(Fresh0, Limit, D, Es0, D1, Fresh, M, M1),
+  existentials(Mode, Fresh0-Fresh, Limit, D, Es0, D1, M, M1),
   ( Es0 = [_|_] ; Vs0 = [_|_] ), !,
   D1 = _-F1, G1 = _-T1,
   occurring(Es0, F1, Es),
@@ -212,15 +212,23 @@ limit(skolem(_), Vs, Vs) :- !.
 limit(_, _, unlimited).
 
 % the δ formulas nested outermost in X : F, up to the Limit, with an eigenvariable for each
-% variable, are Y : G
-existentials(Fresh0, Limit0, X-F, [E|Es], H, Fresh, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
+% variable, are Y : G; a conjunction of one part and units of the key (a pure atom, as $true) is that
+% part, so ?[X] : (p(X) & ?[Y] : q(X,Y)) opens as ?[X,Y] : q(X,Y)
+existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
   fewer(Limit0, Limit),
   delta(F, Rule, B:S, T0), !,
   E = '$VAR'(Fresh0),
   Fresh1 is Fresh0 + 1,
   substitute(B, E, T0, T),
-  existentials(Fresh1, Limit, Y-T, Es, H, Fresh, M0, M).
-existentials(Fresh, _, H, [], H, Fresh, M, M).
+  existentials(Mode, Fresh1-Fresh, Limit, Y-T, Es, H, M0, M).
+existentials(Mode, Fresh0-Fresh, Limit, X-F, Es, H, M, M1) :-
+  alpha(F, _, _),
+  expansion(F, X, Parts, M, M0),
+  partition(unit(Mode), Parts, [_|_], [Part]), !,
+  existentials(Mode, Fresh0-Fresh, Limit, Part, Es, H, M0, M1).
+existentials(_, Fresh-Fresh, _, H, [], H, M, M).
+
+unit(Mode, _-F) :- normal(Mode, F, '$true').
 
 fewer(unlimited, unlimited).
 fewer([_|Limit], Limit).

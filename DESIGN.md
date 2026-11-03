@@ -94,7 +94,7 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 - `transform(Mode)` fails at once unless the parent and conclusion have the same key.
 - The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
   - literals close modulo symmetry;
-  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones;
+  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones, and conjuncts that are units of the key (e.g. a pure atom, `$true`), so that `?[X] : (p(X) & ?[Y] : q(X,Y))` opens as `?[X,Y] : q(X,Y)`;
   - otherwise the conjunctive side is expanded into a _pool_ of parts by key, and each branch of the other side is looked up in it, or split further.
 - In nnf the negation of an expanded `<=>` is a disjunction of conjunctions, so there both formulas are also compared the other way round.
 - Weakening steps:
