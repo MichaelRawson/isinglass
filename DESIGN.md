@@ -24,7 +24,8 @@ Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `
 - Sorts are terms: e.g. `'$i'`, `'$o'`, type variables, and declared type constructors such as `list(A)`. The sort of sorts is `$tType` as in TFF1.
 - Sorts `A` are assumed inhabited with the polymorphic symbol `$inhabited(A)`. The implementation tries to avoid using this for the sake of constructive backends.
 - The signature is `symbol(Name, Params, Args, Sort)` (`db.pl`), with `Params` the sort variables, `Args` the domain and `Sort` the range.
-- Reading normalises `S != T` to `~ (S = T)`, `F <= G` to `G => F`, `F <~> G` to `~(F <=> G)`, and `~|`, `~&` to a negated `|` or `&`. At some point this should perhaps be reported verbatim and subsequently normalised.
+- Reading normalises `S != T` to `~ (S = T)`, `F <= G` to `G => F`, `F <~> G` to `~ (F <=> G)`, and `~|`, `~&` to a negated `|` or `&`. At some point this should perhaps be reported verbatim and subsequently normalised.
+- It is convenient to treat clauses specially.
 - Clauses are `clause(Bs, Literals)`: binders as in quantifiers, and a list of literals `A` or `~A` over their variables. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause too.
 - Vampire prints clauses as `fof` too, so shape alone cannot tell a clause from a formula. `$false` is the empty clause. Otherwise a statement is a clause if it is clause-shaped and is either `cnf`, an input, or derived by clausal reasoning: `cnf_transformation`, a rule in the table below, or an unknown rule from clauses only. The conjecture, its negation, preprocessing and definitions are formulas.
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so every lookup is a fresh instance and instantiation is unification.
@@ -53,7 +54,7 @@ Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `
 
 ## Classical Logic and Conjectures
 The IR does not pre-suppose classical logic, and large chunks of ATP proofs are intuitionistically valid, which may be surprising.
-Future constructive backends may use an A-translation to produce a constructive proof (!).
+Constructive backends use A-translation to produce a constructive proof (!).
 
 - Proof terms stay in minimal logic with an abstract ⊥. No DNE or excluded middle appears in the clausal IR, but may in steps between formulas.
 - Of the formula expansion rules, those for `~(F => G)`, `~(F <=> G)` and `~!` are not valid in minimal logic.

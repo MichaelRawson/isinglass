@@ -17,12 +17,12 @@ Backends like `lambdapi` then need only project out the parts they need from the
 Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in the TSTP language.
 
 ## Frontend (ATP systems)
-- [Vampire](https://github.com/vprover/vampire/) (`vampire`)
+- [Vampire](https://github.com/vprover/vampire/), including most of its many options (`vampire`)
 
 ## Backends
 - A built-in proof checker, (`checker`).
 - [lambdapi](https://lambdapi.readthedocs.io/en/latest/), (`lambdapi`)
-- SMT-LIB for checking by SMT solvers, in the style of "Ground Truth" (`smtlib`).
+- SMT-LIB for checking by SMT solvers, in the style of [Ground Truth](https://rawsons.uk/michael/papers/CADE-2025.pdf) (`smtlib`).
 - constructive Agda (`agda`, supporting only clausal proofs)
 
 ## Usage
@@ -38,13 +38,12 @@ For example:
 ```
 vampire -p tptp Problems/PUZ/PUZ001+1.p | ./ising vampire lambdapi
 ```
-produces a lambdapi script from the supplied Vampire proof of `PUZ001+1`.
+produces a complete lambdapi script from the supplied Vampire proof of `PUZ001+1`.
 
 ## Bugs, Limitations and Extensions
 Isinglass is at an early stage of development.
 Items that are still missing that I would like at some point:
-- support for Skolemisation
-- support for all of Vampire's output, including non-default options
+- support for Vampire's NewCNF (but this might require some hacking on the Vampire side)
 - arithmetic and theories (including datatypes)
 - other ATP systems
 - the internal formula language rewrites unusual TSTP operators to a more standard form, e.g. `~(p | q)` for `p ~| q` at load time, which it technically shouldn't
