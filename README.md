@@ -17,7 +17,7 @@ Backends like `lambdapi` then need only project out the parts they need from the
 Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in the TSTP language.
 
 ## Frontend (ATP systems)
-- [Vampire](https://github.com/vprover/vampire/), including most of its many options (`vampire`)
+- [Vampire](https://github.com/vprover/vampire/), including most of its many options (`vampire`). Due to necessary bugfixes, this relies on a very recent Vampire.
 
 ## Backends
 - A built-in proof checker, (`checker`).
