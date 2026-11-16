@@ -2,6 +2,7 @@
 :- module(vampire, [load_vampire/1]).
 :- use_module(library(lists)).
 :- use_module(library(pairs)).
+:- use_module(library(assoc)).
 :- use_module(utils).
 :- use_module(ops).
 :- use_module(logic).
@@ -71,7 +72,8 @@ how(_, introduced(definition, Info, [Kind]), F, tactic(Tactic, [Name])) :-
 how(_, introduced(theory, [theory_tautology_sat_conflict], []), _, tactic(tautology, [])) :- !.
 how(_, introduced(definition, Info, _), _, todo(esa(definition, Symbols), [])) :- !,
   new_symbols(Info, Symbols).
-how(_, inference(negated_conjecture, _, [Conjecture]), _, negated_conjecture(Conjecture)) :- !.
+how(_, inference(Rule, _, [Conjecture]), _, negated_conjecture(Conjecture)) :-
+  negation_rule(Rule), !.
 how(_, inference(definition_folding, _, [Parent|Definitions]), _, tactic(fold, [Parent|Definitions])) :-
   step(Parent, clause(_, _), _),
   Definitions \== [],
@@ -204,19 +206,43 @@ new_symbols(Info, Symbols) :- findall(S, (member(I, Info), introduced_symbol(I, 
 % folded symbols, which are reconstructed above, for functions in clauses and predicates in formulas
 esa(definition_folding).
 
+% the rule of the negated conjecture, renamed in later versions of Vampire
+negation_rule(negated_conjecture).
+negation_rule(conjecture_negation).
+
 /*
 Consistent polarity flipping replaces a predicate P by its negation, but keeps its name: so the steps
-after it, all but its ancestors, are stated with P_flipped for P, where P_flipped is defined as ~P
-(the step P_flipped_def). A flipped predicate of a flipping step is one whose literals in the parent
-and conclusion differ in sign. Flipping is flips(Predicates, Ancestors)
+after it are stated with P_flipped for P, where P_flipped is defined as ~P (the step P_flipped_def).
+A flipped predicate of a flipping step is one whose literals in the parent and conclusion differ in
+sign. Flipping is flips(Predicates, Before), with Before the steps before flipping (see before/4)
 */
-polarity_flipping(Statements, flips(Predicates, Ancestors)) :-
+polarity_flipping(Statements, flips(Predicates, Before)) :-
   findall(P-F, member(annotated(_, _, _, F, inference(consistent_polarity_flipping, _, [P])), Statements), Flips),
   findall(Q, ( member(P-F, Flips), memberchk(annotated(_, P, _, F0, _), Statements), flipped_predicate(F0, F, Q) ), Qs),
   sort(Qs, Predicates),
   each(member(Q, Predicates), record_flipped(Q)),
   pairs_keys(Flips, Parents),
-  ancestors(Parents, Statements, [], Ancestors).
+  ancestors(Parents, Statements, [], Ancestors),
+  empty_assoc(Empty),
+  (   Predicates == []
+  ->  Before = Empty
+  ;   foldl(before(Ancestors), Statements, Empty, Before)
+  ).
+
+% a step is before flipping, and so not renamed, if it is an input or an ancestor of a flipping step,
+% or derived only from steps before it (e.g. preprocessing of a formula whose clauses are not
+% flipped), but for a flipping step. Other steps without parents, such as AVATAR definitions, are
+% after it. Vampire prints parents first
+before(Ancestors, annotated(_, Name, _, _, Source), Before0, Before) :-
+  (   ( memberchk(Name, Ancestors) ; before_source(Source, Before0) )
+  ->  put_assoc(Name, Before0, true, Before)
+  ;   Before = Before0
+  ).
+
+before_source(file(_, _), _).
+before_source(inference(Rule, _, [P|Ps]), Before) :-
+  Rule \== consistent_polarity_flipping,
+  each(member(Q, [P|Ps]), get_assoc(Q, Before, true)).
 
 % the predicate P/N, monomorphic, has a different number of positive literals in F0 and F
 flipped_predicate(F0, F, P/N) :-
@@ -269,11 +295,11 @@ ancestors([N|Ns], Statements, As0, As) :-
       ancestors(Ns1, Statements, [N|As0], As)
   ).
 
-% a step after flipping is stated with the flipped predicates renamed; inputs and the ancestors of the
-% flipping steps are not; a flipping step cites the definitions too
+% a step after flipping is stated with the flipped predicates renamed; inputs and other steps before
+% flipping are not; a flipping step cites the definitions too
 flipped_statement(flips([], _), _, Source, F, Source, F) :- !.
 flipped_statement(_, _, file(N, I), F, file(N, I), F) :- !.
-flipped_statement(flips(_, Ancestors), Name, Source, F, Source, F) :- memberchk(Name, Ancestors), !.
+flipped_statement(flips(_, Before), Name, Source, F, Source, F) :- get_assoc(Name, Before, true), !.
 flipped_statement(flips(Ps, _), _, Source0, F0, Source, F) :-
   flipped_source(Ps, Source0, Source),
   flipped_formula(Ps, F0, F).

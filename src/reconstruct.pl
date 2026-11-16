@@ -13,6 +13,7 @@ Steps between formulas are reconstructed by the tactics of transform.pl, which h
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
+:- use_module(library(pairs)).
 :- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
@@ -43,9 +44,9 @@ conjecture([Conjecture-Source], Refutation) :-
   step(Conjecture, formula(G), _),
   rigid(formula(G), _),
   record(ir_step(Conjecture, formula(G), conjecture(Source, Negated, Refutation))).
+% ...else the proof is partial, ending at $false, as when there is no conjecture
 conjecture(Conjectures, _) :-
-  warn(['error: expected one conjecture and its negation, not ', Conjectures]),
-  fail.
+  warn(['warning: expected one conjecture and its negation, not ', Conjectures, ', so the proof ends at $false']).
 
 prove(Name) :- ir_step(Name, _, _), !.
 prove(Name) :-
@@ -53,6 +54,9 @@ prove(Name) :-
   rigid(Conclusion, Fresh),
   justify(How, Conclusion, Fresh, Justification),
   record(ir_step(Name, Conclusion, Justification)).
+
+prove_cited(Name) :- prove(Name), !.
+prove_cited(Name) :- warn(['warning: ', Name, ' is cited by a todo step, but not proved']).
 
 % number the variables of a clause, in binder order; Fresh is the next index
 % the bound variables of a formula are named canonically (see logic.pl), and any others numbered
@@ -73,7 +77,8 @@ justify(define(Symbol), Conclusion, _, Justification) :-
   ;   warn(['warning: ', Symbol, ' is not defined by ', Conclusion]),
       Justification = todo(esa(definition, [Symbol]), [])
   ).
-justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove, Parents).
+% a todo step is partial anyway, so a parent that cannot be proved (e.g. the conjecture) is only warned about
+justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove_cited, Parents).
 justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
   splits_first(Conclusion),
@@ -141,7 +146,7 @@ premise(Name, Ts, Ls) :- step(Name, clause(Bs, Ls), _), binder_variables(Bs, Ts)
 % the conclusion is an instance of the premise, modulo symmetry, factoring and duplicates
 variant(_, Hs, [Premise], app(Premise, Ts, Ms)) :-
   premise(Premise, Ts, Ls),
-  maplist(matches(Hs), Ls, Ms).
+  first_fail(matches(Hs), matches_count(Hs), Ls, Ms).
 
 % the conclusion ~A denies the negated conjecture ~A, a hypothesis, modulo symmetry
 deny(_, [H-(~(~A))], [Negated], app(H, [], [M])) :-
@@ -160,14 +165,44 @@ denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A
 resolve(_, Hs, Premises, app(Major, Ts, Ms)) :-
   select(Major, Premises, Minors),
   premise(Major, Ts, Ks),
-  maplist(resolve_literal(Hs, Minors), Ks, Ms).
+  first_fail(resolve_literal(Hs, Minors), resolve_count(Hs, Minors), Ks, Ms).
 
 resolve_literal(Hs, _, K, M) :- matches(Hs, K, M).
 resolve_literal(Hs, Minors, K, lam(X, K, app(Minor, Ts, Ms))) :-
   member(Minor, Minors),
   premise(Minor, Ts, Ls),
   ( K \= ~_ ; Minors = [_, _|_], unit(Ls) ),
-  maplist(matches([X-K|Hs]), Ls, Ms).
+  first_fail(matches([X-K|Hs]), matches_count([X-K|Hs]), Ls, Ms).
+
+% the candidates for a literal K of the major: the hypotheses that refute it, and the minors with a
+% literal that it refutes
+resolve_count(Hs, Minors, K, N) :-
+  matches_count(Hs, K, N0),
+  findall(Minor, ( member(Minor, Minors), premise(Minor, _, Ls), member(L, Ls), \+ \+ refutes(K, _, L, _) ), Ns),
+  length(Ns, N1),
+  N is N0 + N1.
+
+matches_count(Hs, L, N) :- findall(M, matches(Hs, L, M), Ms), length(Ms, N).
+
+% each literal K of Ks is refuted as M by call(Refute, K, M), most constrained first: the one with the
+% fewest candidates, call(Count, K, N), whose bindings then constrain the rest (first-fail, as in
+% constraint solving). In order, a wide clause of interchangeable literals is searched exponentially:
+% in SYO613-1, ~eq(f(Xi), a0) for 12 variables Xi, fixed only by a chain of ~le(s(Xi), Xj) after them
+first_fail(Refute, Count, Ks, Ms) :-
+  pairs_keys_values(Pairs, Ks, Ms),
+  first_failed(Pairs, Refute, Count).
+
+first_failed([], _, _) :- !.
+first_failed([K-M], Refute, _) :- !, call(Refute, K, M).
+first_failed(Pairs, Refute, Count) :-
+  maplist(counted(Count), Pairs, Counted),
+  keysort(Counted, [N-(K-M)|Rest]),
+  N > 0,
+  call(Refute, K, M),
+  pairs_values(Rest, Pairs1),
+  first_failed(Pairs1, Refute, Count).
+
+counted(Count, K-M, N-(K-M)) :- call(Count, K, N).
 
 % a unit clause, but for AVATAR's split literals, which are in the conclusion
 unit(Ls) :- exclude(avatar_literal, Ls, [_]).
@@ -298,7 +333,7 @@ normalised(_, _, H, H, M, M).
 paramodulate(Fresh, Hs, Premises, app(Into, Ts, Ms)) :-
   select(Into, Premises, [From]),
   premise(Into, Ts, Ks),
-  maplist(paramodulate_literal(Fresh, Hs, From), Ks, Ms).
+  first_fail(paramodulate_literal(Fresh, Hs, From), rewrite_count(Hs), Ks, Ms).
 
 paramodulate_literal(_, Hs, _, K, M) :- matches(Hs, K, M).
 paramodulate_literal(Fresh, Hs, From, K, lam(Y, K, app(From, Ts, Ms))) :-
@@ -306,14 +341,21 @@ paramodulate_literal(Fresh, Hs, From, K, lam(Y, K, app(From, Ts, Ms))) :-
   append(Before, [Eq|After], Ls),
   Eq = '$='(_, _, _),
   rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body),
-  maplist(matches(Hs), Before, Ms0),
-  maplist(matches(Hs), After, Ms1),
+  append(Before, After, Others),
+  first_fail(matches(Hs), matches_count(Hs), Others, Ms2),
+  length(Before, N),
+  length(Ms0, N),
+  append(Ms0, Ms1, Ms2),
   append(Ms0, [lam(E, Eq, Body)|Ms1], Ms).
+
+% the candidates for a literal that may be rewritten: its hypotheses, and the rewrite, which is not
+% counted, so a literal that can only be rewritten comes first
+rewrite_count(Hs, K, N) :- matches_count(Hs, K, N0), N is N0 + 1.
 
 % equality factoring: as paramodulation, but the equation is a hypothesis for a literal A != B
 equality_factor(Fresh, Hs, [Premise], app(Premise, Ts, Ms)) :-
   premise(Premise, Ts, Ks),
-  maplist(factor_literal(Fresh, Hs), Ks, Ms).
+  first_fail(factor_literal(Fresh, Hs), rewrite_count(Hs), Ks, Ms).
 
 factor_literal(_, Hs, K, M) :- matches(Hs, K, M).
 factor_literal(Fresh, Hs, K, lam(Y, K, app(H, [], [lam(E, Eq, Body)]))) :-

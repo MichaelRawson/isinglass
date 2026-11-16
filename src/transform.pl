@@ -196,24 +196,34 @@ branches(Ctx, [Es-M|Branches], H) :-
 % D : δ formula, and G its counterpart, a γ formula: the eigenvariables of the one, but for those
 % that are vacuous, are the variables of the other, in order. Either may be vacuous, and the other
 % not a quantifier at all. In Skolemisation, a ? of the parent may come between its universals, so
-% only as many δ formulas are opened as there are universals
+% only as many δ formulas are opened as there are universals. So too elsewhere if all of them do not
+% pair: a unit may come between the universals, as in ![X] : ($true & ![Y] : p(X,Y))
 quantifiers(ctx(Mode, Fresh0, Defs), D, G, M) :-
   universals(G, Vs0, G1, M1, M2),
   limit(Mode, Vs0, Limit),
   existentials(Mode, Fresh0-Fresh, Limit, D, Es0, D1, M, M1),
-  ( Es0 = [_|_] ; Vs0 = [_|_] ), !,
+  ( Es0 = [_|_] ; Vs0 = [_|_] ),
   D1 = _-F1, G1 = _-T1,
-  occurring(Es0, F1, Es),
-  occurring(Vs0, T1, Vs),
-  Vs = Es,
+  same_occurring(Mode, Es0, F1, Vs0, T1), !,
   pair(ctx(Mode, Fresh, Defs), G1, D1, M2).
+
+% the eigenvariables Es that occur in F are the variables Vs that occur in T, in order; or failing
+% that, those that occur in their keys: so a variable of pure atoms only is vacuous, as is one beside
+% $true in a disjunction. Skolem keys blur Skolem terms, so there it is any occurrence
+same_occurring(_, Es0, F, Vs0, T) :- occurring(Es0, F, Es), occurring(Vs0, T, Es), !.
+same_occurring(Mode, Es0, F, Vs0, T) :-
+  Mode \= skolem(_),
+  normal(Mode, F, KF), occurring(Es0, KF, Es),
+  normal(Mode, T, KT), occurring(Vs0, KT, Es).
 
 limit(skolem(_), Vs, Vs) :- !.
 limit(_, _, unlimited).
+limit(_, Vs, Vs).
 
 % the δ formulas nested outermost in X : F, up to the Limit, with an eigenvariable for each
 % variable, are Y : G; a conjunction of one part and units of the key (a pure atom, as $true) is that
-% part, so ?[X] : (p(X) & ?[Y] : q(X,Y)) opens as ?[X,Y] : q(X,Y)
+% part, so ?[X] : (p(X) & ?[Y] : q(X,Y)) opens as ?[X,Y] : q(X,Y), and so is ~~F, as ~! [X] : ~?[Y]
+% is opened as its γ counterpart ![X] : ~?[Y] is instantiated
 existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
   fewer(Limit0, Limit),
   delta(F, Rule, B:S, T0), !,
@@ -222,9 +232,9 @@ existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, app(Rule, [], [X, lam(E
   substitute(B, E, T0, T),
   existentials(Mode, Fresh1-Fresh, Limit, Y-T, Es, H, M0, M).
 existentials(Mode, Fresh0-Fresh, Limit, X-F, Es, H, M, M1) :-
-  alpha(F, _, _),
+  alpha_like(F),
   expansion(F, X, Parts, M, M0),
-  partition(unit(Mode), Parts, [_|_], [Part]), !,
+  partition(unit(Mode), Parts, _, [Part]), !,
   existentials(Mode, Fresh0-Fresh, Limit, Part, Es, H, M0, M1).
 existentials(_, Fresh-Fresh, _, H, [], H, M, M).
 
@@ -275,11 +285,14 @@ parts([X-F|Hs], Ps, M, M1) :-
   ).
 
 % the branch closes by itself, or one of its formulas has a counterpart in the pool, or one of them
-% is expanded or split. A disjunction is not looked up: its counterpart is a conjunction, whose parts
-% are in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
+% is expanded or split. A disjunction is looked up only if its counterpart is a δ formula, whose
+% binders are vacuous (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts are
+% in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
 % forget terms, each counterpart is tried, and then the other ways to close the branch
 close(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
 close(_, _, Pool, M) :- member(_-X-F, Pool), closes(F, X, M), !.
+% ...or a part of the pool is false by its key, as is ~($true & $true), and is refuted by itself
+close(Ctx, _, Pool, M) :- member(keys('$true', _)-X-F, Pool), close(Ctx, [X-F], [], M), !.
 close(Ctx, Branch, Pool, M) :-
   Ctx = ctx(skolem(Ss), _, _),
   member(X-F, Branch),
@@ -289,8 +302,8 @@ close(Ctx, Branch, Pool, M) :-
   Ctx = ctx(Mode, _, _),
   Mode \= skolem(_),
   member(X-F, Branch),
-  \+ disjunctive(Mode, F),
-  counterpart(Mode, F, Pool, Y-G), !,
+  lookup_pool(Mode, F, Pool, Pool1),
+  counterpart(Mode, F, Pool1, Y-G), !,
   pair(Ctx, X-F, Y-G, M).
 close(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
@@ -306,6 +319,15 @@ close(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   split(X-F, Branches, M), !,
   close_branches(Ctx, Branches, Rest, Pool).
+
+% the part of the pool where F is looked up: for a disjunction, only δ formulas, if any
+lookup_pool(Mode, F, Pool, Pool1) :-
+  disjunctive(Mode, F), !,
+  partition(delta_entry, Pool, Pool1, _),
+  Pool1 = [_|_].
+lookup_pool(_, _, Pool, Pool).
+
+delta_entry(_-_-G) :- delta(G, _, _, _).
 
 close_branches(_, [], _, _).
 close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-

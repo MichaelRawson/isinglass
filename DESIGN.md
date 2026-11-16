@@ -63,7 +63,7 @@ Constructive backends use A-translation to produce a constructive proof (!).
 - The negated conjecture is a parameter, not an axiom. Its type is `G → ⊥`, and only the `conjecture` step discharges it.
 - A classical back end proves `G` by double-negation elimination.
 - An A-translation takes `⊥ := G` and the negated conjecture `nc := id`, so the theorem is `refutation id`.
-- If a conjecture does not appear in the proof (whether or not one was given) the IR ends at `$false`.
+- If a conjecture does not appear in the proof (whether or not one was given), or its negation is not recognised, the IR ends at `$false`.
 
 ## Reconstruction (`reconstruct.pl`, `transform.pl`, `rup.pl`, `close.pl`)
 Reconstruction tries to build an IR term with the conclusion's type given that the step is e.g. "resolution".
@@ -75,6 +75,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Resolution finds the pivot literal and then matches remaining literals in the same way. Unit-resulting resolution is the same, with a unit minor premise for each pivot (unit but for AVATAR split literals, which are in the conclusion). Extensionality resolution is binary resolution of an extensionality clause's `X = Y` with a disequation.
 - Paramodulation is similar: each literal is matched to a premise, or rewritten using one positive equation `A = B` from a premise. So is subsumption demodulation, whose conditional equation's other literals are in the conclusion.
 - Equality factoring is the same, but the equation comes from a hypothesis for a conclusion literal `A != B`
+- The literals of a premise are matched most constrained first (first-fail): the literal with the fewest candidates, counting the hypotheses that refute it and the minors it could resolve with (a rewrite is not counted). Its bindings then constrain the rest. In order, a wide clause of interchangeable literals is searched exponentially: in SYO613-1, `~eq(f(Xi), a0)` for 12 variables `Xi`, which only a chain of `~le(s(Xi), Xj)` after them tells apart. Matching is subsumption, NP-complete, so this is a heuristic.
 - Denial: derive `~A` from the negated conjecture `~A`, modulo symmetry.
 - Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
 - Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
@@ -84,7 +85,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - `first(Tactics)` is the first of `Tactics` that succeeds.
 - General splitting (`components`): as for an AVATAR split, the hypothesis `~~P(ts)` of the cited definition's symbol, as `~T` for the clause type `T` of the component (two `let`s), is refuted by proving `T` with eigenvariables and hypotheses for its literals; then the conclusion is a variant of the parent.
 - A clausal step proves the definitions of its split literals first, whether or not it cites them (`sat_conversion` does not), so that back ends define them before use.
-- A failed tactic leaves the step as `todo`, with a warning.
+- A failed tactic leaves the step as `todo`, with a warning. So does an unknown rule. A `todo` step only warns about a parent it cannot prove (e.g. the conjecture), as the proof is partial anyway.
 
 ### Preprocessing (`normal.pl`, `transform.pl`)
 Transformation to normal form is an entailment from one parent, transformed structurally.
@@ -96,8 +97,10 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 - `transform(Mode)` fails at once unless the parent and conclusion have the same key.
 - The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
   - literals close modulo symmetry;
-  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones, and conjuncts that are units of the key (e.g. a pure atom, `$true`), so that `?[X] : (p(X) & ?[Y] : q(X,Y))` opens as `?[X,Y] : q(X,Y)`;
-  - otherwise the conjunctive side is expanded into a _pool_ of parts by key, and each branch of the other side is looked up in it, or split further.
+  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones, and conjuncts that are units of the key (e.g. a pure atom, `$true`) or `~~`, so that `?[X] : (p(X) & ?[Y] : q(X,Y))` opens as `?[X,Y] : q(X,Y)`;
+  - a binder is vacuous if its variable does not occur in the key, e.g. only in pure atoms; a γ variable so skipped is left to closing;
+  - if that fails, only as many δ binders are opened as the γ formula has, as a unit may come between its universals (`![X] : ($true & ![Y] : p(X,Y))`);
+  - otherwise the conjunctive side is expanded into a _pool_ of parts by key, and each branch of the other side is looked up in it, or split further. A disjunction is looked up only among δ formulas of the pool (whose vacuous binders hide a conjunction), and a part whose key is false (`~($true & $true)`) is refuted by itself.
 - In nnf the negation of an expanded `<=>` is a disjunction of conjunctions, so there both formulas are also compared the other way round.
 - Weakening steps:
   - `pure`: the pure predicates are those of the parent that are not in the conclusion.
@@ -149,8 +152,8 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | skolemize | `transform(skolem)` |
 | cnf_transformation of a formula | `clausify` |
 
-The conjecture becomes `conjecture`, `negated_conjecture` becomes `negated_conjecture`, and any other rule becomes `todo`.
-Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step but the inputs and the ancestors of the flipping steps states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites). The flipped predicates are those whose literals differ in sign between a flipping step and its parent. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `P_def`, since grouped binders commute.
+The conjecture becomes `conjecture`, `negated_conjecture` (`conjecture_negation` in later versions) becomes `negated_conjecture`, and any other rule becomes `todo`.
+Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step after flipping states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites). The flipped predicates are those whose literals differ in sign between a flipping step and its parent. A step is before flipping if it is an input, an ancestor of a flipping step, or derived only from steps before flipping (e.g. the preprocessing of a formula whose clauses need no flipping), but for a flipping step; other steps without parents, such as AVATAR definitions, are after it. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `P_def`, since grouped binders commute.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause. Except: a Skolemised `(! [X] : C) | L` stays a formula, as the δ formula of its parent is under the disjunction too, and only formulas are paired part by part.
 
@@ -166,6 +169,7 @@ An independent-ish type checker of each ground, annotated term against the type 
 - A Skolem symbol is defined once, by a well-sorted δ formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
 - A function symbol is defined once, by a well-sorted term of its arguments only, citing only symbols defined before it, and its step is exactly the equation of its definition, either way round. So is a predicate, by a well-sorted formula, and its step is exactly `![Bs] : (P(Xs) <=> F)`.
 - A term that fails to check is a reconstruction bug: the step is reported and the run fails.
+- A `todo` step is accepted, as part of a partial proof, but warned about: `warning: name (rule) is not checked`.
 - Other back ends do not run the checker.
 
 ### Lambdapi (`lambdapi.pl`)

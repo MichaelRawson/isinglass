@@ -34,11 +34,18 @@ emit_checker :-
 % Steps is an assoc of the steps checked so far, so a proof cannot cite itself or a later step
 checked(Name, Steps, Steps1) :-
   ir_step(Name, Conclusion, Justification),
+  unchecked(Name, Justification),
   (   justified(Justification, Conclusion, Steps)
   ->  put_assoc(Name, Steps, true, Steps1)
   ;   warn(['error: ', Name, ' does not check']),
       fail
   ).
+
+% an unreconstructed step is accepted, as a partial proof, but not silently
+unchecked(Name, todo(Record, _)) :- !,
+  ( Record = esa(Rule, _) -> true ; functor(Record, Rule, _) ),
+  warn(['warning: ', Name, ' (', Rule, ') is not checked']).
+unchecked(_, _).
 
 justified(proof(M), Conclusion, Steps) :- !,
   step_type(Conclusion, T0),
