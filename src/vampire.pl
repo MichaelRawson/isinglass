@@ -340,7 +340,7 @@ step has no hints, and transform.pl searches as without them.
 skolem_hints(Statements) :-
   each(( member(annotated(_, _, _, _, inference(skolemize, Info, [Parent])), Statements),
          step(Parent, formula(F), _),
-         delta_binders(F, pos, Xs, []),
+         delta_binders(F, +, Xs, []),
          skolem_symbols(Info, Ts),
          same_length(Xs, Ts),
          pairs_keys_values(Choices, Xs, Ts),
@@ -352,18 +352,15 @@ skolem_hints(Statements) :-
        record(skolem_hint(Sk, D))).
 
 % the δ binders of F, in preorder, by polarity
-delta_binders('?'(Bs, G), pos, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, pos, Xs1, Xs).
-delta_binders('!'(Bs, G), neg, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, neg, Xs1, Xs).
-delta_binders('?'(_, G), neg, Xs0, Xs) :- !, delta_binders(G, neg, Xs0, Xs).
-delta_binders('!'(_, G), pos, Xs0, Xs) :- !, delta_binders(G, pos, Xs0, Xs).
+delta_binders('?'(Bs, G), +, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, +, Xs1, Xs).
+delta_binders('!'(Bs, G), -, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, -, Xs1, Xs).
+delta_binders('?'(_, G), -, Xs0, Xs) :- !, delta_binders(G, -, Xs0, Xs).
+delta_binders('!'(_, G), +, Xs0, Xs) :- !, delta_binders(G, +, Xs0, Xs).
 delta_binders(~G, P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(G, Q, Xs0, Xs).
 delta_binders((F => G), P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(F, Q, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
 delta_binders((F | G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
 delta_binders((F & G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
 delta_binders(_, _, Xs, Xs).
-
-opposite(pos, neg).
-opposite(neg, pos).
 
 % the Skolem terms of skolemize(_, T) in Info, in order, each of fresh arguments
 skolem_symbols([], []).
