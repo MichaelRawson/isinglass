@@ -17,7 +17,7 @@ Backends like `lambdapi` then need only project out the parts they need from the
 Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in the TSTP language.
 
 ## Frontend (ATP systems)
-- [Vampire](https://github.com/vprover/vampire/), including most of its many options (`vampire`). Due to necessary bugfixes, this relies on a very recent Vampire.
+- [Vampire](https://github.com/vprover/vampire/) (`vampire`), including most but not all (see Bugs) of its many options. Due to necessary bugfixes, this relies on a very recent Vampire.
 
 ## Backends
 - A built-in proof checker, (`checker`).
@@ -52,6 +52,16 @@ Items that are still missing that I would like at some point:
 - higher-order logic (?!)
 
 Bugs are no doubt manifest.
+
+### Vampire
+Not all of Vampire's proofs can be easily ingested. The following options:
+- NewCNF (`newcnf=on`)
+- global subsumption (`gs=on`)
+- AVATAR modulo theories (`sas=z3`)
+- exhausting all finite models below a known bound (`-sa fmb`) (!!)
+
+are very challenging to reconstruct as currently printed and will need some work upstream.
+If using the portfolio mode, you should either disable these options or expect some holes.
 
 ## Development
 In the interest of speed, much of this has been developed by LLM, but with significant human oversight.
