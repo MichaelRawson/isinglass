@@ -14,7 +14,8 @@
 load_vampire(Statements) :-
   each(member(annotated(_, _, type, Type, _), Statements), declare(Type)),
   polarity_flipping(Statements, Flipping),
-  each(member(Statement, Statements), load_statement(Flipping, Statement)).
+  each(member(Statement, Statements), load_statement(Flipping, Statement)),
+  skolem_hints(Statements).
 
 load_statement(_, annotated(_, _, type, _, _)) :- !.
 load_statement(Flipping, annotated(Language, Name, Role, Formula0, Source0)) :-
@@ -327,6 +328,75 @@ flipped_formula(Ps, A0, A) :-
   A0 =.. [P|Ts],
   A =.. [P1|Ts].
 flipped_formula(_, A, A).
+
+/*
+Skolemisation lists its choices skolemize(X, sK(Ys)), one for each δ binder of the parent, in
+preorder: left to right, outermost first, by polarity (as Vampire does; the names X and Ys are the
+parent's, but read/1 does not keep them). Each is recorded as a hint (db.pl): the δ formula that the
+choice of sK opens, as reconstruction opens it, with the binders before X in its quantifier and the
+δ formulas around it replaced by their Skolem terms (of fresh arguments). If the counts differ, the
+step has no hints, and transform.pl searches as without them.
+*/
+skolem_hints(Statements) :-
+  each(( member(annotated(_, _, _, _, inference(skolemize, Info, [Parent])), Statements),
+         step(Parent, formula(F), _),
+         delta_binders(F, pos, Xs, []),
+         skolem_symbols(Info, Ts),
+         same_length(Xs, Ts),
+         pairs_keys_values(Choices, Xs, Ts),
+         member(X-T, Choices),
+         delta_formula(F, X, D0),
+         chosen(Choices, X, D0, D1),
+         canonical(D1, D),
+         functor(T, Sk, _) ),
+       record(skolem_hint(Sk, D))).
+
+% the δ binders of F, in preorder, by polarity
+delta_binders('?'(Bs, G), pos, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, pos, Xs1, Xs).
+delta_binders('!'(Bs, G), neg, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, neg, Xs1, Xs).
+delta_binders('?'(_, G), neg, Xs0, Xs) :- !, delta_binders(G, neg, Xs0, Xs).
+delta_binders('!'(_, G), pos, Xs0, Xs) :- !, delta_binders(G, pos, Xs0, Xs).
+delta_binders(~G, P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(G, Q, Xs0, Xs).
+delta_binders((F => G), P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(F, Q, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
+delta_binders((F | G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
+delta_binders((F & G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
+delta_binders(_, _, Xs, Xs).
+
+opposite(pos, neg).
+opposite(neg, pos).
+
+% the Skolem terms of skolemize(_, T) in Info, in order, each of fresh arguments
+skolem_symbols([], []).
+skolem_symbols([I|Is], Ts) :-
+  (   nonvar(I), I = skolemize(_, T0), callable(T0)
+  ->  functor(T0, Sk, N), functor(T, Sk, N), Ts = [T|Ts1]
+  ;   Ts = Ts1
+  ),
+  skolem_symbols(Is, Ts1).
+
+% the δ formula of F that is opened for its binder X: X and the binders after it
+delta_formula(F, X, D) :- quantified(F, '?', Bs, G), after(X, Bs, Bs1), !, D = '?'(Bs1, G).
+delta_formula(~F, X, D) :- quantified(F, '!', Bs, G), after(X, Bs, Bs1), !, D = ~'!'(Bs1, G).
+delta_formula(F, X, D) :- quantified(F, _, _, G), !, delta_formula(G, X, D).
+delta_formula(F, X, D) :- connective(F, Fs), member(G, Fs), delta_formula(G, X, D), !.
+
+quantified(F, Q, Bs, G) :- compound(F), F =.. [Q, Bs, G], ( Q == '!' ; Q == '?' ).
+
+after(X, [Y:S|Bs], [Y:S|Bs]) :- Y == X, !.
+after(X, [_|Bs], Bs1) :- after(X, Bs, Bs1).
+
+% the other choices that are free in the δ formula D (those around it, and binders before X in its
+% quantifier), replaced by their Skolem terms
+chosen([], _, D, D).
+chosen([Y-T|Choices], X, D0, D) :-
+  (   Y \== X, occurs(Y, D0), \+ bound_in(Y, D0)
+  ->  substitute(Y, T, D0, D1)
+  ;   D1 = D0
+  ),
+  chosen(Choices, X, D1, D).
+
+bound_in(Y, F) :- quantified(F, _, Bs, G), !, ( member(Z:_, Bs), Z == Y -> true ; bound_in(Y, G) ).
+bound_in(Y, F) :- connective(F, Fs), member(G, Fs), bound_in(Y, G), !.
 
 % Vampire inference rules and the generic tactics that reconstruct them
 tactic(resolution, resolve).

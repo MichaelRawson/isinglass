@@ -314,6 +314,7 @@ close(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   findall(G, member(_-_-G, Pool), Gs),
   skolemised(Ctx, X-F, Gs, H, M, M1),
+  ( hinted_delta(F) -> ! ; true ),
   close(Ctx, [H|Rest], Pool, M1), !.
 close(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
@@ -346,25 +347,49 @@ skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, let(Y, T1, app(Name, As, [X]
   delta(F, _, B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
-  findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Ss) ), Us0),
-  sort(Us0, Us),
+  candidates(Ss, F, B, T, Gs, Hinted, Us),
   member(Term, Us),
   Term =.. [Sk|As],
   distinct_eigenvariables(As),
   each_member(Vs, As),
   \+ ( subterm(F, U), functor(U, Sk, _) ),
-  plausible(Ss, B, T, Term, Gs),
+  ( Hinted == true -> true ; plausible(Ss, B, T, Term, Gs) ),
   defined(Defs, Sk, As, F),
   substitute(B, Term, T, T1),
   choice_name(Sk, Name).
 
+% the candidate Skolem terms Us for the δ formula F (? B : T, or ~!), of the symbols Ss in the
+% formulas Gs. If the prover says which symbol is its choice (db.pl), only its terms, so that a δ formula
+% paired with the wrong counterpart fails at once, without a search through all of Gs: this saves the
+% search in a formula of many similar parts (LCL670+1.005: chains of r1(X, Y) under nested ?). Without
+% a hint, or for a vacuous B (whose term need not be in the conclusion), every term of Gs, Hinted is
+% false, and a term must be plausible. A term is still checked as any other
+candidates(_, F, B, T, Gs, true, Us) :-
+  occurs(B, T),
+  findall(Sk, ( skolem_hint(Sk, D), D = F ), Hints),
+  Hints = [_|_], !,
+  findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Hints) ), Us0),
+  sort(Us0, Us).
+candidates(Ss, _, _, _, Gs, false, Us) :-
+  findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Ss) ), Us0),
+  sort(Us0, Us).
+
+% the δ formula F has a hint, so its term is the prover's choice: opening it is then not undone, as
+% the order in which δ formulas of a branch are opened does not matter, and backtracking over it would
+% try them in every order when a branch does not close
+hinted_delta(F) :- delta(F, _, B:_, T), occurs(B, T), skolem_hint(_, D), D = F, !.
+
 % Term might be chosen for B in T: each atom of T in which B occurs is an atom of Gs with Term in
 % its place, up to other Skolem terms, variables, and the orientation of equations. This
-% prunes the choices early, as several ? may be Skolemised at once
+% prunes the choices early, as several ? may be Skolemised at once. Skolem terms already chosen,
+% which are in T, are kept: so X1 = f(X0), with sK0 chosen for X0, is sK0's sK1 = f(sK0) only
 plausible(Ss, B, T, Term, Gs) :-
-  findall(K, ( signed_atom(T, pos, A, _), occurs(B, A), substitute(B, '$chosen', A, A1), blur(Ss, A1, K) ), Ks0),
+  findall(S, ( subterm(T, U), functor(U, S, _), memberchk(S, Ss) ), Chosen0),
+  sort(Chosen0, Chosen),
+  subtract(Ss, Chosen, Open),
+  findall(K, ( signed_atom(T, pos, A, _), occurs(B, A), substitute(B, '$chosen', A, A1), blur(Open, A1, K) ), Ks0),
   sort(Ks0, Ks),
-  findall(K, ( member(G, Gs), signed_atom(G, pos, A, _), occurs(Term, A), substitute(Term, '$chosen', A, A1), blur(Ss, A1, K) ), Ls0),
+  findall(K, ( member(G, Gs), signed_atom(G, pos, A, _), occurs(Term, A), substitute(Term, '$chosen', A, A1), blur(Open, A1, K) ), Ls0),
   sort(Ls0, Ls),
   each_atom(Ks, Ls).
 

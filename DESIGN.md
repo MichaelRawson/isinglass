@@ -109,7 +109,8 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 - Skolemisation (`transform(skolem)`) is an entailment once each Skolem symbol is defined by choice (see IR):
   - the Skolem symbols are those of the conclusion that are `introduced(_, skolem)` and not in the parent;
   - a δ formula of the parent is opened by the choice axiom of a Skolem term `sK(As)` in its counterpart, so the term is read off the conclusion, and no prover convention (e.g. argument order) is assumed. Its arguments must be distinct eigenvariables, including those of the δ formula, and the definitions of a symbol must agree;
-  - the keys forget Skolem terms, so lookups are ambiguous: each counterpart is tried, a disjunction is looked up too (its counterpart may be a `?` not yet opened), and a choice is pruned unless each atom with the bound variable is in the counterpart with the term in its place (`plausible`), as several `?` may be Skolemised at once;
+  - the keys forget Skolem terms, so lookups are ambiguous: each counterpart is tried, a disjunction is looked up too (its counterpart may be a `?` not yet opened), and a choice is pruned unless each atom with the bound variable is in the counterpart with the term in its place (`plausible`, where Skolem terms already chosen must match), as several `?` may be Skolemised at once;
+  - the prover's hint (`skolem_hint/2`) settles the choice where there is one: Vampire lists `skolemize(X, sK(Ys))` for each δ binder `X` of the parent, in preorder (left to right, outermost first, by polarity), so the front end records the δ formula that the choice of `sK` opens (`vampire:skolem_hints/1`). The names `X` and `Ys` would say the same, but `read/1` does not keep them, so this is a prover convention, checked only by the count of δ binders. Only the terms of the hinted symbol of a hinted δ formula are candidates, so a δ formula paired with the wrong counterpart fails at once, and its opening is not undone. The term is still read off the conclusion and checked. Without the hint, LCL670+1.005's chains of `r1(X, Y)` under nested `?` are searched exponentially;
   - a `?` may come between the parent's universals, so a δ formula of the conclusion opens only as many eigenvariables as its counterpart has universals, and a clause conclusion instantiates the parent's universals around its Skolemised `?`;
   - a type may be chosen too (a δ over `$tType`), as in TF1.
 - `clausify` reconstructs `cnf_transformation` of a formula: the clause's literals refute the parent, by one part of each conjunction and every branch of each disjunction, closing literals by unification.
@@ -224,7 +225,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `main.pl` | `main(Frontend, Backend)`: loads every module, dispatches on both, and exits with a status |
 | `ops.pl` | Operators of the internal syntax |
 | `load.pl` | `read_tstp/1`: `read/1` with TPTP operators, then normalisation |
-| `db.pl` | The shared database: `step/3`, `symbol/4`, `introduced/2`, `ir_step/3`, `split/2`, and `record/1` to add to them |
+| `db.pl` | The shared database: `step/3`, `symbol/4`, `introduced/2`, `ir_step/3`, `split/2`, `skolem_hint/2`, and `record/1` to add to them |
 | `logic.pl` | Formulas and clauses: `formula_clause`, `clause_formula`, `binder_variables`, `complement`, `flip`, `number_vars`, `substitute`, `occurs`, `canonical` |
 | `vampire.pl` | Vampire front end: clause or formula, rule table, inputs, the conjecture, AVATAR and predicate definitions, renaming flipped predicates; unknown rules become `todo` |
 | `signature.pl` | The signature: symbol instances and term sorts, typing equations, default sorts for undeclared symbols (any front end); `overloaded/1` |

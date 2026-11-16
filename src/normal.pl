@@ -102,14 +102,17 @@ opened([X:S|Bs], G0, [V:S|Vs], G) :-
   substitute(X, V, Bs-G0, Bs1-G1),
   opened(Bs1, G1, Vs, G).
 
-% the binders Bs, bound in G, replaced by '$skolem'
+% the binders Bs, bound in G, replaced by '$skolem': those named canonically are blurred in the atoms
+% (blurred/3), which saves a pass over G for each binder
 blurred_binders([], G, G).
+blurred_binders([X:_|Bs0], G0, G) :- nonvar(X), X = '$BOUND'(_), !, blurred_binders(Bs0, G0, G).
 blurred_binders([X:_|Bs0], G0, G) :-
   substitute(X, '$skolem', Bs0-G0, Bs-G1),
   blurred_binders(Bs, G1, G).
 
 % the terms of the Skolem symbols Ss in T replaced by '$skolem'
 blurred(_, T, T) :- var(T), !.
+blurred(_, '$BOUND'(_), '$skolem') :- !.
 blurred(Ss, T, '$skolem') :- functor(T, F, _), memberchk(F, Ss), !.
 blurred(_, T, T) :- \+ compound(T), !.
 blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As].

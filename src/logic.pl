@@ -103,11 +103,14 @@ canonical(A, A, 0).
 
 canonical_part(F0, F, H0, H) :- canonical(F0, F, H1), H is max(H0, H1).
 
-% the binders are named innermost first: a variable is bound in a fresh instance, and otherwise
-% substituted
+% the binders are named innermost first: a variable is bound in a fresh instance, a binder already
+% named B (as in a canonical formula) is kept, and otherwise substituted
 bound([], G, H, H, [], G).
 bound([X:S|Bs0], G0, H0, H, [B:S|Bs], G) :-
   bound(Bs0, G0, H0, H1, Bs1, G1),
   B = '$BOUND'(H1),
   H is H1 + 1,
-  ( var(X) -> X = B, Bs = Bs1, G = G1 ; substitute(X, B, Bs1-G1, Bs-G) ).
+  (   var(X) -> X = B, Bs = Bs1, G = G1
+  ;   X == B -> Bs = Bs1, G = G1
+  ;   substitute(X, B, Bs1-G1, Bs-G)
+  ).
