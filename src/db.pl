@@ -2,7 +2,7 @@
 % The facts are private to this module: other modules read them through the exported predicates, and
 % add them with record/1. Updating or calling a dynamic predicate imported from another module is
 % not portable: Trealla refuses to update it, and Scryer gives each module its own copy.
-:- module(db, [step/3, symbol/4, introduced/2, ir_step/3, split/2, skolem_hint/2, record/1]).
+:- module(db, [step/3, symbol/4, introduced/2, ir_step/3, split/2, skolem_hint/2, option/1, record/1]).
 
 :- dynamic(step_/3).
 :- dynamic(symbol_/4).
@@ -10,6 +10,7 @@
 :- dynamic(ir_step_/3).
 :- dynamic(split_/2).
 :- dynamic(skolem_hint_/2).
+:- dynamic(option_/1).
 
 % step(Name, Conclusion, How): a proof step, as understood by a front end
 % Conclusion is clause(Binders, Literals) or formula(F), with Prolog variables:
@@ -38,6 +39,9 @@ split(Symbol, Clause) :- split_(Symbol, Clause).
 % the δ formula F, with Prolog variables; only a hint (see transform.pl)
 skolem_hint(Symbol, F) :- skolem_hint_(Symbol, F).
 
+% option(O): a run-time option given to main/3, e.g. trace
+option(O) :- option_(O).
+
 % add a fact, after those already there
 record(step(Name, Conclusion, How)) :- assertz(step_(Name, Conclusion, How)).
 record(symbol(Name, Params, Args, Sort)) :- assertz(symbol_(Name, Params, Args, Sort)).
@@ -45,3 +49,4 @@ record(introduced(Name, Kind)) :- assertz(introduced_(Name, Kind)).
 record(ir_step(Name, Conclusion, Justification)) :- assertz(ir_step_(Name, Conclusion, Justification)).
 record(split(Symbol, Clause)) :- assertz(split_(Symbol, Clause)).
 record(skolem_hint(Symbol, F)) :- assertz(skolem_hint_(Symbol, F)).
+record(option(O)) :- assertz(option_(O)).

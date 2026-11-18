@@ -52,7 +52,7 @@ prove(Name) :- ir_step(Name, _, _), !.
 prove(Name) :-
   step(Name, Conclusion, How),
   rigid(Conclusion, Fresh),
-  justify(How, Conclusion, Fresh, Justification),
+  justify(How, Name, Conclusion, Fresh, Justification),
   record(ir_step(Name, Conclusion, Justification)).
 
 prove_cited(Name) :- prove(Name), !.
@@ -63,14 +63,14 @@ prove_cited(Name) :- warn(['warning: ', Name, ' is cited by a todo step, but not
 rigid(clause(Bs, _), Fresh) :- binder_variables(Bs, Xs), number_vars(Xs, 0, Fresh).
 rigid(formula(F), Fresh) :- canonical(F, _), term_variables(F, Vs), number_vars(Vs, 0, Fresh).
 
-justify(input(Role, Source), _, _, input(Role, Source)).
+justify(input(Role, Source), _, _, _, input(Role, Source)).
 % the defining clause is rigid as a clause is, not as part of the definition's formula
-justify(split_def(Symbol, _), _, _, split_def(Symbol, Clause)) :-
+justify(split_def(Symbol, _), _, _, _, split_def(Symbol, Clause)) :-
   split(Symbol, Clause),
   rigid(Clause, _),
   definitions_first(Clause).
-justify(negated_conjecture(Conjecture), _, _, negated_conjecture(Conjecture)).
-justify(define(Symbol), Conclusion, _, Justification) :-
+justify(negated_conjecture(Conjecture), _, _, _, negated_conjecture(Conjecture)).
+justify(define(Symbol), _, Conclusion, _, Justification) :-
   (   defining(Symbol, Conclusion, Bs, Body)
   ->  definitions_first(Body),
       Justification = definition(Symbol, Bs, Body)
@@ -78,11 +78,16 @@ justify(define(Symbol), Conclusion, _, Justification) :-
       Justification = todo(esa(definition, [Symbol]), [])
   ).
 % a todo step is partial anyway, so a parent that cannot be proved (e.g. the conjecture) is only warned about
-justify(todo(Record, Parents), _, _, todo(Record, Parents)) :- maplist(prove_cited, Parents).
-justify(tactic(Tactic, Parents), Conclusion, Fresh, Justification) :-
+justify(todo(Record, Parents), _, _, _, todo(Record, Parents)) :- maplist(prove_cited, Parents).
+justify(tactic(Tactic, Parents), Name, Conclusion, Fresh, Justification) :-
   maplist(prove, Parents),
   splits_first(Conclusion),
+  traced(Name, Tactic),
   search(Tactic, Parents, Conclusion, Fresh, Justification).
+
+% with the trace option, the step Name is printed to stderr as its search starts (after its parents),
+% so that a slow step is the last one printed
+traced(Name, Tactic) :- ( option(trace) -> warn([Name, ' ', Tactic]), flush_output(user_error) ; true ).
 
 % the tactic finds a term of type ⊥ from hypotheses that refute the conclusion
 search(Tactic, Parents, Conclusion, Fresh, proof(M)) :-

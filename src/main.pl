@@ -5,7 +5,9 @@ Translate a TSTP proof on standard input, given the front end for its prover and
   scryer-prolog -f -g 'main(vampire, smtlib)' src/main.pl < proof.p
   tpl -f -g 'main(vampire, checker)' src/main.pl < proof.p
 
-The script `ising` does this with SWI.
+The script `ising` does this with SWI, and traces the steps if ISING_TRACE is set, by
+
+  swipl -g 'main(vampire, checker, [trace])' src/main.pl < proof.p
 
 Every module is loaded here, in dependency order: Trealla resolves the file of a nested use_module
 against the working directory, but finds a module that is already loaded.
@@ -31,7 +33,11 @@ against the working directory, but finds a module that is already loaded.
 :- use_module(agda).
 
 % exit with status 1 on failure or error: the top levels of the systems differ
-main(Frontend, Backend) :-
+main(Frontend, Backend) :- main(Frontend, Backend, []).
+
+% Options: trace prints the name and tactic of each step to stderr as its search starts
+main(Frontend, Backend, Options) :-
+  recorded_options(Options),
   (   catch(run(Frontend, Backend), Error, ( warn(['error: ', Error]), fail ))
   ->  halt(0)
   ;   halt(1)
@@ -46,6 +52,9 @@ run(Frontend, Backend) :-
   default_signature,
   reconstruct,
   call(Emit).
+
+recorded_options([]).
+recorded_options([Option|Options]) :- record(option(Option)), recorded_options(Options).
 
 frontend(vampire, load_vampire) :- !.
 frontend(Frontend, _) :- warn(['error: unknown frontend ', Frontend]), halt(1).

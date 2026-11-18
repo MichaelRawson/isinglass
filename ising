@@ -1,8 +1,11 @@
 #!/bin/sh
 
 if [ $# -ne 2 ]; then
-  echo "usage: $0 FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
+  echo "usage: [ISING_TRACE=1] $0 FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
   exit 2
 fi
 
-exec swipl -g "main($1, $2)" src/main.pl
+# ISING_TRACE, if set, prints the name and tactic of each step as its reconstruction starts
+if [ -n "$ISING_TRACE" ]; then options=[trace]; else options=[]; fi
+
+exec swipl -g "main($1, $2, $options)" src/main.pl

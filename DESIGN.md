@@ -7,6 +7,7 @@ Reconstruction is done by backtracking _search_ over the space of possible insta
 Overall: TSTP → frontend (e.g. 'Vampire') → ATP-agnostic proof → reconstruction → IR → backend (e.g. 'lambdapi')
 
 Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. The script runs `main(Frontend, Backend)` in `src/main.pl` with SWI.
+With `ISING_TRACE` set, the name and tactic of each step are printed to stderr as its search starts (`main(Frontend, Backend, [trace])`), so a slow step is the last one printed.
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
