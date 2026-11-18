@@ -121,12 +121,17 @@ defining(Symbol, clause(Cs, ['$='(_, A, B)]), Bs, Body) :-
   maplist(argument_binder(Cs), Xs, Bs).
 % ...or a predicate definition ![Cs] : (Symbol(Xs) <=> Body), whose binders become eigenvariables
 defining(Symbol, formula(F), Bs, Body) :-
-  ( F = '!'(Cs0, D0) -> foldl(eigenvariable_binder, Cs0, Cs, 0-D0, _-D) ; Cs = [], D = F ),
+  ( F = '!'(Cs0, D0) -> eigenvariable_binders(Cs0, D0, 0, Cs, D) ; Cs = [], D = F ),
   D = (A <=> Body),
   A =.. [Symbol|Xs],
   maplist(argument_binder(Cs), Xs, Bs).
 
-eigenvariable_binder(X:S, '$VAR'(N):S, N-F0, N1-F) :- N1 is N + 1, substitute(X, '$VAR'(N), F0, F).
+% each binder's variable becomes an eigenvariable in the body, and in the sorts of later binders (TF1)
+eigenvariable_binders([], D, _, [], D).
+eigenvariable_binders([X:S|Bs0], D0, N, ['$VAR'(N):S|Cs], D) :-
+  substitute(X, '$VAR'(N), Bs0-D0, Bs-D1),
+  N1 is N + 1,
+  eigenvariable_binders(Bs, D1, N1, Cs, D).
 
 argument_binder(Cs, X, X:S) :- member(Y:S, Cs), Y == X, !.
 
@@ -213,28 +218,34 @@ avatar_literal(L) :- atom_of(L, A), atom(A), split(A, _), !.
 first(Tactics, Fresh, Hs, Parents, M) :- member(Tactic, Tactics), call(Tactic, Fresh, Hs, Parents, M), !.
 
 % the hypotheses Hs with the defined atoms of their literals unfolded (see ir.pl), where the body is a
-% literal: Inner then refutes the conclusion as if it were stated with the bodies, from its first parent
-defined(Inner, Fresh, Hs, [Parent|_], M) :-
-  unfolded_hypotheses(Hs, Hs1, M, M1),
+% literal: Inner then refutes the conclusion as if it were stated with the bodies, from its first parent.
+% Only the symbols of the cited definitions are unfolded, as the parent states any others as they are
+defined(Inner, Fresh, Hs, [Parent|Parents], M) :-
+  findall(P, ( member(Name, [Parent|Parents]), cited_definition(Name, P) ), Ps),
+  unfolded_hypotheses(Ps, Hs, Hs1, M, M1),
   call(Inner, Fresh, Hs1, [Parent], M1).
 
-% M binds the hypotheses Hs1 and then is M1
-unfolded_hypotheses([], [], M, M).
-unfolded_hypotheses([H0|Hs0], [H|Hs], M, M1) :-
-  unfolded_hypothesis(H0, H, M, M0),
-  unfolded_hypotheses(Hs0, Hs, M0, M1).
+% the step Name defines P, or is a printed definition of P, which follows from its definition
+cited_definition(Name, P) :- step(Name, _, define(P)), !.
+cited_definition(Name, P) :- step(Name, _, tactic(_, [Definition])), step(Definition, _, define(P)).
 
-% X : ~L is Y : ~L1, where L1 is the literal L with its atom unfolded, by a let that states the
-% unfolded type; a hypothesis ~~~C is ~C, refuting C, by one more let
-unfolded_hypothesis(X-(~L), H, M, M1) :-
-  unfolded_literal(L, L1), !,
+% M binds the hypotheses Hs1 and then is M1
+unfolded_hypotheses(_, [], [], M, M).
+unfolded_hypotheses(Ps, [H0|Hs0], [H|Hs], M, M1) :-
+  unfolded_hypothesis(Ps, H0, H, M, M0),
+  unfolded_hypotheses(Ps, Hs0, Hs, M0, M1).
+
+% X : ~L is Y : ~L1, where L1 is the literal L with its atom, of a symbol of Ps, unfolded, by a let
+% that states the unfolded type; a hypothesis ~~~C is ~C, refuting C, by one more let
+unfolded_hypothesis(Ps, X-(~L), H, M, M1) :-
+  unfolded_literal(Ps, L, L1), !,
   (   L1 = ~(~C)
   ->  H = Y-(~C),
       triple_negation(X, C, Y, M, M1)
   ;   H = Y-(~L1),
       M = let(Y, ~L1, X, M1)
   ).
-unfolded_hypothesis(H, H, M, M).
+unfolded_hypothesis(_, H, H, M, M).
 
 % X : ~~~C is Y : ~C, by two lets
 triple_negation(X, C, Y, let(Z, ~(~(~C)), X, let(Y, ~C, lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))])), M)), M).
@@ -259,8 +270,10 @@ component_hypotheses([X-(~(~A))|Hs0], P, Fresh0, Hs, M, M1) :-
 component_hypotheses([H|Hs0], P, Fresh, [H|Hs], M, M1) :- component_hypotheses(Hs0, P, Fresh, Hs, M, M1).
 
 
-unfolded_literal(~A, ~B) :- defined_atom(A, B), literal(B).
-unfolded_literal(A, B) :- A \= ~_, defined_atom(A, B), literal(B).
+unfolded_literal(Ps, ~A, ~B) :- !, unfolded_atom(Ps, A, B).
+unfolded_literal(Ps, A, B) :- unfolded_atom(Ps, A, B).
+
+unfolded_atom(Ps, A, B) :- functor(A, P, _), memberchk(P, Ps), defined_atom(A, B), literal(B).
 
 literal(~A) :- !, \+ connective(A, _).
 literal(A) :- \+ connective(A, _).

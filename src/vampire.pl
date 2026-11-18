@@ -245,16 +245,22 @@ before_source(inference(Rule, _, [P|Ps]), Before) :-
   Rule \== consistent_polarity_flipping,
   each(member(Q, [P|Ps]), get_assoc(Q, Before, true)).
 
-% the predicate P/N, monomorphic, has a different number of positive literals in F0 and F
+% the predicate P/N has different signed literals in F0 and F, whose variables are numbered in order:
+% flipping changes the sign of each, and a clause has no literal with its complement. Counting the signs
+% is not enough, as when one literal of each sign is flipped
 flipped_predicate(F0, F, P/N) :-
   setof(P/N, S^A^( signed_atom(F0, S, A), functor(A, P, N) ), Ps),
   member(P/N, Ps),
-  \+ symbol(P, [_|_], _, _),
-  positive_literals(F0, P/N, K0),
-  positive_literals(F, P/N, K),
-  K0 =\= K.
+  signed_literals(F0, P/N, Ls0),
+  signed_literals(F, P/N, Ls),
+  Ls0 \== Ls.
 
-positive_literals(F, P/N, K) :- findall(A, ( signed_atom(F, +, A), functor(A, P, N) ), As), length(As, K).
+signed_literals(F0, P/N, Ls) :-
+  copy_term(F0, F),
+  term_variables(F, Vs),
+  number_vars(Vs, 0, _),
+  findall(S-A, ( signed_atom(F, S, A), functor(A, P, N) ), Ls1),
+  msort(Ls1, Ls).
 
 % a predicate atom A of a formula, positive (+) or negative (-)
 signed_atom(F, S, A) :- signed_atom(F, +, S, A).
@@ -266,17 +272,22 @@ signed_atom(A, S, S, A) :- A \= (_ = _).
 opposite(+, -).
 opposite(-, +).
 
-% P_flipped(Xs) is defined as ~P(Xs), of the signature of P, or of individuals if P is untyped
+% P_flipped(As, Xs) is defined as ~P(As, Xs), of the signature of P, with type parameters As, or of
+% individuals if P is untyped
 record_flipped(P/N) :-
   flipped_name(P, P1),
-  length(Xs, N),
-  (   symbol(P, [], Ss, '$o')
-  ->  record(symbol(P1, [], Ss, '$o'))
-  ;   length(Ss, N), maplist(=('$i'), Ss)
+  (   symbol(P, As, Ss, '$o')
+  ->  record(symbol(P1, As, Ss, '$o'))
+  ;   As = [], length(Ss, N), maplist(=('$i'), Ss)
   ),
-  maplist(binder, Xs, Ss, Bs),
-  A =.. [P|Xs],
-  A1 =.. [P1|Xs],
+  same_length(Ss, Xs),
+  findall('$tType', member(_, As), Ts),
+  maplist(binder, As, Ts, Bs0),
+  maplist(binder, Xs, Ss, Bs1),
+  append(Bs0, Bs1, Bs),
+  append(As, Xs, Args),
+  A =.. [P|Args],
+  A1 =.. [P1|Args],
   ( Bs == [] -> D = (A1 <=> ~A) ; D = '!'(Bs, (A1 <=> ~A)) ),
   record(introduced(P1, definition)),
   definition_name(P1, Name),

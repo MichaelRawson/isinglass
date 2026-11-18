@@ -113,7 +113,9 @@ scope(Name, Conclusion, Cs, Fs) -->
   { negated(Conclusion, Ns),
     append(Fs, Ns, All) },
   { foldl(formula_instances, All, Is0, []),
-    sort(Is0, Is) },
+    sort(Is0, Is1),
+    foldl(with_dependencies, Is1, [], Is2),
+    reverse(Is2, Is) },
   "(push 1)\n",
   constants(Cs),
   instances(Is),
@@ -151,9 +153,38 @@ polymorphic(T, F, N, Types, Us) :-
   instance(T, Types, Us, _, _),
   Types \== [].
 
+% the instances Is0, each after the instances in the body of its definition, if it is defined
+with_dependencies(I, Is0, Is) :-
+  (   memberchk(I, Is0)
+  ->  Is = Is0
+  ;   instance_definition(I, _, Body)
+  ->  formula_instances(Body, Js0, []),
+      sort(Js0, Js),
+      foldl(with_dependencies, Js, Is0, Is1),
+      Is = [I|Is1]
+  ;   Is = [I|Is0]
+  ).
+
+% the definition of a polymorphic symbol, for the binders Bs of its term arguments, with Types for
+% its type parameters
+instance_definition(F/_-Types, Bs, Body) :-
+  ir_step(_, _, definition(F, Bs0, Body0)),
+  same_length(Types, Ts),
+  append(Ts, Bs1, Bs0),
+  binder_variables(Ts, Xs),
+  foldl(instantiated, Xs, Types, Bs1-Body0, Bs-Body).
+
+instantiated(X, Type, T0, T) :- substitute(X, Type, T0, T).
+
 instances(Is) --> foldl(instance_declaration, Is).
 
-% the declaration of an instance, whose sorts are those of the symbol with Types for its parameters
+% the declaration of an instance, whose sorts are those of the symbol with Types for its parameters;
+% an instance of a defined symbol is defined by its body
+instance_declaration(F/N-Types) -->
+  { instance_definition(F/N-Types, Bs, Body), !,
+    length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As],
+    instance(T, _, _, _, Sort) },
+  "(define-fun ", instance_name(F/N, Types), " (", binders(Bs), ") ", sort(Sort), " ", defined_body(Sort, Body), ")\n".
 instance_declaration(F/N-Types) -->
   { length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As],
     instance(T, _, _, Ss, Sort) },
