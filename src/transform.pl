@@ -38,6 +38,7 @@ the clause's predicates and signs.
 */
 :- module(transform, [transform/5, clausify/4]).
 :- use_module(library(lists)).
+:- use_module(library(pairs)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
@@ -141,8 +142,11 @@ value(neg, '$false').
 
 % the Skolem symbols of G that are not in F
 skolem_symbols(F, G, Ss) :-
-  findall(S, ( subterm(G, T), functor(T, S, _), introduced(S, skolem), \+ ( subterm(F, U), functor(U, S, _) ) ), Ss0),
-  sort(Ss0, Ss).
+  symbols(F, Fs),
+  symbols(G, Gs),
+  findall(S, ( member(S, Gs), introduced(S, skolem), \+ memberchk(S, Fs) ), Ss).
+
+symbols(F, Ss) :- findall(S, ( subterm(F, T), functor(T, S, _) ), Ss0), sort(Ss0, Ss).
 
 % one definition F <=> G of the formula is weakened to F => G, or G => F
 weaken_definition((F <=> G), (F => G)).
@@ -168,7 +172,7 @@ opposite(neg, pos).
 
 % a formula conclusion is refuted by one hypothesis, its counterpart; a clause by its literals
 conclusion(Ctx, H, [Y-G], M) :- !, pair(Ctx, H, Y-G, M).
-conclusion(Ctx, H, Hs, M) :- keyed(Ctx, Hs, Pool), close(Ctx, [H], Pool, M).
+conclusion(Ctx, H, Hs, M) :- keyed(Ctx, Hs, Pool), close(Ctx, H, Pool, M).
 
 /********************************************************************************
  * pairing counterparts: Ctx is ctx(Mode, Fresh, Defs), with Fresh the next eigenvariable
@@ -185,16 +189,16 @@ pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, X-F, Y-G, M), !.
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, Y-G, X-F, M), !.
 pair(Ctx, X-F, Y-G, M) :- skolemised(Ctx, X-F, [G], H, M, M1), pair(Ctx, H, Y-G, M1), !.
 pair(Ctx, X-F, Y-G, M) :- skolemised(Ctx, Y-G, [F], H, M, M1), pair(Ctx, X-F, H, M1), !.
-pair(Ctx, X-F, Y-G, M) :- alpha_like(F), !, pool(Ctx, [X-F], Pool, M, M1), close(Ctx, [Y-G], Pool, M1).
-pair(Ctx, X-F, Y-G, M) :- alpha_like(G), !, pool(Ctx, [Y-G], Pool, M, M1), close(Ctx, [X-F], Pool, M1).
-pair(Ctx, X-F, Y-G, M) :- split(X-F, Branches, M), !, branches(Ctx, Branches, Y-G).
-pair(Ctx, X-F, Y-G, M) :- split(Y-G, Branches, M), branches(Ctx, Branches, X-F).
+pair(Ctx, X-F, Y-G, M) :- alpha_like(F), !, pool(Ctx, [X-F], Pool, M, M1), close(Ctx, Y-G, Pool, M1).
+pair(Ctx, X-F, Y-G, M) :- alpha_like(G), !, pool(Ctx, [Y-G], Pool, M, M1), close(Ctx, X-F, Pool, M1).
+pair(Ctx, X-F, Y-G, M) :- split(X-F, Branches, M), !, ordered(Ctx, Branches, Bs), branches(Ctx, Bs, Y-G).
+pair(Ctx, X-F, Y-G, M) :- split(Y-G, Branches, M), ordered(Ctx, Branches, Bs), branches(Ctx, Bs, X-F).
 
 % the parts of each branch are the pool of the other formula
 branches(_, [], _).
 branches(Ctx, [Es-M|Branches], H) :-
   pool(Ctx, Es, Pool, M, M1),
-  close(Ctx, [H], Pool, M1),
+  close(Ctx, H, Pool, M1),
   branches(Ctx, Branches, H).
 
 % D : δ formula, and G its counterpart, a γ formula: the eigenvariables of the one, but for those
@@ -277,8 +281,7 @@ keyed(Ctx, [X-F|Hs], [keys(K, K1, Kind)-X-F|Pool]) :-
 
 % the counterpart Y : G of F in the pool, whose key is that of ~F. In nnf, the negation of an expanded
 % <=> is a disjunction of conjunctions, but ~(F <=> G) is expanded as a conjunction, so F is also
-% compared the other way round. Skolem keys forget terms, so there each counterpart is tried
-counterpart(skolem(Ss), F, Pool, Y-G) :- !, normal(skolem(Ss), F, K), member(keys(K, _, _)-Y-G, Pool).
+% compared the other way round
 counterpart(Mode, F, Pool, Y-G) :- normal(Mode, F, K), memberchk(keys(K, _, _)-Y-G, Pool), !.
 counterpart(nnf, F, Pool, Y-G) :- normal(nnf, ~F, K), memberchk(keys(_, K, _)-Y-G, Pool).
 
@@ -290,45 +293,57 @@ parts([X-F|Hs], Ps, M, M1) :-
   ;   Ps = [X-F|Ps1], parts(Hs, Ps1, M, M1)
   ).
 
-% a part of the pool closes by itself, or else the branch is closed (closed/4): it closes by itself, or
-% one of its formulas has a counterpart in the pool, or one of them is expanded or split. A disjunction is looked up only if its counterpart is a δ formula, whose
-% binders are vacuous (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts are
-% in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
-% forget terms, each counterpart is tried, and then the other ways to close the branch
+% the branch X : F is closed against the pool: a part of the pool closes by itself, or else the
+% branch does (closed/5)
 close(_, _, Pool, M) :- member(_-X-F, Pool), closes(F, X, M), !.
 % ...or a part of the pool is false by its key, as is ~($true & $true), and is refuted by itself
-close(Ctx, _, Pool, M) :- member(keys('$true', _, _)-X-F, Pool), closed(Ctx, [X-F], [], M), !.
-close(Ctx, Branch, Pool, M) :- closed(Ctx, Branch, Pool, M).
+close(Ctx, _, Pool, M) :- member(keys('$true', _, _)-X-F, Pool), closed(Ctx, [X-F], [], [], M), !.
+close(Ctx, H, Pool, M) :- closed(Ctx, [H], [], Pool, M).
 
-% the pool is checked once, by close/4, as it stays the same while the branch is taken apart
-closed(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
-closed(Ctx, Branch, Pool, M) :-
+% the branch New and Old is closed: one of the New formulas closes by itself, or has a counterpart in
+% the pool, or else one of the branch is taken apart. The Old ones have neither, and as the pool stays
+% the same while the branch is taken apart, they are not looked up again: so each key is computed
+% once. A disjunction is looked up only if its counterpart is a δ formula, whose binders are vacuous
+% (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts are in the pool already.
+% In Skolemisation, it may be a ? of the parent, not yet opened, and as keys forget terms, each
+% counterpart is tried, and then the other ways to close the branch
+closed(_, New, _, _, M) :- member(X-F, New), closes(F, X, M), !.
+closed(Ctx, New, _, Pool, M) :-
   Ctx = ctx(skolem(Ss), _, _),
-  member(X-F, Branch),
-  counterpart(skolem(Ss), F, Pool, Y-G),
+  member(X-F, New),
+  normal(skolem(Ss), F, K),
+  member(keys(K, _, _)-Y-G, Pool),
   pair(Ctx, X-F, Y-G, M), !.
-closed(Ctx, Branch, Pool, M) :-
+closed(Ctx, New, _, Pool, M) :-
   Ctx = ctx(Mode, _, _),
   Mode \= skolem(_),
-  member(X-F, Branch),
+  member(X-F, New),
   lookup_pool(Mode, F, Pool, Pool1),
   counterpart(Mode, F, Pool1, Y-G), !,
   pair(Ctx, X-F, Y-G, M).
-closed(Ctx, Branch, Pool, M) :-
+closed(Ctx, New, Old, Pool, M) :-
+  append(New, Old, Branch),
+  taken_apart(Ctx, Branch, Pool, M).
+
+% a formula of the branch is expanded, opened or split, and its parts are new. The opening of a δ
+% formula whose term is the prover's choice (Hinted) is not undone, as the order in which δ formulas
+% of a branch are opened does not matter, and backtracking over it would try them in every order when
+% a branch does not close
+taken_apart(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   expansion(F, X, Es, M, M1), !,
-  append(Es, Rest, Branch1),
-  closed(Ctx, Branch1, Pool, M1).
-closed(Ctx, Branch, Pool, M) :-
+  closed(Ctx, Es, Rest, Pool, M1).
+taken_apart(Ctx, Branch, Pool, M) :-
   Ctx = ctx(skolem(_), _, _),
   findall(G, member(_-_-G, Pool), Gs),
   select(X-F, Branch, Rest),
-  skolemised(Ctx, X-F, Gs, H, M, M1),
-  ( hinted_delta(F) -> ! ; true ),
-  closed(Ctx, [H|Rest], Pool, M1), !.
-closed(Ctx, Branch, Pool, M) :-
+  skolemised(Ctx, X-F, Gs, H, Hinted, M, M1),
+  ( Hinted == true -> ! ; true ),
+  closed(Ctx, [H], Rest, Pool, M1), !.
+taken_apart(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
-  split(X-F, Branches, M), !,
+  split(X-F, Branches0, M), !,
+  ordered(Ctx, Branches0, Branches),
   close_branches(Ctx, Branches, Rest, Pool).
 
 % the part of the pool where F is looked up: for a disjunction, only δ formulas, if any
@@ -342,8 +357,7 @@ delta_entry(keys(_, _, delta)-_-_).
 
 close_branches(_, [], _, _).
 close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
-  append(Es, Rest, Branch),
-  closed(Ctx, Branch, Pool, M),
+  closed(Ctx, Es, Rest, Pool, M),
   close_branches(Ctx, Branches, Rest, Pool).
 
 /********************************************************************************
@@ -353,7 +367,10 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
 % the δ formula X : F is opened by the choice of a Skolem term sK(As), of a symbol Ss, in the
 % formulas Gs, as Y : T[sK(As)/B]. Its arguments As are distinct eigenvariables, among them those of
 % F, and sK is not in F, whose choice it is; its definition agrees with any other in Defs
-skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, let(Y, T1, app(Name, As, [X]), M), M) :-
+skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
+
+% ...and Hinted is true if the term is the prover's choice
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, let(Y, T1, app(Name, As, [X]), M), M) :-
   delta(F, _, B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
@@ -383,11 +400,6 @@ candidates(_, F, B, T, Gs, true, Us) :-
 candidates(Ss, _, _, _, Gs, false, Us) :-
   findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Ss) ), Us0),
   sort(Us0, Us).
-
-% the δ formula F has a hint, so its term is the prover's choice: opening it is then not undone, as
-% the order in which δ formulas of a branch are opened does not matter, and backtracking over it would
-% try them in every order when a branch does not close
-hinted_delta(F) :- delta(F, _, B:_, T), occurs(B, T), skolem_hint(_, D), D = F, !.
 
 % Term might be chosen for B in T: each atom of T in which B occurs is an atom of Gs with Term in
 % its place, up to other Skolem terms, variables, and the orientation of equations. This
@@ -525,6 +537,25 @@ expansion(F, X, Es, app(Rule, [], [X, K]), M) :-
   entries(Ts, Es),
   inferred_lambdas(Es, M, K).
 expansion(~(~F), X, [Y-F], app(X, [], [lam(Y, '$inferred', M)]), M).
+
+% in Skolemisation, the branches smallest first: a wrong counterpart, as Skolem keys allow, fails on
+% its smallest branch before the others are taken apart. Otherwise ~(C & p(sK1)) against
+% ?[X] : (D & p(X)), with sK0 for X, closes C against D first, and with it each δ formula nested in
+% them, again for each wrong counterpart of the levels around them (ITP009+2). Elsewhere a counterpart is
+% the only one, and sizes would be quadratic in the nesting of a formula
+ordered(ctx(skolem(_), _, _), Branches, Sorted) :- !,
+  maplist(sized, Branches, Keyed),
+  keysort(Keyed, Pairs),
+  pairs_values(Pairs, Sorted).
+ordered(_, Branches, Branches).
+
+% N is the number of connectives and atoms of the formulas of the branch
+sized(Es-M, N-(Es-M)) :- foldl(entry_size, Es, 0, N).
+
+entry_size(_-F, N0, N) :- formula_size(F, N0, N).
+
+formula_size(F, N0, N) :- connective(F, Gs), !, N1 is N0 + 1, foldl(formula_size, Gs, N1, N).
+formula_size(_, N0, N) :- N is N0 + 1.
 
 % X : F is split into branches Es-M, each M : ⊥ with the hypotheses Es bound
 split(X-F, [Es1-M1, Es2-M2], app(Rule, [], [X, K1, K2])) :-
