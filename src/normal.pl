@@ -15,8 +15,8 @@ equivalent. Mode is the transformation that the step performs, and decides what 
   simplify     as base, and $true and $false are simplified away
   pure(Ss)     as simplify, with the atoms of a predicate N/A replaced by V, for each N/A-V in Ss
   skolem(Ss)   as ennf, and Skolemisation is forgotten: bound variables and the terms of the
-               Skolem symbols Ss are all '$skolem' (a ? of the parent is a ! of its complement, so
-               the variables of both are)
+               Skolem symbols Ss (an assoc) are all '$skolem' (a ? of the parent is a ! of its
+               complement, so the variables of both are)
 
 The key of F & G is and(Ks), and of F | G or(Ks), where Ks are the keys of the operands, flattened,
 sorted and without duplicates.
@@ -115,7 +115,7 @@ blurred_binders([X:_|Bs0], G0, G) :-
 % the terms of the Skolem symbols Ss in T replaced by '$skolem'
 blurred(_, T, T) :- var(T), !.
 blurred(_, '$BOUND'(_), '$skolem') :- !.
-blurred(Ss, T, '$skolem') :- functor(T, F, _), memberchk(F, Ss), !.
+blurred(Ss, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), !.
 blurred(_, T, T) :- \+ compound(T), !.
 blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As].
 

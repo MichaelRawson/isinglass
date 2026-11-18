@@ -39,6 +39,7 @@ the clause's predicates and signs.
 :- module(transform, [transform/5, clausify/4]).
 :- use_module(library(lists)).
 :- use_module(library(pairs)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
@@ -140,11 +141,12 @@ pure_symbols(F, G, Ss) :-
 value(pos, '$true').
 value(neg, '$false').
 
-% the Skolem symbols of G that are not in F
+% the Skolem symbols of G that are not in F, as an assoc to true: many terms are tested against them
 skolem_symbols(F, G, Ss) :-
   symbols(F, Fs),
   symbols(G, Gs),
-  findall(S, ( member(S, Gs), introduced(S, skolem), \+ memberchk(S, Fs) ), Ss).
+  findall(S-true, ( member(S, Gs), introduced(S, skolem), \+ memberchk(S, Fs) ), Pairs),
+  list_to_assoc(Pairs, Ss).
 
 symbols(F, Ss) :- findall(S, ( subterm(F, T), functor(T, S, _) ), Ss0), sort(Ss0, Ss).
 
@@ -398,7 +400,7 @@ candidates(_, F, B, T, Gs, true, Us) :-
   findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Hints) ), Us0),
   sort(Us0, Us).
 candidates(Ss, _, _, _, Gs, false, Us) :-
-  findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Ss) ), Us0),
+  findall(U, ( subterm(Gs, U), functor(U, Sk, _), get_assoc(Sk, Ss, _) ), Us0),
   sort(Us0, Us).
 
 % Term might be chosen for B in T: each atom of T in which B occurs is an atom of Gs with Term in
@@ -406,9 +408,9 @@ candidates(Ss, _, _, _, Gs, false, Us) :-
 % prunes the choices early, as several ? may be Skolemised at once. Skolem terms already chosen,
 % which are in T, are kept: so X1 = f(X0), with sK0 chosen for X0, is sK0's sK1 = f(sK0) only
 plausible(Ss, B, T, Term, Gs) :-
-  findall(S, ( subterm(T, U), functor(U, S, _), memberchk(S, Ss) ), Chosen0),
+  findall(S, ( subterm(T, U), functor(U, S, _), get_assoc(S, Ss, _) ), Chosen0),
   sort(Chosen0, Chosen),
-  subtract(Ss, Chosen, Open),
+  Open = Ss-Chosen,
   findall(K, ( signed_atom(T, pos, A, _), occurs(B, A), substitute(B, '$chosen', A, A1), blur(Open, A1, K) ), Ks0),
   sort(Ks0, Ks),
   findall(K, ( member(G, Gs), signed_atom(G, pos, A, _), occurs(Term, A), substitute(Term, '$chosen', A, A1), blur(Open, A1, K) ), Ls0),
@@ -418,10 +420,10 @@ plausible(Ss, B, T, Term, Gs) :-
 each_atom([], _).
 each_atom([K|Ks], Ls) :- ( memberchk(K, Ls) -> true ; flip(K, K1), memberchk(K1, Ls) ), each_atom(Ks, Ls).
 
-% variables (bound, or eigenvariables) and Skolem terms are '$skolem'
+% variables (bound, or eigenvariables) and terms of the Skolem symbols Ss but not Chosen are '$skolem'
 blur(_, '$BOUND'(_), '$skolem') :- !.
 blur(_, '$VAR'(_), '$skolem') :- !.
-blur(Ss, T, '$skolem') :- functor(T, F, _), memberchk(F, Ss), !.
+blur(Ss-Chosen, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), \+ memberchk(F, Chosen), !.
 blur(_, T, T) :- \+ compound(T), !.
 blur(Ss, T0, T) :- T0 =.. [F|As0], maplist(blur(Ss), As0, As), T =.. [F|As].
 
