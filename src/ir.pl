@@ -165,19 +165,6 @@ abstract(X, V, F0, F) :- substitute(X, V, F0, F).
 % circular)
 expanded(F0, F) :- opened(F0, F1), unfolded(F1, F2), ( F2 == F1 -> F = F0 ; canonical(F2, F) ).
 
-% the bound variables of a canonical formula as Prolog variables: the names on a path are distinct
-opened(F0, F) :-
-  compound(F0),
-  F0 =.. [Q, Bs0, G0],
-  ( Q == '!' ; Q == '?' ), !,
-  foldl(open_binder, Bs0, Bs, Bs0-G0, _-G1),
-  opened(G1, G),
-  F =.. [Q, Bs, G].
-opened(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(opened, Gs0, Gs), F =.. [C|Gs].
-opened(A, A).
-
-open_binder(X:S, V:S, Bs0-G0, Bs-G) :- substitute(X, V, Bs0-G0, Bs-G).
-
 unfolded(F0, F) :-
   compound(F0),
   F0 =.. [Q, Bs, G0],

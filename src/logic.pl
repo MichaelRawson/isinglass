@@ -11,9 +11,13 @@
   occurs/2,
   subterm/2,
   canonical/2,
+  opened/2,
+  open_binders/4,
+  renamed/3,
   connective/2
 ]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 
 % a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
@@ -83,7 +87,8 @@ subterm(T, S) :- compound(T), T =.. [_|Ts], member(U, Ts), subterm(U, S).
 % a formula with its bound variables named canonically, so that formulas are compared up to these
 % names syntactically: a bound variable is '$BOUND'(H), where H is the number of binders nested in
 % its scope. So a variable is bound outside any of the same name, and instantiating the outermost
-% keeps the rest canonical
+% keeps the rest canonical. A binder named otherwise is substituted, a pass over its scope: a formula
+% whose names may all change should be opened first
 canonical(F0, F) :- canonical(F0, F, _).
 
 canonical(F0, F, H) :-
@@ -102,6 +107,41 @@ canonical(F0, F, H) :-
 canonical(A, A, 0).
 
 canonical_part(F0, F, H0, H) :- canonical(F0, F, H1), H is max(H0, H1).
+
+% the formula with each bound variable named canonically a fresh Prolog variable, in one pass, by the
+% names of the binders in scope (which are distinct on a path); other binders are kept
+opened(F0, F) :- empty_assoc(Scope), opened(F0, Scope, F).
+
+opened(F0, Scope0, F) :-
+  nonvar(F0),
+  F0 =.. [Q, Bs0, G0],
+  ( Q == '!' ; Q == '?' ), !,
+  open_binders(Bs0, Bs, Scope0, Scope),
+  opened(G0, Scope, G),
+  F =.. [Q, Bs, G].
+opened(F0, Scope, F) :-
+  nonvar(F0),
+  connective(F0, _), !,
+  F0 =.. [C|Gs0],
+  maplist(opened_in(Scope), Gs0, Gs),
+  F =.. [C|Gs].
+opened(A0, Scope, A) :- renamed(Scope, A0, A).
+
+opened_in(Scope, F0, F) :- opened(F0, Scope, F).
+
+% the binders Bs0 with fresh variables, added to the Scope; the sort of a binder may name those before
+% it (TF1)
+open_binders(Bs0, Bs, Scope0, Scope) :- foldl(opened_binder, Bs0, Bs, Scope0, Scope).
+
+opened_binder(X:S0, V:S, Scope0, Scope) :-
+  renamed(Scope0, S0, S),
+  ( nonvar(X), X = '$BOUND'(_) -> put_assoc(X, Scope0, V, Scope) ; V = X, Scope = Scope0 ).
+
+% the term T with the bound variables of the Scope renamed; there are none outside a quantifier
+renamed(Scope, T, T) :- empty_assoc(Scope), !.
+renamed(_, T, T) :- \+ compound(T), !.
+renamed(Scope, T, V) :- T = '$BOUND'(_), !, ( get_assoc(T, Scope, V) -> true ; V = T ).
+renamed(Scope, T0, T) :- T0 =.. [F|As0], maplist(renamed(Scope), As0, As), T =.. [F|As].
 
 % the binders are named innermost first: a variable is bound in a fresh instance, a binder already
 % named B (as in a canonical formula) is kept, and otherwise substituted

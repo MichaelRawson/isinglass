@@ -23,13 +23,17 @@ sorted and without duplicates.
 */
 :- module(normal, [normal/3]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 
 % the formula is first reshaped, then its bound variables are named again (as binders may have gone),
-% and then its operands are ordered
+% and then its operands are ordered. Reshaping gives each binder a fresh variable as it goes, by the
+% names of the binders in Scope (which are distinct on a path, see logic:opened/2), so that naming
+% them again is not a pass over the scope of each
 normal(Mode, F, K) :-
-  shape(Mode, F, F1),
+  empty_assoc(Scope),
+  shape(Mode, Scope, F, F1),
   canonical(F1, F2),
   key(F2, K).
 
@@ -40,30 +44,34 @@ pushes(skolem(_)).
 simplifies(simplify).
 simplifies(pure(_)).
 
-shape(_, '$true', '$true') :- !.
-shape(_, '$false', '$false') :- !.
-shape(Mode, ~F, K) :- !, negated(Mode, F, K).
-shape(Mode, (F & G), K) :- !, shape(Mode, F, A), shape(Mode, G, B), conjunction(Mode, A, B, K).
-shape(Mode, (F | G), K) :- !, shape(Mode, F, A), shape(Mode, G, B), disjunction(Mode, A, B, K).
-shape(Mode, (F => G), K) :- !, shape(Mode, (~F | G), K).
-shape(nnf, (F <=> G), K) :- !, shape(nnf, ((~F | G) & (F | ~G)), K).
-shape(Mode, (F <=> G), K) :- !, shape(Mode, F, A), shape(Mode, G, B), equivalence(Mode, A, B, K).
-shape(skolem(Ss), F, K) :- quantified(F, _, Bs, G), !, blurred_binders(Bs, G, G1), shape(skolem(Ss), G1, K).
-shape(Mode, F, K) :-
-  quantified(F, Q, Bs, G), !,
-  opened(Bs, G, Vs, G1),
-  shape(Mode, G1, B),
-  occurring(Vs, B, Bs1),
+shape(_, _, '$true', '$true') :- !.
+shape(_, _, '$false', '$false') :- !.
+shape(Mode, Scope, ~F, K) :- !, negated(Mode, Scope, F, K).
+shape(Mode, Scope, (F & G), K) :- !,
+  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), conjunction(Mode, A, B, K).
+shape(Mode, Scope, (F | G), K) :- !,
+  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), disjunction(Mode, A, B, K).
+shape(Mode, Scope, (F => G), K) :- !, shape(Mode, Scope, (~F | G), K).
+shape(nnf, Scope, (F <=> G), K) :- !, shape(nnf, Scope, ((~F | G) & (F | ~G)), K).
+shape(Mode, Scope, (F <=> G), K) :- !,
+  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), equivalence(Mode, A, B, K).
+shape(skolem(Ss), Scope, F, K) :- quantified(F, _, Bs, G), !,
+  blurred_binders(Bs, G, G1), shape(skolem(Ss), Scope, G1, K).
+shape(Mode, Scope0, F, K) :-
+  quantified(F, Q, Bs0, G), !,
+  open_binders(Bs0, Bs, Scope0, Scope),
+  shape(Mode, Scope, G, B),
+  occurring(Bs, B, Bs1),
   quantify(Q, Bs1, B, K).
-shape(pure(Ss), A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
-shape(skolem(Ss), A, K) :- !, blurred(Ss, A, K).
-shape(_, A, A).
+shape(pure(Ss), _, A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
+shape(skolem(Ss), _, A, K) :- !, blurred(Ss, A, K).
+shape(_, Scope, A0, A) :- renamed(Scope, A0, A).
 
 % the shape of ~F
-negated(Mode, ~F, K) :- !, shape(Mode, F, K).
-negated(nnf, (F <=> G), K) :- !, shape(nnf, ((F | G) & (~F | ~G)), K).
-negated(Mode, F, K) :- pushes(Mode), pushed(F, G), !, shape(Mode, G, K).
-negated(Mode, F, K) :- shape(Mode, F, A), negation(Mode, A, K).
+negated(Mode, Scope, ~F, K) :- !, shape(Mode, Scope, F, K).
+negated(nnf, Scope, (F <=> G), K) :- !, shape(nnf, Scope, ((F | G) & (~F | ~G)), K).
+negated(Mode, Scope, F, K) :- pushes(Mode), pushed(F, G), !, shape(Mode, Scope, G, K).
+negated(Mode, Scope, F, K) :- shape(Mode, Scope, F, A), negation(Mode, A, K).
 
 pushed('$true', '$false').
 pushed('$false', '$true').
@@ -95,12 +103,6 @@ equivalence(Mode, A, '$false', K) :- simplifies(Mode), !, negation(Mode, A, K).
 equivalence(_, A, B, (A <=> B)).
 
 quantified(F, Q, Bs, G) :- compound(F), F =.. [Q, Bs, G], ( Q == '!' ; Q == '?' ).
-
-% the binders Bs, bound in G, replaced by fresh variables
-opened([], G, [], G).
-opened([X:S|Bs], G0, [V:S|Vs], G) :-
-  substitute(X, V, Bs-G0, Bs1-G1),
-  opened(Bs1, G1, Vs, G).
 
 % the binders Bs, bound in G, replaced by '$skolem': those named canonically are blurred in the atoms
 % (blurred/3), which saves a pass over G for each binder

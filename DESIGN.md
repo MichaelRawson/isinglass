@@ -94,6 +94,7 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 
 - Each transformation has a _normal form_ (`normal:normal/3`), a ground key that forgets what the transformation may change: `base` (renaming, `~~`, `=>`, nesting of `&`/`|` and their units, operand order, equation orientation, vacuous and grouped quantifiers), `ennf` (and negation pushed to atoms, keeping `<=>`), `nnf` (and `<=>` expanded), `simplify` (and `$true`/`$false`), `pure(Ss)` (pure predicates replaced by `$true`/`$false`), `skolem(Ss)` (as `ennf`, with bound variables and terms of the Skolem symbols `Ss` all `'$skolem'`).
 - The keys are approximate, so that small implementation differences (reordering, renaming, flipped equations, vacuous quantifiers) do not matter.
+- A key is computed in one pass: reshaping gives each binder a fresh variable as it enters its scope (canonical names are distinct on a path), so renaming afterwards does not substitute through the scope of each binder, which is quadratic in the depth of nesting (LCL6xx's modal translations).
 - `transform(Mode)` fails at once unless the parent and conclusion have the same key.
 - The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
   - literals close modulo symmetry;
