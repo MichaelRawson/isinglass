@@ -176,6 +176,10 @@ conclusion(Ctx, H, Hs, M) :- keyed(Ctx, Hs, Pool), close(Ctx, [H], Pool, M).
 
 pair(_, X-F, _, M) :- closes(F, X, M), !.
 pair(_, _, Y-G, M) :- closes(G, Y, M), !.
+% ...or the one is the negation of the other, as they are (canonical), before either is taken apart:
+% a chain of <=> splits into exponentially many branches
+pair(_, X-F, Y-G, app(Y, [], [X])) :- G == ~F, !.
+pair(_, X-F, Y-G, app(X, [], [Y])) :- F == ~G, !.
 pair(_, X-F, Y-G, M) :- literal(F), literal(G), !, refutes(G, Y, F, R), !, applied(R, X, M).
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, X-F, Y-G, M), !.
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, Y-G, X-F, M), !.
@@ -259,22 +263,24 @@ instance([X:_|Bs0], F0, [U|Us], F) :-
   substitute(X, U, Bs0-F0, Bs-F1),
   instance(Bs, F1, Us, F).
 
-% the pool: the parts of conjunctions, each with the key of its complement (and in nnf, its own)
+% the pool: the parts of conjunctions, each with the key of its complement (and in nnf, its own), and
+% whether it is a δ formula, as keys(K, K1, Kind)
 pool(Ctx, Hs, Pool, M, M1) :- parts(Hs, Ps, M, M1), keyed(Ctx, Ps, Pool).
 
 keyed(_, [], []).
-keyed(Ctx, [X-F|Hs], [keys(K, K1)-X-F|Pool]) :-
+keyed(Ctx, [X-F|Hs], [keys(K, K1, Kind)-X-F|Pool]) :-
   Ctx = ctx(Mode, _, _),
   normal(Mode, ~F, K),
   ( Mode == nnf -> normal(Mode, F, K1) ; true ),
+  ( delta(F, _, _, _) -> Kind = delta ; Kind = other ),
   keyed(Ctx, Hs, Pool).
 
 % the counterpart Y : G of F in the pool, whose key is that of ~F. In nnf, the negation of an expanded
 % <=> is a disjunction of conjunctions, but ~(F <=> G) is expanded as a conjunction, so F is also
 % compared the other way round. Skolem keys forget terms, so there each counterpart is tried
-counterpart(skolem(Ss), F, Pool, Y-G) :- !, normal(skolem(Ss), F, K), member(keys(K, _)-Y-G, Pool).
-counterpart(Mode, F, Pool, Y-G) :- normal(Mode, F, K), memberchk(keys(K, _)-Y-G, Pool), !.
-counterpart(nnf, F, Pool, Y-G) :- normal(nnf, ~F, K), memberchk(keys(_, K)-Y-G, Pool).
+counterpart(skolem(Ss), F, Pool, Y-G) :- !, normal(skolem(Ss), F, K), member(keys(K, _, _)-Y-G, Pool).
+counterpart(Mode, F, Pool, Y-G) :- normal(Mode, F, K), memberchk(keys(K, _, _)-Y-G, Pool), !.
+counterpart(nnf, F, Pool, Y-G) :- normal(nnf, ~F, K), memberchk(keys(_, K, _)-Y-G, Pool).
 
 % the hypotheses Hs expanded as conjunctions, as far as they go
 parts([], [], M, M).
@@ -284,39 +290,43 @@ parts([X-F|Hs], Ps, M, M1) :-
   ;   Ps = [X-F|Ps1], parts(Hs, Ps1, M, M1)
   ).
 
-% the branch closes by itself, or one of its formulas has a counterpart in the pool, or one of them
-% is expanded or split. A disjunction is looked up only if its counterpart is a δ formula, whose
+% a part of the pool closes by itself, or else the branch is closed (closed/4): it closes by itself, or
+% one of its formulas has a counterpart in the pool, or one of them is expanded or split. A disjunction is looked up only if its counterpart is a δ formula, whose
 % binders are vacuous (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts are
 % in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
 % forget terms, each counterpart is tried, and then the other ways to close the branch
-close(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
 close(_, _, Pool, M) :- member(_-X-F, Pool), closes(F, X, M), !.
 % ...or a part of the pool is false by its key, as is ~($true & $true), and is refuted by itself
-close(Ctx, _, Pool, M) :- member(keys('$true', _)-X-F, Pool), close(Ctx, [X-F], [], M), !.
-close(Ctx, Branch, Pool, M) :-
+close(Ctx, _, Pool, M) :- member(keys('$true', _, _)-X-F, Pool), closed(Ctx, [X-F], [], M), !.
+close(Ctx, Branch, Pool, M) :- closed(Ctx, Branch, Pool, M).
+
+% the pool is checked once, by close/4, as it stays the same while the branch is taken apart
+closed(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
+closed(Ctx, Branch, Pool, M) :-
   Ctx = ctx(skolem(Ss), _, _),
   member(X-F, Branch),
   counterpart(skolem(Ss), F, Pool, Y-G),
   pair(Ctx, X-F, Y-G, M), !.
-close(Ctx, Branch, Pool, M) :-
+closed(Ctx, Branch, Pool, M) :-
   Ctx = ctx(Mode, _, _),
   Mode \= skolem(_),
   member(X-F, Branch),
   lookup_pool(Mode, F, Pool, Pool1),
   counterpart(Mode, F, Pool1, Y-G), !,
   pair(Ctx, X-F, Y-G, M).
-close(Ctx, Branch, Pool, M) :-
+closed(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   expansion(F, X, Es, M, M1), !,
   append(Es, Rest, Branch1),
-  close(Ctx, Branch1, Pool, M1).
-close(Ctx, Branch, Pool, M) :-
-  select(X-F, Branch, Rest),
+  closed(Ctx, Branch1, Pool, M1).
+closed(Ctx, Branch, Pool, M) :-
+  Ctx = ctx(skolem(_), _, _),
   findall(G, member(_-_-G, Pool), Gs),
+  select(X-F, Branch, Rest),
   skolemised(Ctx, X-F, Gs, H, M, M1),
   ( hinted_delta(F) -> ! ; true ),
-  close(Ctx, [H|Rest], Pool, M1), !.
-close(Ctx, Branch, Pool, M) :-
+  closed(Ctx, [H|Rest], Pool, M1), !.
+closed(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   split(X-F, Branches, M), !,
   close_branches(Ctx, Branches, Rest, Pool).
@@ -328,12 +338,12 @@ lookup_pool(Mode, F, Pool, Pool1) :-
   Pool1 = [_|_].
 lookup_pool(_, _, Pool, Pool).
 
-delta_entry(_-_-G) :- delta(G, _, _, _).
+delta_entry(keys(_, _, delta)-_-_).
 
 close_branches(_, [], _, _).
 close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
   append(Es, Rest, Branch),
-  close(Ctx, Branch, Pool, M),
+  closed(Ctx, Branch, Pool, M),
   close_branches(Ctx, Branches, Rest, Pool).
 
 /********************************************************************************

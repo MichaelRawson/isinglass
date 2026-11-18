@@ -205,14 +205,27 @@ first_fail(Refute, Count, Ks, Ms) :-
 first_failed([], _, _) :- !.
 first_failed([K-M], Refute, _) :- !, call(Refute, K, M).
 first_failed(Pairs, Refute, Count) :-
-  maplist(counted(Count), Pairs, Counted),
-  keysort(Counted, [N-(K-M)|Rest]),
-  N > 0,
+  most_constrained(Pairs, Count, K-M, Rest),
   call(Refute, K, M),
-  pairs_values(Rest, Pairs1),
-  first_failed(Pairs1, Refute, Count).
+  first_failed(Rest, Refute, Count).
 
-counted(Count, K-M, N-(K-M)) :- call(Count, K, N).
+% the pair with the fewest candidates, the first of them, and the Rest in order; one with none fails,
+% and one with a single candidate is taken at once, without counting the others
+most_constrained([K-M|Ps], Count, Best, Rest) :-
+  call(Count, K, N),
+  N > 0,
+  most_constrained(Ps, Count, N-(K-M), [], Best, Rest).
+
+most_constrained(Ps, _, 1-P, Seen, P, Rest) :- !, reverse(Seen, Seen1), append(Seen1, Ps, Rest).
+most_constrained([], _, _-P, Seen, P, Rest) :- reverse(Seen, Rest).
+most_constrained([Q|Qs], Count, N0-P0, Seen, Best, Rest) :-
+  Q = K-_,
+  call(Count, K, N),
+  N > 0,
+  (   N < N0
+  ->  most_constrained(Qs, Count, N-Q, [P0|Seen], Best, Rest)
+  ;   most_constrained(Qs, Count, N0-P0, [Q|Seen], Best, Rest)
+  ).
 
 % a unit clause, but for AVATAR's split literals, which are in the conclusion
 unit(Ls) :- exclude(avatar_literal, Ls, [_]).
@@ -584,7 +597,7 @@ avatar_split(Fresh, Hs, [Premise|_], M) :-
 
 splits([], _, Hs, Ds, Premise, app(Premise, Ts, Ms)) :-
   premise(Premise, Ts, Ls),
-  maplist(split_literal(Hs, Ds), Ls, Ms).
+  first_fail(split_literal(Hs, Ds), split_count(Hs, Ds), Ls, Ms).
 splits([H-(~(~Split))|Rest], Fresh, Hs, Ds, Premise, M) :-
   split(Split, Clause),
   splits(Rest, Fresh, Hs, [H-Split-Clause|Ds], Premise, M).
@@ -597,3 +610,5 @@ split_literal(Hs, _, L, M) :- matches(Hs, L, M).
 split_literal(_, Ds, L, lam(X, L, app(H, [], [lam(D, Split, app(D, [], [M]))]))) :-
   member(H-Split-clause([], [K]), Ds),
   matches([X-L], K, M).
+
+split_count(Hs, Ds, L, N) :- findall(M, split_literal(Hs, Ds, L, M), Ms), length(Ms, N).
