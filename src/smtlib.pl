@@ -29,11 +29,12 @@ as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts
 :- set_prolog_flag(double_quotes, codes).
 
 emit_smtlib :-
-  out(header),
-  each(ir_step(Name, Conclusion, Justification), out(check(Justification, Name, Conclusion))).
+  header_instances(Declared),
+  out(header(Declared)),
+  each(ir_step(Name, Conclusion, Justification), out(check(Declared, Justification, Name, Conclusion))).
 
 % '$inhabited'('$tType') is an arbitrary sort
-header -->
+header(Declared) -->
   "(set-logic ALL)\n",
   "(set-option :print-success false)\n",
   "(declare-sort I 0)\n",
@@ -41,7 +42,22 @@ header -->
   { findall(S-(Args-Sort), ( symbol(S, [], Args, Sort), \+ defined_symbol(S, _, _) ), Symbols),
     findall(S-(Bs-Body), defined_symbol(S, Bs, Body), Definitions) },
   declarations(Symbols),
+  instances(Declared),
   foldl(symbol_definition, Definitions).
+
+% the instances of polymorphic symbols in the bodies of the monomorphic definitions, which are declared
+% in the header, before them, and so not in any check
+header_instances(Is) :-
+  findall(Body, defined_symbol(_, _, Body), Bodies),
+  needed_instances(Bodies, [], Is).
+
+% the instances in the formulas Fs, each after those in its definition, that are not Declared already
+needed_instances(Fs, Declared, Is) :-
+  foldl(formula_instances, Fs, Is0, []),
+  sort(Is0, Is1),
+  foldl(with_dependencies, Is1, Declared, Is2),
+  append(Is3, Declared, Is2),
+  reverse(Is3, Is).
 
 % a monomorphic symbol defined by its body, a formula or a term (see ir.pl), in the order of the steps
 defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _).
@@ -82,40 +98,38 @@ sort_arguments([S|Ss]) --> " ", sort(S), sort_arguments(Ss).
  * checks
  ********************************************************************************/
 
-check(input(_, _), _, _) --> [].
-check(split_def(_, _), _, _) --> [].
+check(_, input(_, _), _, _) --> [].
+check(_, split_def(_, _), _, _) --> [].
 % Skolem symbols are uninterpreted, and their definitions not checked
-check(skolem_def(_, _, _), _, _) --> [].
+check(_, skolem_def(_, _, _), _, _) --> [].
 % nor are definitions: monomorphic symbols are defined in the header
-check(definition(_, _, _), _, _) --> [].
+check(_, definition(_, _, _), _, _) --> [].
 % a step between formulas has formulas for premises, which have no ground instances to assert
-check(proof(_), Name, _) --> { formula_step(Name) }, !,
+check(_, proof(_), Name, _) --> { formula_step(Name) }, !,
   "(echo \"warning: ", atom(Name), " (formula step) is not checked\")\n".
-check(proof(M), Name, clause(Bs, Ls)) -->
+check(Declared, proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
     facts(Env, M, Fs, []),
     skolem_constants(M, Cs0, []),
     sort(Cs0, Cs) },
-  scope(Name, clause(Bs, Ls), Cs, Fs).
+  scope(Declared, Name, clause(Bs, Ls), Cs, Fs).
 
 % the negated conjecture is a hypothesis, and the conjecture follows from refuting it
-check(negated_conjecture(_), _, _) --> [].
-check(conjecture(_, _, _), _, _) --> [].
+check(_, negated_conjecture(_), _, _) --> [].
+check(_, conjecture(_, _, _), _, _) --> [].
 % unreconstructed: checking it with quantified premises is liable to time out
-check(todo(Record, _), Name, _) -->
+check(_, todo(Record, _), Name, _) -->
   "(echo \"warning: ", atom(Name), " (", rule(Record), ") is not checked\")\n".
 
 rule(esa(Rule, _)) --> !, atom(Rule).
 rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 
-% the facts Fs and the negated conclusion, with Skolem constants Cs
-scope(Name, Conclusion, Cs, Fs) -->
+% the facts Fs and the negated conclusion, with Skolem constants Cs, and the instances not Declared in
+% the header
+scope(Declared, Name, Conclusion, Cs, Fs) -->
   { negated(Conclusion, Ns),
-    append(Fs, Ns, All) },
-  { foldl(formula_instances, All, Is0, []),
-    sort(Is0, Is1),
-    foldl(with_dependencies, Is1, [], Is2),
-    reverse(Is2, Is) },
+    append(Fs, Ns, All),
+    needed_instances(All, Declared, Is) },
   "(push 1)\n",
   constants(Cs),
   instances(Is),

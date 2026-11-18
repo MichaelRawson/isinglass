@@ -214,7 +214,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Sorts are sorts, declared with their arity (`(declare-sort |t.list| 1)`), but polymorphic symbols are _monomorphised_: each instance used in a check is declared in its scope.
 - SMT-LIB `declare-sort-parameter` could support polymorphism but is not yet supported by mainstream SMT solvers.
 - Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
-- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun`, as proofs unfold them by definition, and each instance of a polymorphic one in its check, by its body at the instance's types (after the instances in that body).
+- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun`, as proofs unfold them by definition, after the instances of polymorphic symbols in their bodies (which no check declares again), and each instance of a polymorphic one in its check, by its body at the instance's types (after the instances in that body).
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
 - A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T`, is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
