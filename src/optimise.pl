@@ -44,7 +44,12 @@ the eigenvariables of a clause's own binders keep their names, as its type menti
 :- use_module(db).
 :- use_module(close).
 
+% the steps are optimised again if a definition is inlined, as its step is then proved by refl
 optimise :-
+  optimise_steps,
+  ( inline_definitions -> optimise_steps ; true ).
+
+optimise_steps :-
   findall(Name, ir_step(Name, _, _), Names),
   use_counts(Uses),
   empty_assoc(Empty),
@@ -81,6 +86,78 @@ reached(Steps, Name, Live0, Live) :-
       foldl(reached(Steps), Ps, Live1, Live)
   ;   Live = Live1
   ).
+
+/********************************************************************************
+ * inlining function definitions
+ ********************************************************************************/
+
+% a function definition is inlined where copying its body costs less than stating it, as for a step:
+% Uses × (Size − 1) < Size + 2, for its body with the definitions before it inlined (a body cites only
+% definitions before it). Its symbol is then gone, and its step is T = T, proved by refl
+inline_definitions :-
+  findall(F/N-(Bs-Body),
+          ( ir_step(_, clause(_, _), definition(F, Bs, Body)), introduced(F, definition), length(Bs, N) ),
+          Definitions),
+  symbol_uses(Definitions, Uses),
+  empty_assoc(Empty),
+  foldl(inlined_definition(Uses), Definitions, Empty, Inlined),
+  \+ empty_assoc(Inlined),
+  findall(ir_step(Name, Conclusion, Justification),
+          ( ir_step(Name, Conclusion0, Justification0),
+            restated(Inlined, Conclusion0, Justification0, Conclusion, Justification) ),
+          Steps),
+  forget(ir_step(_, _, _)),
+  each(member(Step, Steps), record(Step)),
+  each(( gen_assoc(F/_, Inlined, _), symbol(F, Ps, Args, Sort) ), forget(symbol(F, Ps, Args, Sort))).
+
+% the occurrences of each defined symbol: in a definition, only in its body, as its conclusion restates it
+symbol_uses(Definitions, Uses) :-
+  findall(F-0, member(F-_, Definitions), Zeros),
+  list_to_assoc(Zeros, Uses0),
+  findall(F/N,
+          ( ir_step(_, Conclusion, Justification),
+            ( Justification = definition(_, _, T) -> true ; T = Conclusion-Justification ),
+            subterm(T, U), ( atom(U) ; compound(U) ), functor(U, F, N), get_assoc(F/N, Uses0, _) ),
+          Occurrences),
+  foldl(count_symbol, Occurrences, Uses0, Uses).
+
+count_symbol(F, Uses0, Uses) :- get_assoc(F, Uses0, N0), N is N0 + 1, put_assoc(F, Uses0, N, Uses).
+
+inlined_definition(Uses, F-(Bs-Body0), Inlined0, Inlined) :-
+  inlined_term(Inlined0, Body0, Body),
+  term_size(Body, Size),
+  get_assoc(F, Uses, N),
+  ( N * (Size - 1) < Size + 2 -> put_assoc(F, Inlined0, Bs-Body, Inlined) ; Inlined = Inlined0 ).
+
+% the term T0, or any IR around it, with each inlined symbol replaced by its body (already inlined
+% itself); only defined symbols are inlined, which are not the names of steps or hypotheses
+inlined_term(_, T, T) :- var(T), !.
+inlined_term(Inlined, T0, T) :-
+  ( atom(T0) ; compound(T0) ),
+  functor(T0, F, N),
+  get_assoc(F/N, Inlined, Bs-Body), !,
+  T0 =.. [_|As0],
+  maplist(inlined_term(Inlined), As0, As),
+  binder_variables(Bs, Xs),
+  foldl(abstracted, Xs, Vs, Body, T),
+  Vs = As.
+inlined_term(Inlined, T0, T) :-
+  compound(T0), !,
+  T0 =.. [F|As0],
+  maplist(inlined_term(Inlined), As0, As),
+  T =.. [F|As].
+inlined_term(_, T, T).
+
+abstracted(X, V, T0, T) :- substitute(X, V, T0, T).
+
+% an inlined definition's step states T = T, and is proved by refl
+restated(Inlined, Conclusion0, definition(F, Bs, _), Conclusion, proof(M)) :-
+  length(Bs, N), get_assoc(F/N, Inlined, _), !,
+  inlined_term(Inlined, Conclusion0, Conclusion),
+  reflexive_term(Conclusion, M).
+restated(Inlined, Conclusion0, Justification0, Conclusion, Justification) :-
+  inlined_term(Inlined, Conclusion0, Conclusion),
+  inlined_term(Inlined, Justification0, Justification).
 
 /********************************************************************************
  * which steps are inlined

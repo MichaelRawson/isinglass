@@ -51,5 +51,7 @@ record(split(Symbol, Clause)) :- assertz(split_(Symbol, Clause)).
 record(skolem_hint(Symbol, F)) :- assertz(skolem_hint_(Symbol, F)).
 record(option(O)) :- assertz(option_(O)).
 
-% remove the reconstructed steps that match, so that a pass over the IR (optimise.pl) can rewrite them
+% remove the reconstructed steps or symbols that match, so that a pass over the IR (optimise.pl) can
+% rewrite them
 forget(ir_step(Name, Conclusion, Justification)) :- retractall(ir_step_(Name, Conclusion, Justification)).
+forget(symbol(Name, Params, Args, Sort)) :- retractall(symbol_(Name, Params, Args, Sort)).
