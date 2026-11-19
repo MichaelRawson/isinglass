@@ -1,6 +1,7 @@
 % utilities for formulas and clauses in the internal syntax (see ops.pl)
 :- module(logic, [
   formula_clause/2,
+  quantifier/4,
   quantify/4,
   quantifier_prefix/4,
   quantifier_prefix/5,
@@ -15,7 +16,7 @@
   subterm/2,
   canonical/2,
   opened/2,
-  open_binders/4,
+  open_binder/4,
   renamed/3,
   connective/2
 ]).
@@ -23,18 +24,20 @@
 :- use_module(library(assoc)).
 :- use_module(ops).
 
-% each quantifier has one binder (see load.pl): G is F under a quantifier Q for each of the binders Bs,
-% outermost first
+% F is a quantifier Q ('!' or '?') with one binder B, X : Sort (see load.pl), and body G
+quantifier(F, Q, B, G) :- nonvar(F), F =.. [Q, B, G], ( Q == '!' ; Q == '?' ).
+
+% G is F under a quantifier Q for each of the binders Bs, outermost first
 quantify(_, [], F, F).
-quantify(Q, [B|Bs], F, G) :- quantify(Q, Bs, F, G1), G =.. [Q, [B], G1].
+quantify(Q, [B|Bs], F, G) :- quantify(Q, Bs, F, G1), G =.. [Q, B, G1].
 
 % ...and back again: the binders Bs of the outermost quantifiers Q of G, around F
-quantifier_prefix(Q, G, [B|Bs], F) :- nonvar(G), G =.. [Q, [B], G1], !, quantifier_prefix(Q, G1, Bs, F).
+quantifier_prefix(Q, G, [B|Bs], F) :- nonvar(G), G =.. [Q, B, G1], !, quantifier_prefix(Q, G1, Bs, F).
 quantifier_prefix(_, F, [], F).
 
 % ...or of exactly N of them
 quantifier_prefix(_, 0, F, [], F) :- !.
-quantifier_prefix(Q, N, G, [B|Bs], F) :- nonvar(G), G =.. [Q, [B], G1], N1 is N - 1, quantifier_prefix(Q, N1, G1, Bs, F).
+quantifier_prefix(Q, N, G, [B|Bs], F) :- nonvar(G), G =.. [Q, B, G1], N1 is N - 1, quantifier_prefix(Q, N1, G1, Bs, F).
 
 % a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
 formula_clause(G, C) :- quantifier_prefix('!', G, Bs, F), Bs = [_|_], !, C = clause(Bs, Ls), literals(F, Ls).
@@ -107,12 +110,11 @@ subterm(T, S) :- compound(T), T =.. [_|Ts], member(U, Ts), subterm(U, S).
 canonical(F0, F) :- canonical(F0, F, _).
 
 canonical(F0, F, H) :-
-  nonvar(F0),
-  F0 =.. [Q, Bs0, G0],
-  ( Q == '!' ; Q == '?' ), !,
+  quantifier(F0, Q, X:S, G0), !,
   canonical(G0, G1, H0),
-  bound(Bs0, G1, H0, H, Bs, G),
-  F =.. [Q, Bs, G].
+  bound(X, G1, H0, B, G),
+  H is H0 + 1,
+  F =.. [Q, B:S, G].
 canonical(F0, F, H) :-
   nonvar(F0),
   connective(F0, Gs0), !,
@@ -128,12 +130,10 @@ canonical_part(F0, F, H0, H) :- canonical(F0, F, H1), H is max(H0, H1).
 opened(F0, F) :- empty_assoc(Scope), opened(F0, Scope, F).
 
 opened(F0, Scope0, F) :-
-  nonvar(F0),
-  F0 =.. [Q, Bs0, G0],
-  ( Q == '!' ; Q == '?' ), !,
-  open_binders(Bs0, Bs, Scope0, Scope),
+  quantifier(F0, Q, B0, G0), !,
+  open_binder(B0, B, Scope0, Scope),
   opened(G0, Scope, G),
-  F =.. [Q, Bs, G].
+  F =.. [Q, B, G].
 opened(F0, Scope, F) :-
   nonvar(F0),
   connective(F0, _), !,
@@ -144,11 +144,8 @@ opened(A0, Scope, A) :- renamed(Scope, A0, A).
 
 opened_in(Scope, F0, F) :- opened(F0, Scope, F).
 
-% the binders Bs0 with fresh variables, added to the Scope; the sort of a binder may name those before
-% it (TF1)
-open_binders(Bs0, Bs, Scope0, Scope) :- foldl(opened_binder, Bs0, Bs, Scope0, Scope).
-
-opened_binder(X:S0, V:S, Scope0, Scope) :-
+% the binder with a fresh variable, added to the Scope; its sort may name binders around it (TF1)
+open_binder(X:S0, V:S, Scope0, Scope) :-
   renamed(Scope0, S0, S),
   ( nonvar(X), X = '$BOUND'(_) -> put_assoc(X, Scope0, V, Scope) ; V = X, Scope = Scope0 ).
 
@@ -158,14 +155,12 @@ renamed(_, T, T) :- \+ compound(T), !.
 renamed(Scope, T, V) :- T = '$BOUND'(_), !, ( get_assoc(T, Scope, V) -> true ; V = T ).
 renamed(Scope, T0, T) :- T0 =.. [F|As0], maplist(renamed(Scope), As0, As), T =.. [F|As].
 
-% the binders are named innermost first: a variable is bound in a fresh instance, a binder already
-% named B (as in a canonical formula) is kept, and otherwise substituted
-bound([], G, H, H, [], G).
-bound([X:S|Bs0], G0, H0, H, [B:S|Bs], G) :-
-  bound(Bs0, G0, H0, H1, Bs1, G1),
-  B = '$BOUND'(H1),
-  H is H1 + 1,
-  (   var(X) -> X = B, Bs = Bs1, G = G1
-  ;   X == B -> Bs = Bs1, G = G1
-  ;   substitute(X, B, Bs1-G1, Bs-G)
+% the binder X of the body G0, in which H binders are nested, is named B: a variable is bound in a
+% fresh instance, a binder already named B (as in a canonical formula) is kept, and otherwise
+% substituted
+bound(X, G0, H, B, G) :-
+  B = '$BOUND'(H),
+  (   var(X) -> X = B, G = G0
+  ;   X == B -> G = G0
+  ;   substitute(X, B, G0, G)
   ).

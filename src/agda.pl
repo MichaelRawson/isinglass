@@ -256,7 +256,7 @@ path_step(cong(X, S, P)) --> "cong (λ ", variable(X), " → ", term(S), ") ", p
  ********************************************************************************/
 
 % the types of the IR: ~F is F → R, and '$false' is R
-type('!'(Bs, F)) --> !, foldl(pi, Bs), type(F).
+type('!'(B, F)) --> !, pi(B), type(F).
 type((F => G)) --> !, domain(F), " → ", type(G).
 type(~F) --> !, domain(F), " → R".
 type('$false') --> !, "R".

@@ -20,7 +20,7 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - Rank-1 polymorphic first-order logic. Variables, terms and atoms are Prolog variables, terms.
 - Connectives `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, `'$true'`, `'$false'`.
 - Equality is typed: `'$='(A, S, T)`, where `A` is the sort of `S` and `T`. TPTP's `=` is implicitly polymorphic, so the front end gives each equation its sort once, at load time (`signature:typed/3`).
-- Quantifiers `'!'([B], F)` and `'?'([B], F)`, with one binder `X : Sort` each: a group of binders as in TPTP, `! [X, Y] : F`, is read as `! [X] : ! [Y] : F` (`logic:quantify/4`, and `quantifier_prefix/4` to gather a chain back). So quantifier rules are patterns of unification, and canonical names are the same either way. A clause's binders stay a list, `clause(Bs, Ls)`, and its type nests them.
+- Quantifiers `'!'(X : Sort, F)` and `'?'(X : Sort, F)`, with one binder each, not a list: a group of binders as in TPTP, `! [X, Y] : F`, is read as `! [X] : ! [Y] : F` (`logic:quantify/4`, and `quantifier_prefix/4` to gather a chain back; `logic:quantifier/4` takes a quantifier apart). So quantifier rules are patterns of unification, and canonical names are the same either way. A clause's binders stay a list, `clause(Bs, Ls)`, and its type nests them.
 - Each binder has its own variable: `read/1` gives binders of the same name in one statement the same variable, so they are renamed apart at load time.
 - Where formulas are compared (reconstruction, checker), bound variables are named canonically: `'$BOUND'(H)`, with `H` the number of binders nested in its scope (`logic:canonical/2`).
 - Sorts are terms: e.g. `'$i'`, `'$o'`, type variables, and declared type constructors such as `list(A)`. The sort of sorts is `$tType` as in TFF1.
@@ -28,7 +28,7 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - The signature is `symbol(Name, Params, Args, Sort)` (`db.pl`), with `Params` the sort variables, `Args` the domain and `Sort` the range.
 - Reading normalises `S != T` to `~ (S = T)`, `F <= G` to `G => F`, `F <~> G` to `~ (F <=> G)`, and `~|`, `~&` to a negated `|` or `&`. At some point this should perhaps be reported verbatim and subsequently normalised.
 - It is convenient to treat clauses specially.
-- Clauses are `clause(Bs, Literals)`: binders as in quantifiers, and a list of literals `A` or `~A` over their variables. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause too.
+- Clauses are `clause(Bs, Literals)`: a list of binders `X : Sort`, and a list of literals `A` or `~A` over their variables. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause too.
 - Vampire prints clauses as `fof` too, so shape alone cannot tell a clause from a formula. `$false` is the empty clause. Otherwise a statement is a clause if it is clause-shaped and is either `cnf`, an input, or derived by clausal reasoning: `cnf_transformation`, a rule in the table below, or an unknown rule from clauses only. The conjecture, its negation, preprocessing and definitions are formulas.
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so every lookup is a fresh instance and instantiation is unification.
 - When a step is reconstructed, its conclusion is made rigid, so the IR is ground: a clause by numbering its variables `'$VAR'(N)` in binder order, a formula by naming its bound variables canonically.

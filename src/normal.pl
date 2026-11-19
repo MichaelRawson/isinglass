@@ -55,14 +55,13 @@ shape(Mode, Scope, (F => G), K) :- !, shape(Mode, Scope, (~F | G), K).
 shape(nnf, Scope, (F <=> G), K) :- !, shape(nnf, Scope, ((~F | G) & (F | ~G)), K).
 shape(Mode, Scope, (F <=> G), K) :- !,
   shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), equivalence(Mode, A, B, K).
-shape(skolem(Ss), Scope, F, K) :- quantified(F, _, Bs, G), !,
-  blurred_binders(Bs, G, G1), shape(skolem(Ss), Scope, G1, K).
+shape(skolem(Ss), Scope, F, K) :- quantifier(F, _, B, G), !,
+  blurred_binder(B, G, G1), shape(skolem(Ss), Scope, G1, K).
 shape(Mode, Scope0, F, K) :-
-  quantified(F, Q, Bs0, G), !,
-  open_binders(Bs0, Bs, Scope0, Scope),
-  shape(Mode, Scope, G, B),
-  occurring(Bs, B, Bs1),
-  quantify(Q, Bs1, B, K).
+  quantifier(F, Q, B0, G), !,
+  open_binder(B0, X:S, Scope0, Scope),
+  shape(Mode, Scope, G, K0),
+  ( occurs(X, K0) -> K =.. [Q, X:S, K0] ; K = K0 ).
 shape(pure(Ss), _, A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
 shape(skolem(Ss), _, A, K) :- !, blurred(Ss, A, K).
 shape(_, Scope, A0, A) :- renamed(Scope, A0, A).
@@ -78,8 +77,8 @@ pushed('$false', '$true').
 pushed((F & G), (~F | ~G)).
 pushed((F | G), (~F & ~G)).
 pushed((F => G), (F & ~G)).
-pushed('!'(Bs, F), '?'(Bs, ~F)).
-pushed('?'(Bs, F), '!'(Bs, ~F)).
+pushed('!'(B, F), '?'(B, ~F)).
+pushed('?'(B, F), '!'(B, ~F)).
 
 negation(_, ~A, A) :- !.
 negation(Mode, '$true', '$false') :- simplifies(Mode), !.
@@ -102,15 +101,10 @@ equivalence(Mode, '$false', B, K) :- simplifies(Mode), !, negation(Mode, B, K).
 equivalence(Mode, A, '$false', K) :- simplifies(Mode), !, negation(Mode, A, K).
 equivalence(_, A, B, (A <=> B)).
 
-quantified(F, Q, Bs, G) :- compound(F), F =.. [Q, Bs, G], ( Q == '!' ; Q == '?' ).
-
-% the binders Bs, bound in G, replaced by '$skolem': those named canonically are blurred in the atoms
+% the binder X, bound in G, replaced by '$skolem': one named canonically is blurred in the atoms
 % (blurred/3), which saves a pass over G for each binder
-blurred_binders([], G, G).
-blurred_binders([X:_|Bs0], G0, G) :- nonvar(X), X = '$BOUND'(_), !, blurred_binders(Bs0, G0, G).
-blurred_binders([X:_|Bs0], G0, G) :-
-  substitute(X, '$skolem', Bs0-G0, Bs-G1),
-  blurred_binders(Bs, G1, G).
+blurred_binder(X:_, G, G) :- nonvar(X), X = '$BOUND'(_), !.
+blurred_binder(X:_, G0, G) :- substitute(X, '$skolem', G0, G).
 
 % the terms of the Skolem symbols Ss in T replaced by '$skolem'
 blurred(_, T, T) :- var(T), !.
@@ -119,16 +113,13 @@ blurred(Ss, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), !.
 blurred(_, T, T) :- \+ compound(T), !.
 blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As].
 
-% the binders that occur in F
-occurring([], _, []).
-occurring([V:S|Vs], F, Bs) :- ( occurs(V, F) -> Bs = [V:S|Bs1] ; Bs = Bs1 ), occurring(Vs, F, Bs1).
 
 % the key of a canonical formula
 key((F & G), K) :- !, junction(and, '&', (F & G), K).
 key((F | G), K) :- !, junction(or, '|', (F | G), K).
 key((F <=> G), iff(Ks)) :- !, key(F, A), key(G, B), ( B @< A -> Ks = [B, A] ; Ks = [A, B] ).
 key(~F, ~K) :- !, key(F, K).
-key(F, K) :- quantified(F, Q, Bs, G), !, key(G, K0), quantify(Q, Bs, K0, K).
+key(F, K) :- quantifier(F, Q, B, G), !, key(G, K0), K =.. [Q, B, K0].
 key('$='(S, A, B), K) :- !, ( B @< A -> K = '$='(S, B, A) ; K = '$='(S, A, B) ).
 key(A, A).
 

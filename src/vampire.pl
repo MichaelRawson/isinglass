@@ -179,7 +179,7 @@ predicate_definition(_, F0, Symbol, D, Tactic) :-
   binder_variables(Bs, Xs),
   definition_shape(F, Symbol, Xs, D0, Tactic),
   quantify('!', Bs, D0, D).
-predicate_definition(inequality_splitting_name_introduction, ~A, Symbol, '!'([X:S], D), defined(tautology)) :-
+predicate_definition(inequality_splitting_name_introduction, ~A, Symbol, '!'(X:S, D), defined(tautology)) :-
   A =.. [Symbol, T],
   term_sort([], T, S), !,
   D = (B <=> ~'$='(S, X, T)),
@@ -336,11 +336,9 @@ flipped_source(Ps, inference(consistent_polarity_flipping, Info, [Parent]), Sour
 flipped_source(_, Source, Source).
 
 flipped_formula(Ps, F0, F) :-
-  compound(F0),
-  F0 =.. [Q, Bs, G0],
-  ( Q == '!' ; Q == '?' ), !,
+  quantifier(F0, Q, B, G0), !,
   flipped_formula(Ps, G0, G),
-  F =.. [Q, Bs, G].
+  F =.. [Q, B, G].
 flipped_formula(Ps, F0, F) :-
   connective(F0, _), !,
   F0 =.. [C|Gs0],
@@ -377,7 +375,7 @@ skolem_hints(Statements) :-
        record(skolem_hint(Sk, D))).
 
 % the binders of the ? formulas of F, a formula in negation normal form, in preorder
-delta_binders('?'([X:_], G), [X|Xs0], Xs) :- !, delta_binders(G, Xs0, Xs).
+delta_binders('?'(X:_, G), [X|Xs0], Xs) :- !, delta_binders(G, Xs0, Xs).
 delta_binders('!'(_, G), Xs0, Xs) :- !, delta_binders(G, Xs0, Xs).
 delta_binders((F | G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
 delta_binders((F & G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
@@ -393,7 +391,7 @@ skolem_symbols([I|Is], Ts) :-
   skolem_symbols(Is, Ts1).
 
 % the δ formula of F that is opened for its binder X: the quantifier of X
-delta_formula(F, X, F) :- F = '?'([Y:_], _), Y == X, !.
+delta_formula(F, X, F) :- F = '?'(Y:_, _), Y == X, !.
 delta_formula(F, X, D) :- connective(F, Fs), member(G, Fs), delta_formula(G, X, D), !.
 
 % the other choices that are free in the δ formula D (those around it), replaced by their Skolem terms
@@ -405,7 +403,7 @@ chosen([Y-T|Choices], X, D0, D) :-
   ),
   chosen(Choices, X, D1, D).
 
-bound_in(Y, F) :- F =.. [Q, [Z:_], G], ( Q == '!' ; Q == '?' ), !, ( Z == Y -> true ; bound_in(Y, G) ).
+bound_in(Y, F) :- quantifier(F, _, Z:_, G), !, ( Z == Y -> true ; bound_in(Y, G) ).
 bound_in(Y, F) :- connective(F, Fs), member(G, Fs), bound_in(Y, G), !.
 
 % Vampire inference rules and the generic tactics that reconstruct them

@@ -4,7 +4,7 @@ Read TPTP/TSTP from standard input with read/1, producing
   annotated(Language, Name, Role, Formula, Source)
 
 with formulas normalised into the internal syntax (ops.pl):
-  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'([B], F), '?'([B], F), S = T
+  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'(B, F), '?'(B, F), S = T
 where each quantifier has one binder B, X : Sort, with sort '$i' if TPTP gives none (a group of
 binders is a quantifier for each, as ! [X] : ! [Y] : F), and
 S != T becomes ~(S = T), F <= G becomes G => F, F <~> G becomes ~(F <=> G),

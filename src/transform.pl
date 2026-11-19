@@ -590,4 +590,4 @@ beta(~((F <=> G)), '$niff', [F, ~G], [~F, G]).
 % T is to be refuted for the first bound variable B, an eigenvariable
 delta(F, Rule, B, T) :-
   ( Rule = '$ex' ; Rule = '$nall' ),
-  head_type(Rule, (F => ('!'([B], (T => '$false')) => '$false'))), !.
+  head_type(Rule, (F => ('!'(B, (T => '$false')) => '$false'))), !.

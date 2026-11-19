@@ -72,7 +72,7 @@ justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
   canonical(F, F1),
   F1 == F,
   well_sorted(Gamma, F),
-  F = '?'([_:S], _),
+  F = '?'(_:S, _),
   S == Sort,
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A1),
@@ -134,7 +134,7 @@ conclusion_type(formula(_), T0, T) :- canonical(T0, T).
 % Gamma is an assoc mapping hypotheses to their types, and eigenvariables to their sorts
 check(Steps, Gamma, lam(X, A, M), T0) :- !,
   unfold(T0, T),
-  (   T = '!'([Y:S], B)
+  (   T = '!'(Y:S, B)
   ->  eigenvariable(X),
       \+ get_assoc(X, Gamma, _),
       A == S,
@@ -226,12 +226,12 @@ head(Steps, _, Name, T) :-
 % each term is of the sort of its binder, which depends on the terms before it
 instantiate(_, [], T, T) :- !.
 instantiate(Gamma, [U|Us], T0, T) :-
-  unfold(T0, '!'([X:S], F)),
+  unfold(T0, '!'(X:S, F)),
   sorted(Gamma, U, S),
   instantiated(X, U, F, T1),
   instantiate(Gamma, Us, T1, T).
 
-% '!'([X:_], F) with U for X: X is a variable in a fresh instance, where instantiation is
+% '!'(X:_, F) with U for X: X is a variable in a fresh instance, where instantiation is
 % unification, or U itself, an eigenvariable named after the binder of its clause, or else it is
 % canonical, and substituted. U is ground and has no bound variables (it is an eigenvariable, or
 % well sorted), so none is captured
@@ -258,9 +258,8 @@ valid_sort(Gamma, S) :- sorted(Gamma, S, '$tType').
 
 % canonical formula F is well sorted, with its atoms of sort '$o'
 well_sorted(Gamma, F) :-
-  F =.. [Q, Bs, G],
-  ( Q == '!' ; Q == '?' ), !,
-  foldl(binder, Bs, Gamma, Gamma1),
+  quantifier(F, _, B, G), !,
+  binder(B, Gamma, Gamma1),
   well_sorted(Gamma1, G).
 well_sorted(Gamma, F) :- connective(F, Gs), !, maplist(well_sorted(Gamma), Gs).
 well_sorted(Gamma, A) :- sorted(Gamma, A, '$o').

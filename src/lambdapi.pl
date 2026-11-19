@@ -192,7 +192,7 @@ abstraction([X|Xs]) --> "λ", variables([X|Xs]), ", ".
 consequent(A, T) :- quantifier_prefix('!', A, _, (_ => T)).
 
 % the δ formula F, ?[Y:S] : T, is opened with Y for the body T
-delta_body('?'([B], T), B, T).
+delta_body('?'(B, T), B, T).
 
 epsilon(S) --> { S == '$tType' }, !, "εₜ".
 epsilon(_) --> "ε".
@@ -226,8 +226,8 @@ input(Input) --> "{|", atom(Input), "²|}".
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
-proof(let(X, '!'([B:S], F), app('$nex', [], [M]), N)) --> !,
-  "let ", variable(X), " : π ", formula('!'([B:S], F)), " ≔ ", not_exists(S), " ", operand(M), " in ", proof(N).
+proof(let(X, '!'(B:S, F), app('$nex', [], [M]), N)) --> !,
+  "let ", variable(X), " : π ", formula('!'(B:S, F)), " ≔ ", not_exists(S), " ", operand(M), " in ", proof(N).
 proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
@@ -330,20 +330,16 @@ formula_((F | G)) --> !, formula(7, F), " ∨ ", formula(6, G).
 formula_((F & G)) --> !, formula(8, F), " ∧ ", formula(7, G).
 formula_((F => G)) --> !, formula(6, F), " ⇒ ", formula(5, G).
 formula_((F <=> G)) --> !, formula(6, F), " ⇔ ", formula(6, G).
-formula_('!'(Xs, F)) --> !, foralls(Xs), formula(0, F).
-formula_('?'(Xs, F)) --> !, exists(Xs), formula(0, F).
+formula_('!'(B, F)) --> !, binder("∀", B), formula(0, F).
+formula_('?'(B, F)) --> !, binder("∃", B), formula(0, F).
 formula_('$='(_, S, T)) --> !, term(11, S), " = ", term(11, T).
 formula_(A) --> term_(A).
 
 % type variables are bound by ∀ₜ and ∃ₜ
-foralls([]) --> [].
-foralls([X:S|Bs]) --> "`", quantifier("∀", S), " (", term(X), " : ", sort(S), "), ", foralls(Bs).
+binder(Q, X:S) --> "`", quantifier_symbol(Q, S), " (", term(X), " : ", sort(S), "), ".
 
-exists([]) --> [].
-exists([X:S|Bs]) --> "`", quantifier("∃", S), " (", term(X), " : ", sort(S), "), ", exists(Bs).
-
-quantifier(Q, '$tType') --> !, codes(Q), "ₜ".
-quantifier(Q, _) --> codes(Q).
+quantifier_symbol(Q, '$tType') --> !, codes(Q), "ₜ".
+quantifier_symbol(Q, _) --> codes(Q).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
 

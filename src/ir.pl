@@ -30,7 +30,7 @@ Proofs are λ-terms, Curry-Howard style, in minimal logic: no particular logic i
 Types are formulas, where ~F is F → ⊥ and F => G is implication:
 
   clause([B_0, ..., B_m-1], [L_0, ..., L_n-1])
-                 has type  '!'([B_0], ... '!'([B_m-1], ~L_0 => ... => ~L_n-1 => '$false'))
+                 has type  '!'(B_0, ... '!'(B_m-1, ~L_0 => ... => ~L_n-1 => '$false'))
   formula(F)     has type  F
 
 where the binders B_i are X : Sort, as in quantifiers, which have one binder each (see load.pl);
@@ -57,7 +57,7 @@ of any type that differs from it only by unfolding these (expanded/2), as back e
                           a built-in, or
       | Rule              an expansion rule (transform.pl): a built-in whose parameters are inferred
 
-A head of type '!'([X:S], T) is applied to a term of sort S for X, as a step or a hypothesis is. The
+A head of type '!'(X:S, T) is applied to a term of sort S for X, as a step or a hypothesis is. The
 built-ins are typed by head_type/2, whose Prolog variables are their parameters. Those bound by '!',
 as a step's are, are the terms Ts. Any others are an expansion rule's, found by unifying its first
 premise with the type of its first argument, which is inferred as for E above: an expansion rule is
@@ -124,9 +124,9 @@ formula_step(Name) :-
 % the types of the built-in heads, fresh instances: their Prolog variables are their parameters, the
 % terms of an application for those bound by '!', and otherwise inferred from its first argument
 head_type('$trivial', '$true').
-head_type('$refl', '!'([A:'$tType'], '!'([X:A], '$='(A, X, X)))).
-head_type('$sym', '!'([A:'$tType'], '!'([X:A], '!'([Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))))).
-head_type('$dne', '!'([F:'$o'], (~(~F) => F))).
+head_type('$refl', '!'(A:'$tType', '!'(X:A, '$='(A, X, X)))).
+head_type('$sym', '!'(A:'$tType', '!'(X:A, '!'(Y:A, ('$='(A, X, Y) => '$='(A, Y, X)))))).
+head_type('$dne', '!'(F:'$o', (~(~F) => F))).
 % the expansion rules: each takes a proof of a formula, and a refutation of each branch, but for '$nex'
 head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
 head_type('$or', ((F | G) => ((F => '$false') => ((G => '$false') => '$false')))).
@@ -136,9 +136,9 @@ head_type('$nand', (~(F & G) => ((~F => '$false') => ((~G => '$false') => '$fals
 head_type('$nor', (~(F | G) => ((~F => (~G => '$false')) => '$false'))).
 head_type('$nimp', (~(F => G) => ((F => (~G => '$false')) => '$false'))).
 head_type('$niff', (~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false')))).
-head_type('$ex', ('?'([B], F) => ('!'([B], (F => '$false')) => '$false'))).
-head_type('$nall', (~'!'([B], F) => ('!'([B], (~F => '$false')) => '$false'))).
-head_type('$nex', (~'?'([B], F) => '!'([B], ~F))).
+head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
+head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
+head_type('$nex', (~'?'(B, F) => '!'(B, ~F))).
 
 % an expansion rule: its parameters are inferred from the type of its first argument
 expansion_rule(Name) :- head_type(Name, (A => _)), \+ ground(A).
@@ -148,7 +148,7 @@ builtin(Name) :- head_type(Name, _), \+ expansion_rule(Name).
 
 % the choice axiom of Symbol, defined for binders Bs as ε Y. T, where F is ?[Y:S] : T
 choice_axiom(Symbol, Bs, F, A) :-
-  F = '?'([Y:_], T),
+  F = '?'(Y:_, T),
   binder_variables(Bs, Xs),
   Term =.. [Symbol|Xs],
   substitute(Y, Term, T, T1),
@@ -172,12 +172,7 @@ abstract(X, V, F0, F) :- substitute(X, V, F0, F).
 % circular)
 expanded(F0, F) :- opened(F0, F1), unfolded(F1, F2), ( F2 == F1 -> F = F0 ; canonical(F2, F) ).
 
-unfolded(F0, F) :-
-  compound(F0),
-  F0 =.. [Q, Bs, G0],
-  ( Q == '!' ; Q == '?' ), !,
-  unfolded(G0, G),
-  F =.. [Q, Bs, G].
+unfolded(F0, F) :- quantifier(F0, Q, B, G0), !, unfolded(G0, G), F =.. [Q, B, G].
 unfolded(F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(unfolded, Gs0, Gs), F =.. [C|Gs].
 unfolded(A0, F) :-
   unfolded_arguments(A0, A),

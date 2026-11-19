@@ -76,7 +76,7 @@ instances(Env, _, app(F, Ts, Ms)) --> !,
 instances(_, _, _) --> [].
 
 % λ X : A of type T has the binder X : A1, and the body of type T1
-abstraction(T, X, _, S, T1) :- nonvar(T), T = '!'([Y:S], B), !, substitute(Y, X, B, T1).
+abstraction(T, X, _, S, T1) :- nonvar(T), T = '!'(Y:S, B), !, substitute(Y, X, B, T1).
 abstraction(T, _, _, A, B) :- nonvar(T), T = (A => B), !.
 abstraction(T, _, _, A, '$false') :- nonvar(T), T = ~A, !.
 abstraction(_, _, A, A, _).

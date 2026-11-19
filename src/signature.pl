@@ -57,8 +57,8 @@ term_sort(_, _, '$i').
 
 % formula F with every equation S = T given its sort A, as '$='(A, S, T), where binders Bs give the
 % sorts of variables
-typed(Bs, '!'(Cs, F0), F) :- !, F = '!'(Cs, F1), append(Cs, Bs, Ds), typed(Ds, F0, F1).
-typed(Bs, '?'(Cs, F0), F) :- !, F = '?'(Cs, F1), append(Cs, Bs, Ds), typed(Ds, F0, F1).
+typed(Bs, '!'(C, F0), F) :- !, F = '!'(C, F1), typed([C|Bs], F0, F1).
+typed(Bs, '?'(C, F0), F) :- !, F = '?'(C, F1), typed([C|Bs], F0, F1).
 typed(Bs, S = T, F) :- !, F = '$='(A, S, T), ( var(S) -> term_sort(Bs, T, A) ; term_sort(Bs, S, A) ).
 typed(Bs, F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(typed(Bs), Gs0, Gs), F =.. [C|Gs].
 typed(_, A, A).

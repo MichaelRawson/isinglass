@@ -277,8 +277,8 @@ formula((F | G)) --> !, "(or ", formula(F), " ", formula(G), ")".
 formula((F & G)) --> !, "(and ", formula(F), " ", formula(G), ")".
 formula((F => G)) --> !, "(=> ", formula(F), " ", formula(G), ")".
 formula((F <=> G)) --> !, "(= ", formula(F), " ", formula(G), ")".
-formula('!'(Bs, F)) --> !, "(forall (", binders(Bs), ") ", formula(F), ")".
-formula('?'(Bs, F)) --> !, "(exists (", binders(Bs), ") ", formula(F), ")".
+formula('!'(B, F)) --> !, "(forall (", binder(B), ") ", formula(F), ")".
+formula('?'(B, F)) --> !, "(exists (", binder(B), ") ", formula(F), ")".
 formula('$='(_, S, T)) --> !, "(= ", term(S), " ", term(T), ")".
 formula(A) --> term(A).
 
