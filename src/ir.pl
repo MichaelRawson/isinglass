@@ -75,9 +75,11 @@ formulas of the branch (rule_branches/3), and first an eigenvariable for ? and ~
   '$imp'   F => G       ~F ; G            '$nimp'  ~(F => G)    F, ~G
   '$iff'   F <=> G      F, G ; ~F, ~G     '$niff'  ~(F <=> G)   F, ~G ; ~F, G
   '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
+  '$nex'   ~ ?[X] : F   ![X] : ~F
 
-'$nex' is not a refutation: applied to a proof of ~ ?[X] : F it proves ![X] : ~F. It occurs only
-as the argument of a redex, whose λ states that type (back ends read its binder from it).
+'$nex' is a γ rule, not an α rule: it takes nothing apart, but turns ~? into the ! that a
+hypothesis is instantiated by applying it to terms. Its branch states its type, ![X] : ~F, rather
+than '$inferred', as back ends read its binder from it.
 Skolemisation is not a rule: a ? formula is opened by its choice axiom, a step (skolem_def). The
 prover Skolemises in negation normal form, so a δ formula ~! is never chosen for.
 '$nimp', '$niff', '$nall' and '$dne' : ~~F => F are not valid in minimal logic, so the steps that
@@ -133,7 +135,7 @@ head_type('$trivial', '$true').
 head_type('$refl', '$='(_, X, X)).
 head_type('$sym', ('$='(A, X, Y) => '$='(A, Y, X))).
 head_type('$dne', (~(~F) => F)).
-% the expansion rules: each takes a proof of a formula, and a refutation of each branch, but for '$nex'
+% the expansion rules: each takes a proof of a formula, and a refutation of each branch
 head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
 head_type('$or', ((F | G) => ((F => '$false') => ((G => '$false') => '$false')))).
 head_type('$imp', ((F => G) => ((~F => '$false') => ((G => '$false') => '$false')))).
@@ -144,7 +146,7 @@ head_type('$nimp', (~(F => G) => ((F => (~G => '$false')) => '$false'))).
 head_type('$niff', (~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false')))).
 head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
 head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
-head_type('$nex', (~'?'(B, F) => '!'(B, ~F))).
+head_type('$nex', (~'?'(B, F) => (('!'(B, ~F) => '$false') => '$false'))).
 
 % a built-in whose first premise has parameters, which the type of its first argument may bind:
 % '$sym', '$dne', and the expansion rules

@@ -25,9 +25,9 @@ its single use, which keeps the pass linear. Then
   - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
     its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
     cheap (a hypothesis or constant, applied to terms only) or used once (anywhere, as any term
-    may be a head), else it stays a redex; '$nex' arguments stay, as the IR states the type of
-    '$nex' only in the λ of its redex;
-  - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
+    may be a head), else it stays a redex;
+  - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step, but for the
+    branch of '$nex', whose λ states its binder;
   - sym (sym E) → E, sym refl → refl, and sym of a rewrite of an equation L = R is the rewrite of
     sym of its proof, by R = L, so that sym is pushed down to the hypotheses;
   - a rewrite whose motive does not mention its variable, or by reflexivity, is its proof.
@@ -406,7 +406,6 @@ reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 % a value may replace a hypothesis used Uses times if it is cheap or used once, as any term may be a
 % head, even where the checker infers its type: the binder's type may unfold the value's, but only
 % function terms, or a defined atom at its top, which the checker unfolds there
-substitutable(_, app('$nex', _, _), _) :- !, fail.
 substitutable(Env, V, _) :- cheap(Env, V), !.
 substitutable(_, _, 1).
 
@@ -416,8 +415,10 @@ cheap(Env, app(F, _, [])) :- !, cheap(Env, F).
 cheap(env(Inlined, _, _), F) :- atom(F), \+ get_assoc(F, Inlined, _).
 
 % η: λ h, F ... h is F ..., if h does not occur in F ...; but for a rule or built-in, whose type
-% depends on its arguments
-eta(Y, _, M0, M) :-
+% depends on its arguments, and for a hypothesis of a quantified type (the branch of '$nex'), which
+% back ends read binders from
+eta(Y, A, M0, M) :-
+  \+ ( nonvar(A), A = '!'(_, _) ),
   nonvar(M0),
   M0 = app(F, Ts, Ms),
   ( var(F) ; atom(F), \+ head_type(F, _) ),

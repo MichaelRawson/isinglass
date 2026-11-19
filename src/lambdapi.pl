@@ -72,13 +72,15 @@ rules --> { formula_step(_) }, !,
   "opaque symbol ex_e [a] [p : τ a → Prop] : π (`∃ x, p x) → (Π x, π (p x) → π ⊥) → π ⊥ ≔ λ h k, ∃ₑ h k;\n",
   "opaque symbol nall_e [a] [p : τ a → Prop] : π (¬ (`∀ x, p x)) → (Π x, π (¬ (p x)) → π ⊥) → π ⊥ ≔\n",
   "  λ h k, h (λ x, ¬¬ₑ (p x) (λ n, k x n));\n",
-  "opaque symbol nex_e [a] [p : τ a → Prop] : π (¬ (`∃ x, p x)) → Π x, π (¬ (p x)) ≔ λ h x y, h (∃ᵢ x y);\n",
+  "opaque symbol nex_e [a] [p : τ a → Prop] : π (¬ (`∃ x, p x)) → ((Π x, π (¬ (p x))) → π ⊥) → π ⊥ ≔\n",
+  "  λ h k, k (λ x y, h (∃ᵢ x y));\n",
   "constant symbol ∃ₜᵢ [p] (a : Set) : π (p a) → π (∃ₜ p);\n",
   "symbol ∃ₜₑ [p] : π (∃ₜ p) → Π [q], (Π a, π (p a) → π q) → π q;\n",
   "opaque symbol ex_t [p : Set → Prop] : π (`∃ₜ a, p a) → (Π a, π (p a) → π ⊥) → π ⊥ ≔ λ h k, ∃ₜₑ h k;\n",
   "opaque symbol nall_t [p : Set → Prop] : π (¬ (`∀ₜ a, p a)) → (Π a, π (¬ (p a)) → π ⊥) → π ⊥ ≔\n",
   "  λ h k, h (λ a, ¬¬ₑ (p a) (λ n, k a n));\n",
-  "opaque symbol nex_t [p : Set → Prop] : π (¬ (`∃ₜ a, p a)) → Π a, π (¬ (p a)) ≔ λ h a y, h (∃ₜᵢ a y);\n".
+  "opaque symbol nex_t [p : Set → Prop] : π (¬ (`∃ₜ a, p a)) → ((Π a, π (¬ (p a))) → π ⊥) → π ⊥ ≔\n",
+  "  λ h k, k (λ a y, h (∃ₜᵢ a y));\n".
 rules --> [].
 
 /********************************************************************************
@@ -242,14 +244,14 @@ input(Input) --> "{|", atom(Input), "²|}".
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
-proof(app(lam(X, '!'(B:S, F), N), [], [app('$nex', [], [M])])) --> { X = h(_) }, !,
-  "let ", variable(X), " : π ", formula('!'(B:S, F)), " ≔ ", not_exists(S), " ", operand(M), " in ", proof(N).
 proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
   "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
-% the eigenvariable of a δ rule may be a type
+% the eigenvariable of a δ rule may be a type, as may the binder of the branch of '$nex'
+proof(app('$nex', [], [M, lam(X, '!'(_:S, F), K)])) --> !,
+  not_exists(S), " ", operand(M), " ", operand(lam(X, '!'(_:S, F), K)).
 proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).

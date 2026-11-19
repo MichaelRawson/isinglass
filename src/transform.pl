@@ -259,7 +259,7 @@ universals(X-F0, Vs, H, app(lam(Y, G, M0), [], [app(X, Us, [])]), M) :-
   instance(Bs, F, Us, G),
   universals(Y-G, Ws, H, M0, M),
   append(Us, Ws, Vs).
-universals(X-(~'?'(Bs, F)), Vs, H, app(lam(Y, T, M0), [], [app('$nex', [], [X])]), M) :- !,
+universals(X-(~'?'(Bs, F)), Vs, H, app('$nex', [], [X, lam(Y, T, M0)]), M) :- !,
   T = '!'(Bs, ~F),
   universals(Y-T, Vs, H, M0, M).
 universals(H, [], H, M, M).
@@ -578,7 +578,8 @@ entries([], []).
 entries([T|Ts], [_-T|Es]) :- entries(Ts, Es).
 
 % an expansion rule of one branch (α), or of two (β), see ir.pl
-alpha(F, Rule, Ts) :- rule_branches(F, Rule, [Ts]).
+% '$nex' is a γ rule, applied as its formula is instantiated (universals/5)
+alpha(F, Rule, Ts) :- rule_branches(F, Rule, [Ts]), Rule \== '$nex'.
 
 beta(F, Rule, Ts1, Ts2) :- rule_branches(F, Rule, [Ts1, Ts2]).
 
