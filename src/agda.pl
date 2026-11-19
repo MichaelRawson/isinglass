@@ -27,6 +27,7 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 */
 :- module(agda, [emit_agda/0, emit_agda_file/0]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
@@ -51,7 +52,8 @@ fragment -->
   "  where\n",
   "  module Proof {R : Set}", foldl(parameter, Leaves), "\n",
   "    where\n",
-  foldl(emitted, Steps).
+  { cited_steps(Cited) },
+  foldl(emitted(Cited), Steps).
 
 /********************************************************************************
  * leaves
@@ -109,23 +111,27 @@ cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
  * steps
  ********************************************************************************/
 
-% a function symbol is defined by its term, so that its equation holds by reflexivity
-emitted(step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
+% a function symbol is defined by its term, so that its equation holds by reflexivity, stated only if
+% a step cites it (Cited)
+emitted(Cited, step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs), binder_variables(Cs, Ys), append(Ys, [h(0)], Zs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined(Xs, Body)),
-  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, app(h(0), [], ['$refl']))).
+  (   { get_assoc(Name, Cited, _) }
+  ->  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, app(h(0), [], ['$refl'])))
+  ;   []
+  ).
 % ...and a predicate by its body, where Agda can state it (formulas of clauses), else a hole
-emitted(step(_, formula(_), definition(Symbol, Bs, Body))) --> !,
+emitted(_, step(_, formula(_), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined_predicate(Xs, Body)).
 % a step between formulas is classical, so it is left as a hole
-emitted(step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
+emitted(_, step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
   definition(atom(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
-emitted(step(Name, clause(Bs, Ls), proof(M))) --> !,
+emitted(_, step(Name, clause(Bs, Ls), proof(M))) --> !,
   definition(atom(Name), conclusion(clause(Bs, Ls)), proof(M)).
-emitted(step(Name, clause(Bs, Ls), todo(Record, _))) --> !,
+emitted(_, step(Name, clause(Bs, Ls), todo(Record, _))) --> !,
   definition(atom(Name), conclusion(clause(Bs, Ls)), todo(Record)).
-emitted(_) --> [].
+emitted(_, _) --> [].
 
 definition(Name, Type, Body) -->
   "    ", call(Name), " : ", call(Type), "\n",

@@ -10,6 +10,7 @@ use of Stdlib.Classic.
 */
 :- module(lambdapi, [emit_lambdapi/0]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
@@ -23,10 +24,14 @@ use of Stdlib.Classic.
 % cone(Name): step Name depends on the negated conjecture
 :- dynamic(negated/2).
 :- dynamic(cone/1).
+:- dynamic(cited/1).
 
 emit_lambdapi :-
   retractall(negated(_, _)),
   retractall(cone(_)),
+  retractall(cited(_)),
+  cited_steps(Cited),
+  each(gen_assoc(Name, Cited, _), assertz(cited(Name))),
   each(ir_step(Name, _, Justification), mark(Name, Justification)),
   out(prelude),
   out(signature),
@@ -144,16 +149,23 @@ proof_step(skolem_def(Sk, Bs, F), Name, formula(_)) -->
   "rule ", sym(Sk/N), " ↪ ", abstraction(Xs), epsilon(S), " (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ");\n",
   header(Name), pis(Bs), "π ", formula(F), " → π ", formula(T1), " ≔ λ", variables(Xs), " h, ",
   epsilon(S), "ᵢ (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ") h;\n".
-% a function symbol unfolds to its definition, so that its equation holds by reflexivity
+% a function symbol unfolds to its definition, so that its equation holds by reflexivity, stated only
+% if a step cites it
 proof_step(definition(Symbol, Bs, Body), Name, clause(Cs, [Eq])) -->
   { length(Bs, N), binder_variables(Bs, Xs), binder_variables(Cs, Ys), Eq = '$='(_, A, _) },
   "rule ", sym(Symbol/N), " ↪ ", abstraction(Xs), term(0, Body), ";\n",
-  header(Name), statement(clause(Cs, [Eq])), " ≔ λ", variables(Ys), " h0, h0 (eq_refl ", term(A), ");\n".
+  (   { cited(Name) }
+  ->  header(Name), statement(clause(Cs, [Eq])), " ≔ λ", variables(Ys), " h0, h0 (eq_refl ", term(A), ");\n"
+  ;   []
+  ).
 % ...and a predicate unfolds to its body, so that each side of its definition implies the other
 proof_step(definition(Symbol, Bs, Body), Name, formula(F)) -->
   { length(Bs, N), binder_variables(Bs, Xs) },
   "rule ", sym(Symbol/N), " ↪ ", abstraction(Xs), formula(0, Body), ";\n",
-  header(Name), "π ", formula(F), " ≔ ", abstraction(Xs), "∧ᵢ (λ h, h) (λ h, h);\n".
+  (   { cited(Name) }
+  ->  header(Name), "π ", formula(F), " ≔ ", abstraction(Xs), "∧ᵢ (λ h, h) (λ h, h);\n"
+  ;   []
+  ).
 proof_step(proof(M), Name, Conclusion) -->
   header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proof(M), ";\n".
 

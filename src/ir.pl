@@ -95,9 +95,10 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4,
+:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
+:- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(db).
 :- use_module(logic).
@@ -219,6 +220,12 @@ defined_term(T, Body) :-
 reference(proof(M), Name) :- head(M, Name).
 reference(todo(_, Parents), Name) :- member(Name, Parents).
 reference(conjecture(_, Negated, Refutation), Name) :- ( Name = Negated ; Name = Refutation ).
+
+% the steps that some step cites, as an assoc
+cited_steps(Cited) :-
+  findall(Name-true, ( ir_step(_, _, J), reference(J, Name) ), Pairs0),
+  sort(Pairs0, Pairs),
+  list_to_assoc(Pairs, Cited).
 
 % a step at the head of an application in a proof term
 head(lam(_, _, M), Name) :- head(M, Name).

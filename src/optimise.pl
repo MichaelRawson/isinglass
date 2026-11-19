@@ -6,8 +6,15 @@ checker) reads it as before.
 
 A step is inlined if it is a clause proved by a term, not a step between formulas, and is cited only
 by full applications (all its terms and hypotheses) in the proof terms of clausal steps (not between
-formulas), and either once, or its term (with what it inlines, under the λs of its binders) is small
-enough that copying it costs less than stating its clause: (Uses - 1) * Size < size of the clause.
+formulas), and its term (with what it inlines, under the λs of its binders) is small enough that
+copying it where it is cited costs less than stating it: each use grows by Size - Skeleton, where the
+skeleton is the citation itself, applied to the step's binders, if each binder occurs at most once in
+the term (so no argument is copied; else it is 0), and inlining saves the term and its clause, so
+Uses * (Size - Skeleton) < Size + size of the clause. A step that just forwards to another
+(λ x h. f x h) costs nothing.
+A step that proves an equation S = T whose sides are the same once defined terms are unfolded is
+proved by λ xs h. h refl instead (whatever it cites), and is always inlined, as K refl is no larger
+than the citation it replaces.
 
 Each remaining proof term is normalised in one pass, top-down, in an environment that maps the names
 bound in the original term to their values: an eigenvariable to a term, a hypothesis to a fresh
@@ -47,8 +54,32 @@ optimise :-
             ir_step(Name, Conclusion, Justification0),
             optimised(Inlined, Name, Conclusion, Justification0, Justification) ),
           Steps),
+  live(Names, Steps, Live),
   forget(ir_step(_, _, _)),
-  each(member(Step, Steps), record(Step)).
+  each(( member(Step, Steps), Step = ir_step(Name, _, _), get_assoc(Name, Live, _) ), record(Step)).
+
+% the steps that the roots (the last refutation, and the conjecture) still cite, once inlined steps
+% cite nothing, and refl proves what it can; and every definition, as it defines its symbol. A step may
+% be proved but not cited, as by a step that names it as a parent but does not need it
+live(Names, Steps, Live) :-
+  findall(Name, ( member(Name, Names), ir_step(Name, clause([], []), _) ), Refutations),
+  findall(Name, ( member(Name, Names), ir_step(Name, _, conjecture(_, _, _)) ), Conjectures),
+  ( last(Refutations, R) -> Roots = [R|Conjectures] ; Roots = Conjectures ),
+  empty_assoc(Empty),
+  foldl(reached(Steps), Roots, Empty, Live0),
+  findall(Name, member(ir_step(Name, _, definition(_, _, _)), Steps), Ds),
+  findall(Name, member(ir_step(Name, _, skolem_def(_, _, _)), Steps), Ss),
+  append(Ds, Ss, Defs),
+  foldl(reached(Steps), Defs, Live0, Live).
+
+reached(_, Name, Live, Live) :- get_assoc(Name, Live, _), !.
+reached(Steps, Name, Live0, Live) :-
+  put_assoc(Name, Live0, true, Live1),
+  (   memberchk(ir_step(Name, _, J), Steps)
+  ->  findall(P, reference(J, P), Ps),
+      foldl(reached(Steps), Ps, Live1, Live)
+  ;   Live = Live1
+  ).
 
 /********************************************************************************
  * which steps are inlined
@@ -66,7 +97,8 @@ count_use(Name-Use, Uses0, Uses) :-
   put_assoc(Name, Uses0, N, Uses).
 
 % a citation is good if it is a full application in the term of a clausal step
-citation(Host, Conclusion, proof(M), Name, Use) :- !,
+citation(Host, Conclusion, proof(_), Name, Use) :- !,
+  step_term(Host, Conclusion, M),
   cited(M, Name, Ts, Ms),
   ( clausal(Host, Conclusion), full(Name, Ts, Ms) -> Use = good ; Use = bad ).
 citation(_, _, Justification, Name, bad) :- reference(Justification, Name).
@@ -87,15 +119,53 @@ step_name(F) :- atom(F), ir_step(F, _, _), !.
 % Inlined maps each inlined step to its size, with the steps it inlines: those for which copying
 % costs less than stating them
 plan(Uses, Name, Inlined0, Inlined) :-
-  ir_step(Name, Conclusion, proof(M)),
+  step_term(Name, Conclusion, M),
   clausal(Name, Conclusion),
   get_assoc(Name, Uses, N),
   N \== bad, !,
-  inlined_size(Inlined0, M, Size),
-  clause_type(Conclusion, T),
-  term_size(T, TypeSize),
-  ( (N - 1) * Size < TypeSize -> put_assoc(Name, Inlined0, Size, Inlined) ; Inlined = Inlined0 ).
+  (   reflexivity(Conclusion)
+  ->  put_assoc(Name, Inlined0, 0, Inlined)
+  ;   inlined_size(Inlined0, M, Size),
+      clause_type(Conclusion, T),
+      term_size(T, TypeSize),
+      skeleton_size(Name, Conclusion, M, Skeleton),
+      (   N * (Size - Skeleton) < Size + TypeSize
+      ->  put_assoc(Name, Inlined0, Size, Inlined)
+      ;   Inlined = Inlined0
+      )
+  ).
+
 plan(_, _, Inlined, Inlined).
+
+% the size of a citation of the step, applied to its binders, which its arguments replace: only if each
+% binder occurs at most once in its term M, so that inlining copies no argument; else nothing is saved
+skeleton_size(Name, clause(Bs, Ls), M, Size) :-
+  binder_variables(Bs, Xs),
+  spine_binders(M, Ys),
+  spine_body(M, B),
+  \+ ( member(Y, Ys), occurrences(B, Y, K), K > 1 ), !,
+  findall(h(I), nth0(I, Ls, _), Hs),
+  term_size(app(Name, Xs, Hs), Size).
+skeleton_size(_, _, _, 0).
+
+% the binders of the λs around a step's term
+spine_binders(lam(X, _, M), [X|Xs]) :- !, spine_binders(M, Xs).
+spine_binders(_, []).
+
+occurrences(T, X, N) :- findall(x, ( subterm(T, U), U == X ), Us), length(Us, N).
+
+% the term of a step: its proof, or refl for an equation whose sides are the same once defined terms
+% are unfolded, under the λs of its binders
+step_term(Name, Conclusion, M) :-
+  ir_step(Name, Conclusion, proof(M0)),
+  ( reflexivity(Conclusion) -> reflexive_term(Conclusion, M) ; M = M0 ).
+
+reflexivity(clause(_, [L])) :- terms_unfolded(L, '$='(_, S, T)), S == T.
+
+reflexive_term(clause(Bs, [L]), M) :- lams(Bs, lam(h(0), ~L, app(h(0), [], [app('$refl', [], [])])), M).
+
+lams([], M, M).
+lams([X:S|Bs], M0, lam(X, S, M)) :- lams(Bs, M0, M).
 
 % the size of the body of a step's term, under the λs of its binders, which inlining removes, with
 % the steps it inlines
@@ -119,7 +189,8 @@ add_size(T, N0, N) :- term_size(T, K), N is N0 + K.
  ********************************************************************************/
 
 % a failure is a bug, and the steps it inlines are gone, so it is an error
-optimised(Inlined, Name, Conclusion, proof(M0), proof(M)) :- !,
+optimised(Inlined, Name, Conclusion, proof(_), proof(M)) :- !,
+  step_term(Name, Conclusion, M0),
   (   host(Inlined, M0, M1)
   ->  first_fresh(Conclusion, K),
       number_eigenvariables(M1, K, _),
@@ -197,7 +268,7 @@ applied(Env, F, Ts, Cs, M) :-
 applied(Env, F, Ts, Cs, M) :-
   Env = env(Inlined, _, _),
   get_assoc(F, Inlined, _), !,
-  ir_step(F, _, proof(M0)),
+  step_term(F, _, M0),
   hypothesis_uses(M0, Uses),
   empty_assoc(Empty),
   reduced(env(Inlined, Empty, Uses), M0, Ts, Cs, M).
@@ -212,8 +283,10 @@ application(Y, [], [], Y) :- var(Y), !.
 application(Y, Ts, Ms, app(Y, Ts, Ms)).
 
 % normal terms may be hypotheses, which are variables, so they are matched with care; the type of a
-% symmetric equation may be inferred, so it is replaced only by a term whose type can be (inferable/1)
+% symmetric equation may be inferred, so it is replaced only by a term whose type can be (inferable/1),
+% or by refl, whose type is that of the equation it proves
 built('$sym', [], [E0], E) :- nonvar(E0), E0 = app('$sym', [], [E]), inferable(E), !.
+built('$sym', [], [E], E) :- nonvar(E), E = app('$refl', [], []), !.
 built(F, Ts, Ms, app(F, Ts, Ms)).
 
 inferable(M) :- ( var(M) -> true ; M = app(_, _, _) ).
@@ -256,9 +329,16 @@ reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 % a value may replace a hypothesis used as Use (see hypothesis_uses) if it is cheap or used once, as
 % any term may be a head; but not one whose type is inferred, as its binder's type may unfold the value's
 substitutable(_, app('$nex', _, _), _) :- !, fail.
+substitutable(Env, V, _) :- reflexive(Env, V), !.
 substitutable(_, _, u(_, true)) :- !, fail.
 substitutable(Env, V, _) :- cheap(Env, V), !.
 substitutable(_, _, u(1, _)).
+
+% a proof of reflexivity, refl or sym of one, may replace a hypothesis anywhere, even where the checker
+% infers its type: there it is simplified away, as a rewrite by refl is its proof, and sym refl is refl
+reflexive(_, V) :- nonvar(V), V = app('$refl', [], []), !.
+reflexive(Env, V) :- nonvar(V), V = app('$sym', [], [E]), !, reflexive(Env, E).
+reflexive(Env, X) :- nonvar(X), X = h(_), binding(Env, X, c(V, Env1)), reflexive(Env1, V).
 
 % a hypothesis or a constant (not an inlined step), applied to terms only, so copying it is cheap
 cheap(Env, F) :- F = h(_), !, binding(Env, F, V), ( V = c(V0, Env0) -> cheap(Env0, V0) ; true ).
