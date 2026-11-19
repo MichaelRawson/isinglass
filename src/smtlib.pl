@@ -59,8 +59,10 @@ needed_instances(Fs, Declared, Is) :-
   append(Is3, Declared, Is2),
   reverse(Is3, Is).
 
-% a monomorphic symbol defined by its body, a formula or a term (see ir.pl), in the order of the steps
-defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _).
+% a monomorphic symbol defined by its body, a formula or a term (see ir.pl), in the order of the steps;
+% a split symbol is uninterpreted, as its body is quantified, and its definition is asserted where it is
+% used (fact//4)
+defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _), \+ split(S, _).
 
 symbol_definition(S-(Bs-Body)) -->
   { length(Bs, N), symbol(S, [], _, Sort) },
@@ -99,7 +101,6 @@ sort_arguments([S|Ss]) --> " ", sort(S), sort_arguments(Ss).
  ********************************************************************************/
 
 check(_, input(_, _), _, _) --> [].
-check(_, split_def(_, _), _, _) --> [].
 % Skolem symbols are uninterpreted, and their definitions not checked
 check(_, skolem_def(_, _, _), _, _) --> [].
 % nor are definitions: monomorphic symbols are defined in the header

@@ -25,9 +25,9 @@ Some steps only weaken their parent: the pure predicates are those of the parent
 conclusion, and an unused definition F <=> G is weakened to F => G or G => F.
 
 Skolemisation is an entailment once each Skolem symbol is defined by choice: sK(xs) := ε Y. T, for
-a δ formula of the parent ?[Y] : T (or ~![Y] : G, where T is ~G). The Skolem symbols are those of
-the conclusion that are not in the parent; their keys forget them (normal.pl). A δ formula of the
-parent is opened by the choice axiom of a Skolem term in its counterpart (skolem_def, see ir.pl):
+a δ formula of the parent ?[Y] : T (the prover Skolemises in negation normal form, so not ~!). The
+Skolem symbols are those of the conclusion that are not in the parent; their keys forget them
+(normal.pl). A δ formula of the parent is opened by the choice axiom of a Skolem term in its counterpart (skolem_def, see ir.pl):
 the term is read off the conclusion, so no convention of the prover is assumed. The definitions
 that the proof uses are recorded as steps, before the step itself.
 
@@ -373,7 +373,7 @@ skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
 
 % ...and Hinted is true if the term is the prover's choice
 skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, let(Y, T1, app(Name, As, [X]), M), M) :-
-  delta(F, _, B:_, T),
+  delta(F, '$ex', B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
   candidates(Ss, F, B, T, Gs, Hinted, Us),
@@ -387,7 +387,7 @@ skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, let(Y, T1, app(Name,
   substitute(B, Term, T, T1),
   choice_name(Sk, Name).
 
-% the candidate Skolem terms Us for the δ formula F (? B : T, or ~!), of the symbols Ss in the
+% the candidate Skolem terms Us for the δ formula F (? B : T), of the symbols Ss in the
 % formulas Gs. If the prover says which symbol is its choice (db.pl), only its terms, so that a δ formula
 % paired with the wrong counterpart fails at once, without a search through all of Gs: this saves the
 % search in a formula of many similar parts (LCL670+1.005: chains of r1(X, Y) under nested ?). Without

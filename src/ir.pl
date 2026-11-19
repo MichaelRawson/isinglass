@@ -5,18 +5,17 @@ The intermediate representation (IR) of proofs, and the types of clauses.
 
   Conclusion    ::= clause(Bs, Literals) | formula(F)
   Justification ::= input(Role, Source)             an axiom (never the conjecture)
-                  | split_def(Symbol, Clause)       Symbol is defined as Clause (AVATAR)
                   | skolem_def(Symbol, Bs, F)       Symbol(Xs), for the binders Bs = Xs : Sorts, is
-                                                    defined by choice, as ε Y. T, where F is a δ formula
-                                                    ?[Y:S|Ys] : G (T is ?[Ys] : G) or ~![Y:S|Ys] : G
-                                                    (T is ~![Ys] : G); its conclusion is the choice axiom
+                                                    defined by choice, as ε Y. T, where F is ?[Y:S|Ys] : G
+                                                    (T is ?[Ys] : G); its conclusion is the choice axiom
                                                     ![Bs] : (F => T[Symbol(Xs)/Y]) (choice_axiom/4)
                   | definition(Symbol, Bs, Body)    Symbol(Xs) is defined as Body, for the binders
                                                     Bs = Xs : Sorts; for a function symbol, Body is a
                                                     term, and the conclusion is the unit clause
                                                     [Symbol(Xs) = Body], either way round; for a
                                                     predicate, Body is a formula, and the conclusion is
-                                                    ![Bs] : (Symbol(Xs) <=> Body)
+                                                    ![Bs] : (Symbol(Xs) <=> Body); an AVATAR split symbol
+                                                    is a proposition defined as the type of its clause
                   | proof(M)                        M is a proof term of the conclusion clause
                   | negated_conjecture(Conjecture)  the hypothesis ~G, discharged by Conjecture
                   | conjecture(Source, Negated, Refutation)
@@ -38,8 +37,7 @@ The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.p
 are compared syntactically.
 
 So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
-A split symbol is a defined proposition: it unfolds to the type of its defining clause.
-A defined predicate unfolds to its body, and a defined function term to its term, so a formula is also
+A defined predicate (a split symbol among them) unfolds to its body, and a defined function term to its term, so a formula is also
 of any type that differs from it only by unfolding these (expanded/2), as back ends unfold definitions.
 
   M ::= X                 a hypothesis h(N)
@@ -71,7 +69,8 @@ branch, which binds the formulas of the branch, and first an eigenvariable for ?
 
 '$nex' is not a refutation: applied to a proof of ~ ?[Xs] : F it proves ![Xs] : ~F. It occurs only
 as the value of a let, which states that type (back ends read its binders from it).
-Skolemisation is not a rule: a δ formula is opened by its choice axiom, a step (skolem_def).
+Skolemisation is not a rule: a ? formula is opened by its choice axiom, a step (skolem_def). The
+prover Skolemises in negation normal form, so a δ formula ~! is never chosen for.
 '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so the steps that use them
 are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.
 
@@ -139,10 +138,9 @@ rule_type('$ex', '?'([B|Bs], F), ('!'([B], (G => '$false')) => '$false')) :- qua
 rule_type('$nall', ~'!'([B|Bs], F), ('!'([B], (~G => '$false')) => '$false')) :- quantified('!', Bs, F, G).
 rule_type('$nex', ~'?'(Bs, F), '!'(Bs, ~F)).
 
-% the choice axiom of Symbol, defined for binders Bs as ε Y. T, where T is the body of the δ formula F
+% the choice axiom of Symbol, defined for binders Bs as ε Y. T, where F is ?[Y:S|Ys] : G (T is ?[Ys] : G)
 choice_axiom(Symbol, Bs, F, A) :-
-  ( Rule = '$ex' ; Rule = '$nall' ),
-  rule_type(Rule, F, ('!'([Y:_], (T => '$false')) => '$false')), !,
+  rule_type('$ex', F, ('!'([Y:_], (T => '$false')) => '$false')),
   binder_variables(Bs, Xs),
   Term =.. [Symbol|Xs],
   substitute(Y, Term, T, T1),

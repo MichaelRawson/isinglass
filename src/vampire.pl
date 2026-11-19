@@ -62,9 +62,8 @@ clausal_step(todo(Rule, Parents)) :-
 % unless a tactic defines the symbols (Skolemisation, by choice: see transform.pl)
 how(conjecture, file(_, Input), _, conjecture(Input)) :- !.
 how(Role, file(_, Input), _, input(Role, Input)) :- !.
-how(_, introduced(definition, _, [avatar_definition]), (Symbol <=> Component), split_def(Symbol, C)) :-
-  formula_clause(Component, C), !.
-how(_, introduced(definition, Info, [function_definition]), _, define(Symbol)) :-
+how(_, introduced(definition, Info, [Kind]), _, define(Symbol)) :-
+  ( Kind == function_definition ; Kind == avatar_definition ),
   new_symbols(Info, [Symbol]), !.
 how(_, introduced(definition, Info, [Kind]), F, tactic(Tactic, [Name])) :-
   new_symbols(Info, [Symbol]),
@@ -131,8 +130,15 @@ from_definition(Name) :- step(Name, _, tactic(_, [D])), step(D, formula(_), defi
 A predicate definition is printed as Vampire uses it: as Symbol(Xs) <=> Body, in one direction only,
 Body | ~Symbol(Xs), for an inequality split, ~Symbol(T), where Symbol(X) is X != T, or for a general
 split, C <=> ~Symbol(Xs). The definition itself, ![Xs] : (Symbol(Xs) <=> Body), is recorded first, as
-the step Symbol_def, and the printed statement is proved from it by the Tactic
+the step Symbol_def, and the printed statement is proved from it by the Tactic.
+An AVATAR split Symbol <=> C is a definition itself, once restated as Symbol <=> T, for the type T of the
+clause C (ir:clause_type/2); C is recorded for the AVATAR tactics, as split(Symbol, C)
 */
+definition_statement(introduced(definition, _, [avatar_definition]), (Symbol <=> Component), F) :-
+  formula_clause(Component, C), !,
+  record(split(Symbol, C)),
+  clause_type(C, T),
+  F = (Symbol <=> T).
 definition_statement(introduced(definition, Info, [Kind]), F0, F) :-
   new_symbols(Info, [Symbol]),
   predicate_definition(Kind, F0, Symbol, Definition0, _), !,
@@ -342,7 +348,7 @@ flipped_formula(_, A, A).
 
 /*
 Skolemisation lists its choices skolemize(X, sK(Ys)), one for each δ binder of the parent, in
-preorder: left to right, outermost first, by polarity (as Vampire does; the names X and Ys are the
+preorder: left to right, outermost first (as Vampire does, in negation normal form; the names X and Ys are the
 parent's, but read/1 does not keep them). Each is recorded as a hint (db.pl): the δ formula that the
 choice of sK opens, as reconstruction opens it, with the binders before X in its quantifier and the
 δ formulas around it replaced by their Skolem terms (of fresh arguments). If the counts differ, the
@@ -351,7 +357,7 @@ step has no hints, and transform.pl searches as without them.
 skolem_hints(Statements) :-
   each(( member(annotated(_, _, _, _, inference(skolemize, Info, [Parent])), Statements),
          step(Parent, formula(F), _),
-         delta_binders(F, +, Xs, []),
+         delta_binders(F, Xs, []),
          skolem_symbols(Info, Ts),
          same_length(Xs, Ts),
          pairs_keys_values(Choices, Xs, Ts),
@@ -362,16 +368,12 @@ skolem_hints(Statements) :-
          functor(T, Sk, _) ),
        record(skolem_hint(Sk, D))).
 
-% the δ binders of F, in preorder, by polarity
-delta_binders('?'(Bs, G), +, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, +, Xs1, Xs).
-delta_binders('!'(Bs, G), -, Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, -, Xs1, Xs).
-delta_binders('?'(_, G), -, Xs0, Xs) :- !, delta_binders(G, -, Xs0, Xs).
-delta_binders('!'(_, G), +, Xs0, Xs) :- !, delta_binders(G, +, Xs0, Xs).
-delta_binders(~G, P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(G, Q, Xs0, Xs).
-delta_binders((F => G), P, Xs0, Xs) :- !, opposite(P, Q), delta_binders(F, Q, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
-delta_binders((F | G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
-delta_binders((F & G), P, Xs0, Xs) :- !, delta_binders(F, P, Xs0, Xs1), delta_binders(G, P, Xs1, Xs).
-delta_binders(_, _, Xs, Xs).
+% the binders of the ? formulas of F, a formula in negation normal form, in preorder
+delta_binders('?'(Bs, G), Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, Xs1, Xs).
+delta_binders('!'(_, G), Xs0, Xs) :- !, delta_binders(G, Xs0, Xs).
+delta_binders((F | G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
+delta_binders((F & G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
+delta_binders(_, Xs, Xs).
 
 % the Skolem terms of skolemize(_, T) in Info, in order, each of fresh arguments
 skolem_symbols([], []).
@@ -384,7 +386,6 @@ skolem_symbols([I|Is], Ts) :-
 
 % the δ formula of F that is opened for its binder X: X and the binders after it
 delta_formula(F, X, D) :- quantified(F, '?', Bs, G), after(X, Bs, Bs1), !, D = '?'(Bs1, G).
-delta_formula(~F, X, D) :- quantified(F, '!', Bs, G), after(X, Bs, Bs1), !, D = ~'!'(Bs1, G).
 delta_formula(F, X, D) :- quantified(F, _, _, G), !, delta_formula(G, X, D).
 delta_formula(F, X, D) :- connective(F, Fs), member(G, Fs), delta_formula(G, X, D), !.
 

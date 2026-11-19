@@ -50,7 +50,7 @@ prelude -->
   "opaque symbol sym (a : Set) (x y : τ a) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
   "opaque symbol refl (a : Set) (x : τ a) : π (x = x) ≔ eq_refl x;\n",
   "opaque symbol rw [a] [x y : τ a] (p : τ a → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
-  rules, type_choice, nall_choice, nall_type_choice, "\n".
+  rules, type_choice, "\n".
 
 % the expansion rules (see ir.pl), proved once; those for ¬⇔ and ¬∀ are classical,
 % and those for quantifiers over types are apart (_t), with the rules of ∃ₜ
@@ -117,17 +117,6 @@ type_choice --> { skolem_delta(_, S), S == '$tType' }, !,
   "symbol εₜᵢ (p : Set → Prop) : π (∃ₜ p) → π (p (εₜ p));\n".
 type_choice --> [].
 
-% the choice of a counterexample to ∀, classically, for a Skolem symbol defined by ~ ! (see ir.pl)
-nall_choice --> { skolem_delta(~_, S), S \== '$tType' }, !,
-  "opaque symbol nall_ε [a] (p : τ a → Prop) : π (¬ (`∀ x, p x)) → π (¬ (p (ε (λ x, ¬ (p x))))) ≔\n",
-  "  λ h, εᵢ (λ x, ¬ (p x)) (¬¬ₑ (`∃ x, ¬ (p x)) (λ n, h (λ x, ¬¬ₑ (p x) (λ m, n (∃ᵢ x m)))));\n".
-nall_choice --> [].
-
-nall_type_choice --> { skolem_delta(~_, S), S == '$tType' }, !,
-  "opaque symbol nall_εₜ (p : Set → Prop) : π (¬ (`∀ₜ a, p a)) → π (¬ (p (εₜ (λ a, ¬ (p a))))) ≔\n",
-  "  λ h, εₜᵢ (λ a, ¬ (p a)) (¬¬ₑ (`∃ₜ a, ¬ (p a)) (λ n, h (λ a, ¬¬ₑ (p a) (λ m, n (∃ₜᵢ a m)))));\n".
-nall_type_choice --> [].
-
 % sorts are terms of sort Set
 sort('$tType') --> !, "Set".
 sort('$o') --> !, "Prop".
@@ -151,15 +140,12 @@ proof_step(negated_conjecture(_), Name, formula(F)) -->
   "// ", atom(Name), " : π ", formula(F), " is a parameter of the steps that depend on it\n".
 proof_step(conjecture(_, Negated, Refutation), Name, formula(G)) -->
   header(Name), "π ", formula(G), " ≔ ¬¬ₑ ", formula(G), " (λ ", atom(Negated), ", ", head(Refutation), ");\n".
-proof_step(split_def(Split, Clause), _, _) -->
-  "rule ", sym(Split/0), " ↪ ", proposition(Clause), ";\n".
-% a Skolem symbol unfolds to its choice, ε Y. T, and its choice axiom is εᵢ (or nall_ε, for ~ !);
-% a type is chosen by εₜ
+% a Skolem symbol unfolds to its choice, ε Y. T, and its choice axiom is εᵢ; a type is chosen by εₜ
 proof_step(skolem_def(Sk, Bs, F), Name, formula(_)) -->
   { length(Bs, N), binder_variables(Bs, Xs), choice_axiom(Sk, Bs, F, A), consequent(A, T1), delta_body(F, Y:S, T) },
   "rule ", sym(Sk/N), " ↪ ", abstraction(Xs), epsilon(S), " (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ");\n",
   header(Name), pis(Bs), "π ", formula(F), " → π ", formula(T1), " ≔ λ", variables(Xs), " h, ",
-  choice_proof(F, Y:S, T), " h;\n".
+  epsilon(S), "ᵢ (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ") h;\n".
 % a function symbol unfolds to its definition, so that its equation holds by reflexivity
 proof_step(definition(Symbol, Bs, Body), Name, clause(Cs, [Eq])) -->
   { length(Bs, N), binder_variables(Bs, Xs), binder_variables(Cs, Ys), Eq = '$='(S, A, _) },
@@ -206,13 +192,8 @@ abstraction([X|Xs]) --> "λ", variables([X|Xs]), ", ".
 consequent('!'(_, (_ => T)), T) :- !.
 consequent((_ => T), T).
 
-% the δ formula F, ?[Y:S|Ys] : G or ~ ![Y:S|Ys] : G, is opened with Y for the body T
-delta_body(F, B, T) :-
-  ( Rule = '$ex' ; Rule = '$nall' ),
-  rule_type(Rule, F, ('!'([B], (T => '$false')) => '$false')), !.
-
-choice_proof(~_, Y:S, ~T) --> !, "nall_", epsilon(S), " (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ")".
-choice_proof(_, Y:S, T) --> epsilon(S), "ᵢ (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ")".
+% the δ formula F, ?[Y:S|Ys] : G, is opened with Y for the body T
+delta_body(F, B, T) :- rule_type('$ex', F, ('!'([B], (T => '$false')) => '$false')).
 
 epsilon(S) --> { S == '$tType' }, !, "εₜ".
 epsilon(_) --> "ε".
@@ -372,7 +353,6 @@ quantifier(Q, '$tType') --> !, codes(Q), "ₜ".
 quantifier(Q, _) --> codes(Q).
 
 % a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
-proposition(C) --> { clause_type(C, F) }, formula(0, F).
 
 % the type of hypothesis refuting literal L, as an argument of π
 hypothesis_type(L) --> formula(~L).

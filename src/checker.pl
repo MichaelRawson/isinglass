@@ -61,7 +61,7 @@ justified(conjecture(_, Negated, Refutation), formula(G), Steps) :- !,
   N == ~G,
   get_assoc(Refutation, Steps, true),
   ir_step(Refutation, clause([], []), _).
-% the choice axiom of a Skolem symbol, defined once, by a well-sorted δ formula of its arguments only
+% the choice axiom of a Skolem symbol, defined once, by a well-sorted ? formula of its arguments only
 justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
   introduced(Sk, _),
   \+ ( ir_step(Name, _, skolem_def(Sk, _, _)), get_assoc(Name, Steps, true) ),
@@ -71,8 +71,7 @@ justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
   canonical(F, F1),
   F1 == F,
   well_sorted(Gamma, F),
-  ( Rule = '$ex' ; Rule = '$nall' ),
-  rule_type(Rule, F, ('!'([_:S], _) => _)), !,
+  rule_type('$ex', F, ('!'([_:S], _) => _)),
   S == Sort,
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A1),
@@ -281,15 +280,12 @@ arguments([M|Ms], Steps, Gamma, T0, T) :-
   check(Steps, Gamma, M, A),
   arguments(Ms, Steps, Gamma, B, T).
 
-% weak head normal form: negation is implication, and split symbols and defined atoms are their definitions
+% weak head normal form: negation is implication, and defined atoms (split symbols among them) are their
+% definitions, which a let or annotation would otherwise unfold (optimise.pl removes some)
 % types are compared syntactically (T1 == T above), not up to unfolding: enough for clauses
 unfold(~A, (A => '$false')) :- !.
-unfold(S, T) :- atom(S), split(S, Clause), !, closed(Clause), clause_type(Clause, T).
-% ...and so are defined atoms, which a let or annotation would otherwise unfold (optimise.pl removes some)
 unfold(A, T) :- defined_atom(A, F0), !, opened(F0, F1), canonical(F1, F), unfold(F, T).
 unfold(T, T).
-
-closed(clause(Bs, Ls)) :- \+ \+ ( binder_variables(Bs, Xs), number_vars(Xs, 0, _), ground(Ls) ).
 
 hypothesis(h(N)) :- integer(N).
 eigenvariable('$VAR'(N)) :- integer(N).

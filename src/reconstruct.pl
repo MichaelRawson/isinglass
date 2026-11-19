@@ -28,7 +28,6 @@ Steps between formulas are reconstructed by the tactics of transform.pl, which h
 
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
-  each(step(_, _, split_def(Symbol, Clause)), record(split(Symbol, Clause))),
   findall(Name, step(Name, clause([], []), _), Refutations),
   final(Refutations, Refutation),
   prove(Refutation),
@@ -64,11 +63,6 @@ rigid(clause(Bs, _), Fresh) :- binder_variables(Bs, Xs), number_vars(Xs, 0, Fres
 rigid(formula(F), Fresh) :- canonical(F, _), term_variables(F, Vs), number_vars(Vs, 0, Fresh).
 
 justify(input(Role, Source), _, _, _, input(Role, Source)).
-% the defining clause is rigid as a clause is, not as part of the definition's formula
-justify(split_def(Symbol, _), _, _, _, split_def(Symbol, Clause)) :-
-  split(Symbol, Clause),
-  rigid(Clause, _),
-  definitions_first(Clause).
 justify(negated_conjecture(Conjecture), _, _, _, negated_conjecture(Conjecture)).
 justify(define(Symbol), _, Conclusion, _, Justification) :-
   (   defining(Symbol, Conclusion, Bs, Body)
@@ -114,7 +108,7 @@ refutation(formula(F), [H-(~F)], Body, app('$dne', [F], [lam(H, ~F, Body)])).
 definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).
 
 % so do the definitions of the split literals of a clause, which a step need not cite (sat_conversion)
-splits_first(clause(_, Ls)) :- each(( member(L, Ls), atom_of(L, A), atom(A), step(Name, _, split_def(A, _)) ), prove(Name)).
+splits_first(clause(_, Ls)) :- each(( member(L, Ls), atom_of(L, A), atom(A), split(A, _), step(Name, _, define(A)) ), prove(Name)).
 splits_first(formula(_)).
 
 atom_of(~A, A) :- !.

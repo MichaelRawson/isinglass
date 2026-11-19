@@ -48,11 +48,11 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - Heads are variables or constants, so terms are β-normal apart from `let`.
 - `'$nex'` occurs only as the value of a `let`, which states its type `![Xs] : ~F`: back ends read its binders from it.
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
-- Clause splits: a split symbol is a defined proposition that unfolds to the type of its clause.
+- Clause splits: a split symbol is a predicate `definition` of no arguments, whose body is the type of its clause, so it unfolds to that type. The front end restates Vampire's `spl <=> C` as `spl <=> T` for the clause type `T` of `C`, and keeps `C` as `split/2` for the AVATAR tactics.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
 - Function definitions: `definition(F, Bs, T)` defines `F(Xs)`, for binders `Bs = Xs : Sorts`, as the term `T`. It is the prover's own step, whose conclusion is the unit clause `F(Xs) = T`, either way round: a conservative extension, so the step is an axiom. A defined function term unfolds to its term, by definition, as the back ends define the symbol.
-- Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. Like a split symbol, a defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms and function terms (`ir:expanded/2`), as the back ends define the symbols. A body cites only definitions before it, so unfolding terminates.
-- Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`: `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`) or `~![Y:S|Ys] : G` (`T` is `~![Ys] : G`).
+- Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. A defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms and function terms (`ir:expanded/2`), as the back ends define the symbols. A body cites only definitions before it, so unfolding terminates.
+- Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`, `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`). Provers Skolemise in negation normal form, so there is no choice for `~!`.
   It is a step named `Sk_def`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
 
 ## Classical Logic and Conjectures
@@ -61,7 +61,7 @@ Constructive backends use A-translation to produce a constructive proof (!).
 
 - Proof terms stay in minimal logic with an abstract ⊥. No DNE or excluded middle appears in the clausal IR, but may in steps between formulas.
 - Of the formula expansion rules, those for `~(F => G)`, `~(F <=> G)` and `~!` are not valid in minimal logic.
-- Neither is the choice axiom of a Skolem symbol for `~!` (a counterexample is chosen); that for `?` needs only choice.
+- The choice axiom of a Skolem symbol needs only choice.
 - The other rules are valid for any `⊥`, so a step from a formula to a clause is often constructive.
 - The negated conjecture is a parameter, not an axiom. Its type is `G → ⊥`, and only the `conjecture` step discharges it.
 - A classical back end proves `G` by double-negation elimination.
@@ -115,7 +115,7 @@ Instead, each prover rule names the transformation it performs, and the tactic c
   - the Skolem symbols are those of the conclusion that are `introduced(_, skolem)` and not in the parent;
   - a δ formula of the parent is opened by the choice axiom of a Skolem term `sK(As)` in its counterpart, so the term is read off the conclusion, and no prover convention (e.g. argument order) is assumed. Its arguments must be distinct eigenvariables, including those of the δ formula, and the definitions of a symbol must agree;
   - the keys forget Skolem terms, so lookups are ambiguous: each counterpart is tried, a disjunction is looked up too (its counterpart may be a `?` not yet opened), and a choice is pruned unless each atom with the bound variable is in the counterpart with the term in its place (`plausible`, where Skolem terms already chosen must match), as several `?` may be Skolemised at once. The branches of a split are closed smallest first, so a wrong counterpart fails on its smallest branch: otherwise `~(C & p(sK1))` against `?[X] : (D & p(X))`, with `sK0` for `X`, closes `C` against `D` first, and with it each `?` nested in them, again for each wrong counterpart of the levels around them (ITP009+2's twelve nested `?`);
-  - the prover's hint (`skolem_hint/2`) settles the choice where there is one: Vampire lists `skolemize(X, sK(Ys))` for each δ binder `X` of the parent, in preorder (left to right, outermost first, by polarity), so the front end records the δ formula that the choice of `sK` opens (`vampire:skolem_hints/1`). The names `X` and `Ys` would say the same, but `read/1` does not keep them, so this is a prover convention, checked only by the count of δ binders. Only the terms of the hinted symbol of a hinted δ formula are candidates, so a δ formula paired with the wrong counterpart fails at once, and its opening is not undone. The term is still read off the conclusion and checked. Without the hint, LCL670+1.005's chains of `r1(X, Y)` under nested `?` are searched exponentially;
+  - the prover's hint (`skolem_hint/2`) settles the choice where there is one: Vampire lists `skolemize(X, sK(Ys))` for each δ binder `X` of the parent, in preorder (left to right, outermost first, in negation normal form), so the front end records the δ formula that the choice of `sK` opens (`vampire:skolem_hints/1`). The names `X` and `Ys` would say the same, but `read/1` does not keep them, so this is a prover convention, checked only by the count of δ binders. Only the terms of the hinted symbol of a hinted δ formula are candidates, so a δ formula paired with the wrong counterpart fails at once, and its opening is not undone. The term is still read off the conclusion and checked. Without the hint, LCL670+1.005's chains of `r1(X, Y)` under nested `?` are searched exponentially;
   - a `?` may come between the parent's universals, so a δ formula of the conclusion opens only as many eigenvariables as its counterpart has universals, and a clause conclusion instantiates the parent's universals around its Skolemised `?`;
   - a type may be chosen too (a δ over `$tType`), as in TF1.
 - `clausify` reconstructs `cnf_transformation` of a formula: the clause's literals refute the parent, by one part of each conjunction and every branch of each disjunction, closing literals by unification.
@@ -135,7 +135,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | definition_unfolding | `unfold` |
 | definition_folding of function definitions, in a clause | `fold` |
 | definition_folding of predicate definitions, in a formula | `transform(fold)` |
-| function_definition (introduced) | `definition` |
+| function_definition, avatar_definition (introduced) | `definition` |
 | predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `~P(Xs)` among the disjuncts of `F` (introduced) | `transform(base)`, or `transform(definition)`, from `P_def` |
 | inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
@@ -179,11 +179,11 @@ An optional pass between reconstruction and the back end makes proofs smaller, a
 ### Checker (`checker.pl`)
 An independent-ish type checker of each ground, annotated term against the type of its conclusion.
 - First-order terms are checked against the signature.
-- Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a split its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
+- Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a defined atom (such as a split) its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
 - An expansion rule is typed by its first argument (`ir:rule_type/3`).
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
-- A Skolem symbol is defined once, by a well-sorted δ formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
+- A Skolem symbol is defined once, by a well-sorted `?` formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
 - A function symbol is defined once, by a well-sorted term of its arguments only, citing only symbols defined before it, and its step is exactly the equation of its definition, either way round. So is a predicate, by a well-sorted formula, and its step is exactly `![Bs] : (P(Xs) <=> F)`.
 - A term that fails to check is a reconstruction bug: the step is reported and the run fails.
 - A `todo` step is accepted, as part of a partial proof, but warned about: `warning: name (rule) is not checked`.
@@ -199,9 +199,9 @@ Uses the `Stdlib` encoding of first-order logic.:
 - Type quantification: Stdlib's `` `∀ `` ranges over the elements of a `Set`, not over `Set`, so our prelude adds a binder `∀ₜ : (Set → Prop) → Prop` with `π (∀ₜ p) ↪ Π a : Set, π (p a)`.
 - `∃ₜ` is declared with its introduction and elimination rules.
 - The expansion rules are lemmas of the prelude (`and_e`, `nall_e`, ...), proved from Stdlib; the classical ones use `Stdlib.Classic`. Rules over type variables are separate lemmas (`ex_t`, `nall_t`, `nex_t`).
-- Skolem symbols are declared with the signature (as `symbol`, so they may be given a rule). A `skolem_def` gives the rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`), so that `sK xs` unfolds, and proves its choice axiom by `εᵢ`; for `~!`, by a classical prelude lemma `nall_ε`.
-- A function `definition` gives the rule `sF ↪ λ xs, T`, so that its equation is proved by `refl`; a predicate's gives `sP ↪ λ xs, F`, so its definition is proved by `∧ᵢ (λ h, h) (λ h, h)`.
-  A type is chosen by `εₜ : (Set → Prop) → Set`, which Stdlib lacks, so it is postulated with its introduction rule `εₜᵢ`, like `∃ₜ` (and `nall_εₜ`).
+- Skolem symbols are declared with the signature (as `symbol`, so they may be given a rule). A `skolem_def` gives the rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`), so that `sK xs` unfolds, and proves its choice axiom by `εᵢ`.
+- A function `definition` gives the rule `sF ↪ λ xs, T`, so that its equation is proved by `refl`; a predicate's gives `sP ↪ λ xs, F`, so its definition is proved by `∧ᵢ (λ h, h) (λ h, h)`. A split symbol is such a predicate, its body a clause type.
+  A type is chosen by `εₜ : (Set → Prop) → Set`, which Stdlib lacks, so it is postulated with its introduction rule `εₜᵢ`, like `∃ₜ`.
 - Canonical bound variables are printed `yN`, eigenvariables `xN`.
 - Type annotations are used where this was shown to improve checking performance, although it should not really be necessary.
 
@@ -216,7 +216,7 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms. Only the prover's own symbols are renamed (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place).
 - Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
 - `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps and Skolem definitions are not printed.
-- A function `definition` is printed as an Agda definition of its symbol in the module (so `agda_file` does not postulate it), and its equation is proved by `refl`. So is a predicate, whose definition step is a formula and is not printed; a body that Agda cannot state (of `&`, `|`, `<=>` or `?`) is a hole.
+- A function `definition` is printed as an Agda definition of its symbol in the module (so `agda_file` does not postulate it), and its equation is proved by `refl`. So is a predicate, whose definition step is a formula and is not printed; a body that Agda cannot state (of `&`, `|`, `<=>` or `?`) is a hole. A split symbol is such a predicate, whose body, a clause type, Agda can state.
 - A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
 - Everything is in `Set`: no universe levels, so no split definitions over type variables.
 - `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with names mangled such that TPTP names are Agda identifiers.
@@ -229,7 +229,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Sorts are sorts, declared with their arity (`(declare-sort |t.list| 1)`), but polymorphic symbols are _monomorphised_: each instance used in a check is declared in its scope.
 - SMT-LIB `declare-sort-parameter` could support polymorphism but is not yet supported by mainstream SMT solvers.
 - Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
-- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun`, as proofs unfold them by definition, after the instances of polymorphic symbols in their bodies (which no check declares again), and each instance of a polymorphic one in its check, by its body at the instance's types (after the instances in that body).
+- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun` (but split symbols, which stay uninterpreted, their bodies quantified: a check asserts the instance of the definition it uses), as proofs unfold them by definition, after the instances of polymorphic symbols in their bodies (which no check declares again), and each instance of a polymorphic one in its check, by its body at the instance's types (after the instances in that body).
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
 - A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T`, is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.

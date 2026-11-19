@@ -109,9 +109,6 @@ cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
  * steps
  ********************************************************************************/
 
-% a split symbol is defined as the type of its clause; formula steps have no proof terms
-emitted(step(_, _, split_def(Split, Clause))) --> !,
-  definition(symbol(Split), codes("Set"), conclusion(Clause)).
 % a function symbol is defined by its term, so that its equation holds by reflexivity
 emitted(step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs), binder_variables(Cs, Ys), append(Ys, [h(0)], Zs) },
@@ -307,7 +304,7 @@ argument(T) --> " ", term(T).
  ********************************************************************************/
 
 file -->
-  { findall(S, ( symbol(S, _, _, _), \+ split(S, _), \+ ir_step(_, _, definition(S, _, _)) ), Symbols),
+  { findall(S, ( symbol(S, _, _, _), \+ ir_step(_, _, definition(S, _, _)) ), Symbols),
     leaves(Leaves) },
   "{-# OPTIONS --allow-unsolved-metas #-}\n",
   "open import Agda.Builtin.Equality\n",
