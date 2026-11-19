@@ -1,6 +1,9 @@
 % utilities for formulas and clauses in the internal syntax (see ops.pl)
 :- module(logic, [
   formula_clause/2,
+  quantify/4,
+  quantifier_prefix/4,
+  quantifier_prefix/5,
   binder_variables/2,
   clause_formula/2,
   disjunction/2,
@@ -20,10 +23,23 @@
 :- use_module(library(assoc)).
 :- use_module(ops).
 
+% each quantifier has one binder (see load.pl): G is F under a quantifier Q for each of the binders Bs,
+% outermost first
+quantify(_, [], F, F).
+quantify(Q, [B|Bs], F, G) :- quantify(Q, Bs, F, G1), G =.. [Q, [B], G1].
+
+% ...and back again: the binders Bs of the outermost quantifiers Q of G, around F
+quantifier_prefix(Q, G, [B|Bs], F) :- nonvar(G), G =.. [Q, [B], G1], !, quantifier_prefix(Q, G1, Bs, F).
+quantifier_prefix(_, F, [], F).
+
+% ...or of exactly N of them
+quantifier_prefix(_, 0, F, [], F) :- !.
+quantifier_prefix(Q, N, G, [B|Bs], F) :- nonvar(G), G =.. [Q, [B], G1], N1 is N - 1, quantifier_prefix(Q, N1, G1, Bs, F).
+
 % a formula is a clause: clause(Bs, Literals), with quantifier binders Bs
-formula_clause('!'(Bs, F), C) :- !, C = clause(Bs, Ls), literals(F, Ls).
+formula_clause(G, C) :- quantifier_prefix('!', G, Bs, F), Bs = [_|_], !, C = clause(Bs, Ls), literals(F, Ls).
 % AVATAR clauses are printed as (! [X] : C) | ~split
-formula_clause(('!'(Bs, F) | G), C) :- !, C = clause(Bs, Ls), literals((F | G), Ls).
+formula_clause((G | H), C) :- quantifier_prefix('!', G, Bs, F), Bs = [_|_], !, C = clause(Bs, Ls), literals((F | H), Ls).
 formula_clause(F, clause([], Ls)) :- literals(F, Ls).
 
 literals('$false', []) :- !.
@@ -32,8 +48,7 @@ literals(~A, [~A]) :- !, atomic_formula(A).
 literals(A, [A]) :- atomic_formula(A).
 
 % and back again
-clause_formula(clause([], Ls), F) :- !, disjunction(Ls, F).
-clause_formula(clause(Bs, Ls), '!'(Bs, F)) :- disjunction(Ls, F).
+clause_formula(clause(Bs, Ls), G) :- disjunction(Ls, F), quantify('!', Bs, F, G).
 
 % the variables of quantifier binders X : Sort
 binder_variables(Bs, Xs) :- maplist(binder_variable, Bs, Xs).

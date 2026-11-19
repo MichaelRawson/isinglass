@@ -8,8 +8,8 @@ K is a ground key for the formula F, which is canonical (logic.pl). Formulas wit
 equivalent. Mode is the transformation that the step performs, and decides what the key forgets:
 
   base         names of bound variables, ~~, F => G as ~F | G, nesting of & and |, the units $true
-               of & and $false of |, the order of operands, the orientation of equations, vacuous
-               binders, and how quantifiers are grouped
+               of & and $false of |, the order of operands, the orientation of equations, and vacuous
+               binders
   ennf         as base, and negation is pushed to the atoms, but for that of <=>
   nnf          as ennf, and <=> is expanded
   simplify     as base, and $true and $false are simplified away
@@ -123,15 +123,12 @@ blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As
 occurring([], _, []).
 occurring([V:S|Vs], F, Bs) :- ( occurs(V, F) -> Bs = [V:S|Bs1] ; Bs = Bs1 ), occurring(Vs, F, Bs1).
 
-quantify(_, [], F, F) :- !.
-quantify(Q, Bs, F, K) :- K =.. [Q, Bs, F].
-
 % the key of a canonical formula
 key((F & G), K) :- !, junction(and, '&', (F & G), K).
 key((F | G), K) :- !, junction(or, '|', (F | G), K).
 key((F <=> G), iff(Ks)) :- !, key(F, A), key(G, B), ( B @< A -> Ks = [B, A] ; Ks = [A, B] ).
 key(~F, ~K) :- !, key(F, K).
-key(F, K) :- quantified(F, Q, Bs, G), !, key(G, K0), nested(Q, Bs, K0, K).
+key(F, K) :- quantified(F, Q, Bs, G), !, key(G, K0), quantify(Q, Bs, K0, K).
 key('$='(S, A, B), K) :- !, ( B @< A -> K = '$='(S, B, A) ; K = '$='(S, A, B) ).
 key(A, A).
 
@@ -148,6 +145,3 @@ operands(_, F, [F|Fs], Fs).
 
 spliced(Name, K, Ks0, Ks) :- ( K =.. [Name, Ls] -> append(Ls, Ks, Ks0) ; Ks0 = [K|Ks] ).
 
-% one binder per quantifier
-nested(_, [], K, K).
-nested(Q, [B|Bs], K0, K) :- nested(Q, Bs, K0, K1), K =.. [Q, [B], K1].

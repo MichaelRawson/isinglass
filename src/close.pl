@@ -76,13 +76,10 @@ instances(Env, _, app(F, Ts, Ms)) --> !,
 instances(_, _, _) --> [].
 
 % λ X : A of type T has the binder X : A1, and the body of type T1
-abstraction(T, X, _, S, T1) :- nonvar(T), T = '!'([Y:S|Bs], B), !, substitute(Y, X, Bs-B, Bs1-B1), quantified(Bs1, B1, T1).
+abstraction(T, X, _, S, T1) :- nonvar(T), T = '!'([Y:S], B), !, substitute(Y, X, B, T1).
 abstraction(T, _, _, A, B) :- nonvar(T), T = (A => B), !.
 abstraction(T, _, _, A, '$false') :- nonvar(T), T = ~A, !.
 abstraction(_, _, A, A, _).
-
-quantified([], B, B) :- !.
-quantified(Bs, B, '!'(Bs, B)).
 
 % the types of the arguments Ms of F, where known: those of an expansion rule follow from the type of
 % its first argument, a hypothesis, and those of a hypothesis that is not quantified from its type
@@ -118,7 +115,8 @@ instance_binders(Env, F, Ts, Bs) :-
   member(X-T, Env),
   X == F,
   nonvar(T),
-  T = '!'(Bs0, _), !,
+  length(Ts, N),
+  quantifier_prefix('!', N, T, Bs0, _), !,
   instantiated(Bs0, Ts, Bs).
 instance_binders(Env, F, Ts, Bs) :- head_binders(Env, F, Bs), !, binder_variables(Bs, Ts).
 instance_binders(_, F, Ts, _) :-
@@ -132,7 +130,7 @@ instantiated([X:S|Bs0], [T|Ts], [T:S|Bs]) :- substitute(X, T, Bs0, Bs1), instant
 
 % a step, a built-in, or a hypothesis whose type is a split symbol
 head_binders(_, F, Bs) :- atom(F), step(F, clause(Bs, _), _), !.
-head_binders(_, F, Bs) :- atom(F), builtin_type(F, '!'(Bs, _)), !.
+head_binders(_, F, Bs) :- atom(F), builtin_type(F, T), quantifier_prefix('!', T, Bs, _), Bs = [_|_], !.
 head_binders(Env, F, Bs) :- member(X-T, Env), X == F, !, atom(T), split(T, clause(Bs, _)).
 
 % a hypothesis is a variable until named, so the clauses below would bind it: hence the guard

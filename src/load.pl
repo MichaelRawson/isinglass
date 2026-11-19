@@ -4,8 +4,9 @@ Read TPTP/TSTP from standard input with read/1, producing
   annotated(Language, Name, Role, Formula, Source)
 
 with formulas normalised into the internal syntax (ops.pl):
-  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'(Bs, F), '?'(Bs, F), S = T
-where the binders Bs of a quantifier are X : Sort, with sort '$i' if TPTP gives none, and
+  '$true', '$false', ~F, F | G, F & G, F => G, F <=> G, '!'([B], F), '?'([B], F), S = T
+where each quantifier has one binder B, X : Sort, with sort '$i' if TPTP gives none (a group of
+binders is a quantifier for each, as ! [X] : ! [Y] : F), and
 S != T becomes ~(S = T), F <= G becomes G => F, F <~> G becomes ~(F <=> G),
 F ~| G becomes ~(F | G), F ~& G becomes ~(F & G). Equations are untyped here: the front end
 gives them their sort, as '$='(Sort, S, T).
@@ -20,6 +21,7 @@ $-words are read as the prefix operator $ applied to a term, and become symbols 
 :- module(load, [read_tstp/1]).
 :- use_module(library(lists)).
 :- use_module(ops).
+:- use_module(logic).
 
 % operators needed to read TPTP (as in tptp.pl), declared only when reading, so as not to affect the
 % parsing of code. ! is a solo character, so != and !> are two tokens each, and are read with the
@@ -96,8 +98,8 @@ normalise(V, F) :- var(V), !, F = V.
 normalise('!'(S0, '='(T0)), F) :- !, F = ~(S = T), term(S0, S), term(T0, T).
 normalise(S0 = T0, F) :- !, F = (S = T), term(S0, S), term(T0, T).
 normalise(~G, F) :- !, F = ~H, normalise(G, H).
-normalise('!'(Xs) : G, F) :- !, F = '!'(Bs, H), quantified(Xs, G, Bs, H).
-normalise('?'(Xs) : G, F) :- !, F = '?'(Bs, H), quantified(Xs, G, Bs, H).
+normalise('!'(Xs) : G, F) :- !, quantified(Xs, G, Bs, H), quantify('!', Bs, H, F).
+normalise('?'(Xs) : G, F) :- !, quantified(Xs, G, Bs, H), quantify('?', Bs, H, F).
 normalise((G | H), F) :- !, F = (G1 | H1), normalise(G, G1), normalise(H, H1).
 normalise((G & H), F) :- !, F = (G1 & H1), normalise(G, G1), normalise(H, H1).
 normalise((G => H), F) :- !, F = (G1 => H1), normalise(G, G1), normalise(H, H1).
@@ -108,7 +110,8 @@ normalise('~|'(G, H), F) :- !, F = ~((G1 | H1)), normalise(G, G1), normalise(H, 
 normalise('~&'(G, H), F) :- !, F = ~((G1 & H1)), normalise(G, G1), normalise(H, H1).
 normalise(A0, A) :- term(A0, A).
 
-% a quantifier's binders Xs and body G, with its variables renamed apart: read/1 gives binders of the
+% a quantifier's binders Xs and body G, with its variables renamed apart (each binder is then a
+% quantifier of its own, logic:quantify/4): read/1 gives binders of the
 % same name in one statement the same variable, but each binder must have its own, as instantiation
 % is unification
 quantified(Xs, G, Bs, H) :-
@@ -156,5 +159,3 @@ arrow(Sort, [], Sort).
 product(T, As0, As) :- nonvar(T), T = A * B, !, product(A, As0, As1), product(B, As1, As).
 product(A, [A|As], As).
 
-binder_variables([], []).
-binder_variables([X:_|Bs], [X|Xs]) :- binder_variables(Bs, Xs).

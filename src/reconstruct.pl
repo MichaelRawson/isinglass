@@ -120,7 +120,8 @@ defining(Symbol, clause(Cs, ['$='(_, A, B)]), Bs, Body) :-
   maplist(argument_binder(Cs), Xs, Bs).
 % ...or a predicate definition ![Cs] : (Symbol(Xs) <=> Body), whose binders become eigenvariables
 defining(Symbol, formula(F), Bs, Body) :-
-  ( F = '!'(Cs0, D0) -> eigenvariable_binders(Cs0, D0, 0, Cs, D) ; Cs = [], D = F ),
+  quantifier_prefix('!', F, Cs0, D0),
+  eigenvariable_binders(Cs0, D0, 0, Cs, D),
   D = (A <=> Body),
   A =.. [Symbol|Xs],
   maplist(argument_binder(Cs), Xs, Bs).

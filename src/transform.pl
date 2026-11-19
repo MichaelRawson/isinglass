@@ -254,7 +254,8 @@ fewer(unlimited, unlimited).
 fewer([_|Limit], Limit).
 
 % the γ formulas nested outermost in X : F, with fresh variables Vs, are Y : G
-universals(X-'!'(Bs, F), Vs, H, let(Y, G, app(X, Us, []), M0), M) :- !,
+universals(X-F0, Vs, H, let(Y, G, app(X, Us, []), M0), M) :-
+  quantifier_prefix('!', F0, Bs, F), Bs = [_|_], !,
   instance(Bs, F, Us, G),
   universals(Y-G, Ws, H, M0, M),
   append(Us, Ws, Vs).

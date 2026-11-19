@@ -150,27 +150,35 @@ definition_statement(_, F, F).
 
 % the binders of a definition, in the order of the arguments of its atom; the printed statement has its
 % binders in the same order, as grouped binders commute
-argument_order('!'(Bs0, (A <=> B)), '!'(Bs, (A <=> B))) :- !,
+argument_order(D0, D) :-
+  quantifier_prefix('!', D0, Bs0, (A <=> B)), Bs0 = [_|_], !,
   A =.. [_|Xs],
-  maplist(binder_of(Bs0), Xs, Bs).
+  maplist(binder_of(Bs0), Xs, Bs),
+  quantify('!', Bs, (A <=> B), D).
 argument_order(D, D).
 
 binder_of(Bs, X, Y:S) :- member(Y:S, Bs), Y == X, !.
 
-same_binders('!'(_, G), '!'(Bs, _), '!'(Bs, G)) :- !.
+same_binders(F0, D, F) :-
+  quantifier_prefix('!', D, Bs, _),
+  length(Bs, N), N > 0,
+  quantifier_prefix('!', N, F0, _, G), !,
+  quantify('!', Bs, G, F).
 same_binders(F, _, F).
 
 definition_name(Symbol, Name) :- atom_concat(Symbol, '_def', Name).
 
 predicate_definition(general_splitting_component_introduction, F, Symbol, D, transform(nnf)) :- !,
-  ( F = '!'(Bs, (C <=> ~A)) -> true ; F = (C <=> ~A), Bs = [] ),
+  quantifier_prefix('!', F, Bs, (C <=> ~A)),
   binder_variables(Bs, Xs),
   definiendum(A, Symbol, Xs),
   component_type(C, T),
-  ( Bs == [] -> D = (A <=> ~T) ; D = '!'(Bs, (A <=> ~T)) ).
-predicate_definition(_, '!'(Bs, F), Symbol, '!'(Bs, D), Tactic) :- !,
+  quantify('!', Bs, (A <=> ~T), D).
+predicate_definition(_, F0, Symbol, D, Tactic) :-
+  quantifier_prefix('!', F0, Bs, F), Bs = [_|_], !,
   binder_variables(Bs, Xs),
-  definition_shape(F, Symbol, Xs, D, Tactic).
+  definition_shape(F, Symbol, Xs, D0, Tactic),
+  quantify('!', Bs, D0, D).
 predicate_definition(inequality_splitting_name_introduction, ~A, Symbol, '!'([X:S], D), defined(tautology)) :-
   A =.. [Symbol, T],
   term_sort([], T, S), !,
@@ -182,7 +190,7 @@ predicate_definition(_, F, Symbol, D, Tactic) :- definition_shape(F, Symbol, [],
 % rest, by ![Xs] : (C <=> ~Symbol(Xs)): Symbol(Xs) is defined as the negation of the type of the clause
 % C (ir:clause_type/2), so that a proof refutes ~~Symbol(Xs) as it does an AVATAR split
 component_type(C, T) :-
-  ( C = '!'(Ys, G) -> true ; Ys = [], G = C ),
+  quantifier_prefix('!', C, Ys, G),
   disjuncts(G, Ls),
   clause_type(clause(Ys, Ls), T).
 
@@ -294,7 +302,7 @@ record_flipped(P/N) :-
   append(As, Xs, Args),
   A =.. [P|Args],
   A1 =.. [P1|Args],
-  ( Bs == [] -> D = (A1 <=> ~A) ; D = '!'(Bs, (A1 <=> ~A)) ),
+  quantify('!', Bs, (A1 <=> ~A), D),
   record(introduced(P1, definition)),
   definition_name(P1, Name),
   record(step(Name, formula(D), define(P1))).
@@ -350,8 +358,8 @@ flipped_formula(_, A, A).
 Skolemisation lists its choices skolemize(X, sK(Ys)), one for each δ binder of the parent, in
 preorder: left to right, outermost first (as Vampire does, in negation normal form; the names X and Ys are the
 parent's, but read/1 does not keep them). Each is recorded as a hint (db.pl): the δ formula that the
-choice of sK opens, as reconstruction opens it, with the binders before X in its quantifier and the
-δ formulas around it replaced by their Skolem terms (of fresh arguments). If the counts differ, the
+choice of sK opens, the quantifier of X, with the δ formulas around it replaced by their Skolem terms
+(of fresh arguments). If the counts differ, the
 step has no hints, and transform.pl searches as without them.
 */
 skolem_hints(Statements) :-
@@ -369,7 +377,7 @@ skolem_hints(Statements) :-
        record(skolem_hint(Sk, D))).
 
 % the binders of the ? formulas of F, a formula in negation normal form, in preorder
-delta_binders('?'(Bs, G), Xs0, Xs) :- !, binder_variables(Bs, Ys), append(Ys, Xs1, Xs0), delta_binders(G, Xs1, Xs).
+delta_binders('?'([X:_], G), [X|Xs0], Xs) :- !, delta_binders(G, Xs0, Xs).
 delta_binders('!'(_, G), Xs0, Xs) :- !, delta_binders(G, Xs0, Xs).
 delta_binders((F | G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
 delta_binders((F & G), Xs0, Xs) :- !, delta_binders(F, Xs0, Xs1), delta_binders(G, Xs1, Xs).
@@ -384,18 +392,11 @@ skolem_symbols([I|Is], Ts) :-
   ),
   skolem_symbols(Is, Ts1).
 
-% the δ formula of F that is opened for its binder X: X and the binders after it
-delta_formula(F, X, D) :- quantified(F, '?', Bs, G), after(X, Bs, Bs1), !, D = '?'(Bs1, G).
-delta_formula(F, X, D) :- quantified(F, _, _, G), !, delta_formula(G, X, D).
+% the δ formula of F that is opened for its binder X: the quantifier of X
+delta_formula(F, X, F) :- F = '?'([Y:_], _), Y == X, !.
 delta_formula(F, X, D) :- connective(F, Fs), member(G, Fs), delta_formula(G, X, D), !.
 
-quantified(F, Q, Bs, G) :- compound(F), F =.. [Q, Bs, G], ( Q == '!' ; Q == '?' ).
-
-after(X, [Y:S|Bs], [Y:S|Bs]) :- Y == X, !.
-after(X, [_|Bs], Bs1) :- after(X, Bs, Bs1).
-
-% the other choices that are free in the δ formula D (those around it, and binders before X in its
-% quantifier), replaced by their Skolem terms
+% the other choices that are free in the δ formula D (those around it), replaced by their Skolem terms
 chosen([], _, D, D).
 chosen([Y-T|Choices], X, D0, D) :-
   (   Y \== X, occurs(Y, D0), \+ bound_in(Y, D0)
@@ -404,7 +405,7 @@ chosen([Y-T|Choices], X, D0, D) :-
   ),
   chosen(Choices, X, D1, D).
 
-bound_in(Y, F) :- quantified(F, _, Bs, G), !, ( member(Z:_, Bs), Z == Y -> true ; bound_in(Y, G) ).
+bound_in(Y, F) :- F =.. [Q, [Z:_], G], ( Q == '!' ; Q == '?' ), !, ( Z == Y -> true ; bound_in(Y, G) ).
 bound_in(Y, F) :- connective(F, Fs), member(G, Fs), bound_in(Y, G), !.
 
 % Vampire inference rules and the generic tactics that reconstruct them

@@ -29,10 +29,12 @@ Proofs are λ-terms, Curry-Howard style, in minimal logic: no particular logic i
 ⊥ ('$false') is abstract. Classically it is falsity, but in the A-translation it is the conjecture G.
 Types are formulas, where ~F is F → ⊥ and F => G is implication:
 
-  clause(Bs, [L_0, ..., L_n-1])  has type  '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
-  formula(F)                     has type  F
+  clause([B_0, ..., B_m-1], [L_0, ..., L_n-1])
+                 has type  '!'([B_0], ... '!'([B_m-1], ~L_0 => ... => ~L_n-1 => '$false'))
+  formula(F)     has type  F
 
-where the binders Bs are X : Sort, as in quantifiers; the literals contain the variables X.
+where the binders B_i are X : Sort, as in quantifiers, which have one binder each (see load.pl);
+the literals contain the variables X.
 The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.pl), so that types
 are compared syntactically.
 
@@ -51,9 +53,9 @@ of any type that differs from it only by unfolding these (expanded/2), as back e
                           '$VAR'(N) of sort S bound only in the motive A, and E's type is
                           inferred (a hypothesis or an application)
   F ::= X | Name          a hypothesis, or a step: a clause or a formula
-      | '$sym'            built-in: '!'([A:'$tType', X:A, Y:A], '$='(A, X, Y) => '$='(A, Y, X))
-      | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
       | '$trivial'        built-in: '$true'
+      | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
+      | '$sym'            built-in: '!'([A:'$tType', X:A, Y:A], '$='(A, X, Y) => '$='(A, Y, X))
       | '$dne'            built-in: '!'([F:'$o'], ~ ~F => F), classical
       | Rule              an expansion rule (transform.pl), below
 
@@ -97,7 +99,7 @@ of sort S was found; S is '$tType' for a type variable (see close.pl).
 % the type of proofs of a clause: '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
 clause_type(clause(Bs, Ls), T) :-
   implications(Ls, F),
-  ( Bs == [] -> T = F ; T = '!'(Bs, F) ).
+  quantify('!', Bs, F, T).
 
 implications([], '$false').
 implications([L|Ls], (~L => F)) :- implications(Ls, F).
@@ -105,7 +107,7 @@ implications([L|Ls], (~L => F)) :- implications(Ls, F).
 % the clause of a canonical clause type T, with Prolog variables for its binders
 typed_clause(T0, clause(Bs, Ls)) :-
   opened(T0, T),
-  ( T = '!'(Bs, F) -> true ; Bs = [], F = T ),
+  quantifier_prefix('!', T, Bs, F),
   implications(Ls, F).
 
 % the type of a step: that of its clause, or its formula
@@ -119,8 +121,8 @@ formula_step(Name) :-
   ( Tactic = transform(_) ; Tactic == clausify ), !.
 
 % the types of the built-in heads
-builtin_type('$sym', '!'([A:'$tType', X:A, Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))).
-builtin_type('$refl', '!'([A:'$tType', X:A], '$='(A, X, X))).
+builtin_type('$sym', '!'([A:'$tType'], '!'([X:A], '!'([Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))))).
+builtin_type('$refl', '!'([A:'$tType'], '!'([X:A], '$='(A, X, X)))).
 builtin_type('$trivial', '$true').
 builtin_type('$dne', '!'([F:'$o'], (~(~F) => F))).
 
@@ -144,7 +146,7 @@ choice_axiom(Symbol, Bs, F, A) :-
   binder_variables(Bs, Xs),
   Term =.. [Symbol|Xs],
   substitute(Y, Term, T, T1),
-  quantified('!', Bs, (F => T1), A).
+  quantify('!', Bs, (F => T1), A).
 
 % the atom A of a defined predicate unfolds to Body, the definition's body for the arguments of A
 defined_atom(A, Body) :-

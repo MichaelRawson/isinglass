@@ -189,8 +189,7 @@ arrows_to([L|Ls]) --> "π ", hypothesis_type(L), " → ", arrows_to(Ls).
 abstraction([]) --> [].
 abstraction([X|Xs]) --> "λ", variables([X|Xs]), ", ".
 
-consequent('!'(_, (_ => T)), T) :- !.
-consequent((_ => T), T).
+consequent(A, T) :- quantifier_prefix('!', A, _, (_ => T)).
 
 % the δ formula F, ?[Y:S|Ys] : G, is opened with Y for the body T
 delta_body(F, B, T) :- rule_type('$ex', F, ('!'([B], (T => '$false')) => '$false')).
@@ -227,8 +226,8 @@ input(Input) --> "{|", atom(Input), "²|}".
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
-proof(let(X, '!'(Bs, F), app('$nex', [], [M]), N)) --> !,
-  "let ", variable(X), " : π ", formula('!'(Bs, F)), " ≔ ", not_exists(Bs, operand(M)), " in ", proof(N).
+proof(let(X, '!'([B:S], F), app('$nex', [], [M]), N)) --> !,
+  "let ", variable(X), " : π ", formula('!'([B:S], F)), " ≔ ", not_exists(S), " ", operand(M), " in ", proof(N).
 proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
@@ -239,12 +238,6 @@ proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Cod
   codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
-
-% ¬∃ over several variables becomes ∀¬ one variable at a time
-not_exists([_:S], M) --> !, not_exists(S), " ", call(M).
-not_exists([X:S|Bs], M) --> "λ (", term(X), " : ", sort(S), "), ", not_exists(Bs, not_exists_at(S, M, X)).
-
-not_exists_at(S, M, X) --> "(", not_exists(S), " ", call(M), " ", term(X), ")".
 
 not_exists('$tType') --> !, "nex_t".
 not_exists(_) --> "nex_e".

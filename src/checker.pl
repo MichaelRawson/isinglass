@@ -89,7 +89,7 @@ justified(definition(Symbol, Bs, Body), formula(F), Steps) :- !,
   canonical(Body, Body1),
   Body1 == Body,
   well_sorted(Gamma, Body),
-  ( Bs == [] -> F0 = (Term <=> Body) ; F0 = '!'(Bs, (Term <=> Body)) ),
+  quantify('!', Bs, (Term <=> Body), F0),
   canonical(F0, F1),
   F1 == F.
 justified(_, _, _).
