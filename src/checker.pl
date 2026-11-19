@@ -159,7 +159,12 @@ check(Steps, Gamma, M0, T) :-
   check(Steps, Gamma1, M, T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
-  ( ground(T1) -> convertible(T1, T) ; T1 = T ).
+  ( ground(T1) -> convertible(T1, T) ; instance_of(T1, T) ).
+
+% a type T1 with parameters still to infer ('$refl') is an instance of T, or of T unfolded, as types
+% are compared up to unfolding
+instance_of(T1, T) :- T1 = T, !.
+instance_of(T1, T) :- expanded(T, T1), ground(T1).
 
 % types are the same, or the same once defined predicates and function terms are unfolded (see ir.pl)
 convertible(T1, T) :- T1 == T, !.
