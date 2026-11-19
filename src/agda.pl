@@ -208,15 +208,14 @@ variable('$BOUND'(N)) --> "y", number(N).
 
 /*
 E : l ≡ r rewrites M : A[l] to A[r], where X marks l in the motive A. An equation s[l] ≡ t[l] is
-rewritten by a path, a chain of trans: back along s, then M, then along t. A negated equation is
+rewritten by a path, a chain of trans: back along s, then M, then along t, flattened where M or
+a step is itself such a rewrite. A negated equation is
 applied to the path the other way, from e : s[r] ≡ t[r]. Any other literal is rewritten by subst.
 
-The steps of a path are e, proof(M), eq(E), sym(E) and cong(X, S, P), for P along the side S[X];
+The steps of a path are e, proof(M), eq(E) and cong(X, S, P), for P along the side S[X];
 none is no step, where X does not occur in the side.
 */
-rewritten('$='(_, S, T), X, E, M) --> !,
-  { side(X, S, E, P), side(X, T, E, Q), inverse(P, P1) },
-  path([P1, proof(M), Q]).
+rewritten('$='(A, S, T), X, E, M) --> !, path([proof(rewrite(X:_, '$='(A, S, T), E, M))]).
 rewritten(~'$='(A, S, T), X, E, M) --> !,
   "λ e → ", refutation(rewrite(X:_, ~'$='(A, S, T), E, M), [e]).
 rewritten(A, X, E, M) -->
@@ -234,14 +233,30 @@ side(X, S, E, cong(X, S, eq(E))) :- \+ substitute(X, [], S, S), !.
 side(_, _, _, none).
 
 inverse(none, none).
-inverse(eq(app('$sym', _, [E])), eq(E)) :- !.
-inverse(eq(E), sym(E)).
-inverse(sym(E), eq(E)).
+inverse(eq(E), eq(E1)) :- inverted(E, E1).
 inverse(cong(X, S, P), cong(X, S, Q)) :- inverse(P, Q).
 
+% sym E, with sym pushed down to the hypotheses: through a rewrite of an equation L = R, which is a
+% rewrite of sym of its proof by R = L, to cancel against sym
+inverted(app('$sym', _, [E]), E) :- !.
+inverted(rewrite(X, '$='(A, L, R), E, M0), rewrite(X, '$='(A, R, L), E, M)) :- !, inverted(M0, M).
+inverted(E, app('$sym', [], [E])).
+
+% the steps of a path, flat: a step whose proof is a rewrite of an equation is its own path
 present([], []).
 present([none|Ps], Qs) :- !, present(Ps, Qs).
+present([P|Ps], Qs) :- step_path(P, Ps1), !, append(Ps1, Ps, Ps2), present(Ps2, Qs).
 present([P|Ps], [P|Qs]) :- present(Ps, Qs).
+
+step_path(proof(M), Ps) :- equation_path(M, Ps).
+step_path(eq(E), Ps) :- equation_path(E, Ps).
+
+equation_path(rewrite(X:_, '$='(_, S, T), E, M), [P1, proof(M), Q]) :-
+  side(X, S, E, P), side(X, T, E, Q), inverse(P, P1).
+equation_path(app('$sym', _, [E]), Ps) :-
+  E = rewrite(_, '$='(_, _, _), _, _),
+  inverted(E, E1),
+  equation_path(E1, Ps).
 
 path(Ps) --> { present(Ps, Qs) }, steps(Qs).
 
@@ -256,7 +271,6 @@ path_operand(Ps) --> "(", steps(Ps), ")".
 path_step(e) --> "e".
 path_step(proof(M)) --> proof(M).
 path_step(eq(E)) --> proof(E).
-path_step(sym(E)) --> "sym ", operand(E).
 path_step(cong(X, S, P)) --> "cong (λ ", variable(X), " → ", term(S), ") ", path_operand([P]).
 
 /********************************************************************************

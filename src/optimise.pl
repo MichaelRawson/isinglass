@@ -28,7 +28,8 @@ its single use, which keeps the pass linear. Then
     may be a head), else it stays a redex; '$nex' arguments stay, as the IR states the type of
     '$nex' only in the λ of its redex;
   - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
-  - sym (sym E) → E, and sym refl → refl;
+  - sym (sym E) → E, sym refl → refl, and sym of a rewrite of an equation L = R is the rewrite of
+    sym of its proof, by R = L, so that sym is pushed down to the hypotheses;
   - a rewrite whose motive does not mention its variable, or by reflexivity, is its proof.
 
 Fresh binders are Prolog variables (an eigenvariable is '$VAR'(N), N unbound), numbered at the end:
@@ -285,6 +286,9 @@ application(Y, Ts, Ms, app(Y, Ts, Ms)).
 % normal terms may be hypotheses, which are variables, so they are matched with care
 built('$sym', [], [E0], E) :- nonvar(E0), E0 = app('$sym', [], [E]), !.
 built('$sym', [], [E], E) :- nonvar(E), E = app('$refl', [], []), !.
+built('$sym', [], [E0], rewrite(X, '$='(A, R, L), E, M)) :-
+  nonvar(E0), E0 = rewrite(X, '$='(A, L, R), E, M0), !,
+  built('$sym', [], [M0], M).
 built(F, Ts, Ms, app(F, Ts, Ms)).
 
 % the term M0 of a substituted hypothesis, at the head of an application

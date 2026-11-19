@@ -174,7 +174,7 @@ An optional pass between reconstruction and the back end makes proofs smaller, a
 - A hypothesis argument of a β-redex is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once, anywhere, as any term may be a head (head positions merge applications where they can: `app(app(F, Ts, []), Us, Ms)` is `app(F, Ts ++ Us, Ms)`); otherwise it stays a redex. Unused arguments are dropped; `'$nex'` ones are kept, as the IR states the type of `'$nex'` only in the λ of its redex.
 - A value may be substituted even where the checker infers its type (the equation of a rewrite, the first argument of `sym` or an expansion rule), though its binder's type may unfold the value's: that changes only function terms, or a defined atom at the top, which the checker unfolds there.
 - η for hypotheses: `λ h, F … h` is `F …`, where `F` is a hypothesis or a step (not a rule or built-in); eigenvariable λs are kept, e.g. for AVATAR definitions and type rules.
-- `sym (sym E)` is `E`, `sym refl` is `refl`, and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
+- `sym (sym E)` is `E`, `sym refl` is `refl`, `sym` of a rewrite of an equation `L = R` is the rewrite of `sym` of its proof by `R = L` (so `sym` is pushed down to the hypotheses), and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
 - Binders are Prolog variables while normalising, named at the end; a clause's own eigenvariables keep their names, as its type mentions them.
 - An inlined step is not checked separately by SMT-LIB, but as part of the step that cites it.
 
@@ -220,6 +220,7 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - Input clauses are transformed to the usual clause type in continuation-passing style.
 - Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms. Only the prover's own symbols are renamed (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place).
 - Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
+- A rewrite of an equation is a path of `trans` and `cong`; going back along a side inverts the rewrite's equation with `sym` pushed down to its hypotheses, as the optimiser does.
 - `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps and Skolem definitions are not printed.
 - A function `definition` is printed as an Agda definition of its symbol in the module (so `agda_file` does not postulate it), and its equation is proved by `refl` (stated only if a step cites it). So is a predicate, whose definition step is a formula and is not printed; a body that Agda cannot state (of `&`, `|`, `<=>` or `?`) is a hole. A split symbol is such a predicate, whose body, a clause type, Agda can state.
 - A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
