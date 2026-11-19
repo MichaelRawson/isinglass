@@ -2,7 +2,7 @@
 % The facts are private to this module: other modules read them through the exported predicates, and
 % add them with record/1. Updating or calling a dynamic predicate imported from another module is
 % not portable: Trealla refuses to update it, and Scryer gives each module its own copy.
-:- module(db, [step/3, symbol/4, introduced/2, ir_step/3, split/2, skolem_hint/2, option/1, record/1]).
+:- module(db, [step/3, symbol/4, introduced/2, ir_step/3, split/2, skolem_hint/2, option/1, record/1, forget/1]).
 
 :- dynamic(step_/3).
 :- dynamic(symbol_/4).
@@ -50,3 +50,6 @@ record(ir_step(Name, Conclusion, Justification)) :- assertz(ir_step_(Name, Concl
 record(split(Symbol, Clause)) :- assertz(split_(Symbol, Clause)).
 record(skolem_hint(Symbol, F)) :- assertz(skolem_hint_(Symbol, F)).
 record(option(O)) :- assertz(option_(O)).
+
+% remove the reconstructed steps that match, so that a pass over the IR (optimise.pl) can rewrite them
+forget(ir_step(Name, Conclusion, Justification)) :- retractall(ir_step_(Name, Conclusion, Justification)).

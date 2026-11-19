@@ -144,8 +144,9 @@ check(Steps, Gamma, lam(X, A, M), T0) :- !,
       check(Steps, Gamma1, M, T1)
   ;   T = (A1 => B),
       hypothesis(X),
-      ( A == '$inferred' -> true ; A == A1 -> true ; canonical(A, A2), convertible(A2, A1) ),
-      put_assoc(X, Gamma, A1, Gamma1),
+      % the annotation, if any, is the binder's type (it may unfold the expected one, as a let would)
+      ( A == '$inferred' -> A3 = A1 ; A == A1 -> A3 = A1 ; canonical(A, A3), convertible(A3, A1) ),
+      put_assoc(X, Gamma, A3, Gamma1),
       check(Steps, Gamma1, M, B)
   ).
 check(Steps, Gamma, let(X, F0, M, M1), T) :- !,
@@ -164,7 +165,7 @@ check(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   substitute(X, S, A, AS),
   check(Steps, Gamma, M, AS),
   substitute(X, U, A, AU),
-  AU == T.
+  convertible(AU, T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
   convertible(T1, T).
@@ -172,7 +173,12 @@ check(Steps, Gamma, M, T) :-
 % types are the same, or the same once defined predicates and function terms are unfolded (see ir.pl)
 convertible(T1, T) :- T1 == T, !.
 convertible(T1, T) :- unfolding(T1, T), !.
-convertible(T1, T) :- expanded(T1, U), expanded(T, U1), U == U1.
+convertible(T1, T) :- expanded(T1, U), expanded(T, U1), U == U1, !.
+% ~F is F => '$false', and a split symbol its definition, at any arrow (as after η-reduction, optimise.pl)
+convertible(T1, T) :-
+  unfold(T1, (A1 => B1)), unfold(T, (A => B)), !,
+  convertible(A, A1),
+  convertible(B1, B).
 
 % T1 and T are the same, but for defined terms and atoms, which are unfolded only where they differ:
 % function bodies, and the predicate bodies unfolded here, have no binders, so none captures a variable
@@ -275,10 +281,12 @@ arguments([M|Ms], Steps, Gamma, T0, T) :-
   check(Steps, Gamma, M, A),
   arguments(Ms, Steps, Gamma, B, T).
 
-% weak head normal form: negation is implication, and split symbols are their definitions
+% weak head normal form: negation is implication, and split symbols and defined atoms are their definitions
 % types are compared syntactically (T1 == T above), not up to unfolding: enough for clauses
 unfold(~A, (A => '$false')) :- !.
 unfold(S, T) :- atom(S), split(S, Clause), !, closed(Clause), clause_type(Clause, T).
+% ...and so are defined atoms, which a let or annotation would otherwise unfold (optimise.pl removes some)
+unfold(A, T) :- defined_atom(A, F0), !, opened(F0, F1), canonical(F1, F), unfold(F, T).
 unfold(T, T).
 
 closed(clause(Bs, Ls)) :- \+ \+ ( binder_variables(Bs, Xs), number_vars(Xs, 0, _), ground(Ls) ).

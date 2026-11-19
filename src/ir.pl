@@ -69,7 +69,8 @@ branch, which binds the formulas of the branch, and first an eigenvariable for ?
   '$iff'   F <=> G      F, G ; ~F, ~G     '$niff'  ~(F <=> G)   F, ~G ; ~F, G
   '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
 
-'$nex' is not a refutation: applied to a proof of ~ ?[Xs] : F it proves ![Xs] : ~F.
+'$nex' is not a refutation: applied to a proof of ~ ?[Xs] : F it proves ![Xs] : ~F. It occurs only
+as the value of a let, which states that type (back ends read its binders from it).
 Skolemisation is not a rule: a δ formula is opened by its choice axiom, a step (skolem_def).
 '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so the steps that use them
 are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.

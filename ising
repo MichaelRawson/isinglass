@@ -1,11 +1,14 @@
 #!/bin/sh
 
 if [ $# -ne 2 ]; then
-  echo "usage: [ISING_TRACE=1] $0 FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
+  echo "usage: [ISING_TRACE=1] [ISING_OPTIMISE=1] $0 FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
   exit 2
 fi
 
-# ISING_TRACE, if set, prints the name and tactic of each step as its reconstruction starts
-if [ -n "$ISING_TRACE" ]; then options=[trace]; else options=[]; fi
+# ISING_TRACE, if set, prints the name and tactic of each step as its reconstruction starts;
+# ISING_OPTIMISE, if set, inlines and simplifies the proof before it is emitted
+options=
+if [ -n "$ISING_TRACE" ]; then options=trace; fi
+if [ -n "$ISING_OPTIMISE" ]; then options=${options:+$options,}optimise; fi
 
-exec swipl -g "main($1, $2, $options)" src/main.pl
+exec swipl -g "main($1, $2, [$options])" src/main.pl

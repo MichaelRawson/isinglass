@@ -17,7 +17,7 @@ instantiate premises under all of their eigenvariables.
 '$inhabited' assumes that every sort is inhabited, as classical first-order logic (and TF1) does.
 Back ends decide what it stands for: a constructive back end (Agda, say) may not assume this.
 */
-:- module(close, [close_term/1]).
+:- module(close, [close_term/1, name_binders/3]).
 :- use_module(library(lists)).
 :- use_module(utils).
 :- use_module(logic).

@@ -5,9 +5,10 @@ Translate a TSTP proof on standard input, given the front end for its prover and
   scryer-prolog -f -g 'main(vampire, smtlib)' src/main.pl < proof.p
   tpl -f -g 'main(vampire, checker)' src/main.pl < proof.p
 
-The script `ising` does this with SWI, and traces the steps if ISING_TRACE is set, by
+The script `ising` does this with SWI, and traces the steps if ISING_TRACE is set, or optimises the
+IR if ISING_OPTIMISE is set, by
 
-  swipl -g 'main(vampire, checker, [trace])' src/main.pl < proof.p
+  swipl -g 'main(vampire, checker, [trace, optimise])' src/main.pl < proof.p
 
 Every module is loaded here, in dependency order: Trealla resolves the file of a nested use_module
 against the working directory, but finds a module that is already loaded.
@@ -23,6 +24,7 @@ against the working directory, but finds a module that is already loaded.
 :- use_module(vampire).
 :- use_module(rup).
 :- use_module(close).
+:- use_module(optimise).
 :- use_module(matching).
 :- use_module(normal).
 :- use_module(transform).
@@ -35,7 +37,8 @@ against the working directory, but finds a module that is already loaded.
 % exit with status 1 on failure or error: the top levels of the systems differ
 main(Frontend, Backend) :- main(Frontend, Backend, []).
 
-% Options: trace prints the name and tactic of each step to stderr as its search starts
+% Options: trace prints the name and tactic of each step to stderr as its search starts, and
+% optimise inlines and simplifies the IR before it is emitted (optimise.pl)
 main(Frontend, Backend, Options) :-
   recorded_options(Options),
   (   catch(run(Frontend, Backend), Error, ( warn(['error: ', Error]), fail ))
@@ -51,6 +54,7 @@ run(Frontend, Backend) :-
   call(Load, Statements),
   default_signature,
   reconstruct,
+  ( option(optimise) -> optimise ; true ),
   call(Emit).
 
 recorded_options([]).

@@ -8,6 +8,7 @@ Overall: TSTP → frontend (e.g. 'Vampire') → ATP-agnostic proof → reconstru
 
 Usage: `./ising Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. The script runs `main(Frontend, Backend)` in `src/main.pl` with SWI.
 With `ISING_TRACE` set, the name and tactic of each step are printed to stderr as its search starts (`main(Frontend, Backend, [trace])`), so a slow step is the last one printed.
+With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]`, see below).
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
@@ -45,6 +46,7 @@ With `ISING_TRACE` set, the name and tactic of each step are printed to stderr a
 - Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
 - The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed. The IR is therefore sound under any reading of `⊥`: classical falsity, or the conjecture of the A-translation.
 - Heads are variables or constants, so terms are β-normal apart from `let`.
+- `'$nex'` occurs only as the value of a `let`, which states its type `![Xs] : ~F`: back ends read its binders from it.
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
 - Clause splits: a split symbol is a defined proposition that unfolds to the type of its clause.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
@@ -161,12 +163,23 @@ Skolemisation (status `esa`) is an entailment once its symbols are defined by ch
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause. Except: a Skolemised `(! [X] : C) | L` stays a formula, as the δ formula of its parent is under the disjunction too, and only formulas are paired part by part.
 
+## Optimisation (`optimise.pl`)
+An optional pass between reconstruction and the back end makes proofs smaller, as their statements dominate the size of the output (e.g. SYN837-1's 28-binder clauses, with tiny proofs). The result is ordinary IR, so back ends are unchanged.
+- A clausal step (not a step between formulas) is inlined where it is cited if every citation is a full application in the term of a clausal step, and it is cited once, or `(Uses - 1) × Size < size of its clause`. `Size` is that of its term under the λs of its binders, which inlining removes, with what it inlines in turn.
+- Each remaining term is normalised in one top-down pass, in an environment from the names of the original term to their values: an eigenvariable to a term, a hypothesis to a fresh binder or to a closure, normalised where it is used. So an inlined step is a β-redex reduced by binding, and the pass is linear, even for long chains of steps cited once.
+- A hypothesis argument of a β-redex, or a `let`, is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once where its use can take it (head positions merge applications: `app(app(F, Ts, []), Us, Ms)` is `app(F, Ts ++ Us, Ms)`); otherwise it is a `let`. Unused `let`s are dropped; `'$nex'` ones are kept, as the IR states the type of `'$nex'` only there.
+- Nothing is substituted for a hypothesis where the checker infers its type (the equation of a rewrite, the formula of an expansion rule): its binder's type may unfold that of the value, as a cast. Nor is a non-application left there by `sym (sym E)`, whose instances must match.
+- η for hypotheses: `λ h, F … h` is `F …`, where `F` is a hypothesis or a step (not a rule or built-in); eigenvariable λs are kept, e.g. for AVATAR definitions and type rules.
+- `sym (sym E)` is `E`, `sym E` of a trivial equation `S = S` is `refl`, and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
+- Binders are Prolog variables while normalising, named at the end; a clause's own eigenvariables keep their names, as its type mentions them.
+- An inlined step is not checked separately by SMT-LIB, but as part of the step that cites it.
+
 ## Backends
 
 ### Checker (`checker.pl`)
 An independent-ish type checker of each ground, annotated term against the type of its conclusion.
 - First-order terms are checked against the signature.
-- Formula types are kept canonical, so they are compared syntactically, or failing that up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
+- Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a split its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
 - An expansion rule is typed by its first argument (`ir:rule_type/3`).
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
@@ -238,6 +251,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `transform.pl` | The tactics for steps between formulas: preprocessing (`transform`) and clausification (`clausify`) |
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
+| `optimise.pl` | Optional inlining and simplification of the IR |
 | `ir.pl` | IR documentation; `clause_type/2`, `step_type/2`, `builtin_type/2`, `rule_type/3`, `formula_step/1`, `reference/2` |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
