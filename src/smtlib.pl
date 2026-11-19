@@ -60,9 +60,9 @@ needed_instances(Fs, Declared, Is) :-
   reverse(Is3, Is).
 
 % a monomorphic symbol defined by its body, a formula or a term (see ir.pl), in the order of the steps;
-% a split symbol is uninterpreted, as its body is quantified, and its definition is asserted where it is
-% used (fact//4)
-defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _), \+ split(S, _).
+% a split symbol of a clause with binders is uninterpreted, as its body is quantified, and its definition
+% is asserted where it is used (fact//4)
+defined_symbol(S, Bs, Body) :- ir_step(_, _, definition(S, Bs, Body)), symbol(S, [], _, _), \+ split(S, clause([_|_], _)).
 
 symbol_definition(S-(Bs-Body)) -->
   { length(Bs, N), symbol(S, [], _, Sort) },
@@ -254,12 +254,16 @@ fact(Env, F, [], [M]) -->
   { get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
     binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
   { disjunction(Ls, D) }, [(D => Split)].
-% ...and so does a component C of a general split, of clause type T (ir:typed_clause/2), refuting F : ~T
+% ...and so does a component C of a general split, of clause type T (ir:typed_clause/2), refuting F : ~T,
+% or F : P(ts), its defined predicate, which unfolds to ~T
 fact(Env, F, [], [M]) -->
-  { get_assoc(F, Env, ~T), typed_clause(T, clause(Bs, Ls)),
+  { get_assoc(F, Env, A), component_type(A, T), typed_clause(T, clause(Bs, Ls)),
     binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
   { disjunction(Ls, D) }, [(D => T)].
 fact(_, _, _, _) --> [].
+
+component_type(~T, T) :- !.
+component_type(A, T) :- defined_atom(A, ~T).
 
 eigenvariables(lam('$VAR'(N), _, M), ['$VAR'(N)|Xs]) :- !, eigenvariables(M, Xs).
 eigenvariables(_, []).

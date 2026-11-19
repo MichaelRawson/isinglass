@@ -17,9 +17,8 @@ its single use, which keeps the pass linear. Then
 
   - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
     its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
-    cheap (a hypothesis or constant, applied to terms only) or used once (where its use can take
-    it: a proof applied to proofs is not then applied to terms, and a redex or rewrite is not at a
-    head), else it stays a redex; '$nex' arguments stay, as the IR states the type of '$nex' only
+    cheap (a hypothesis or constant, applied to terms only) or used once (anywhere, as any term
+    may be a head, but where the checker infers its type), else it stays a redex; '$nex' arguments stay, as the IR states the type of '$nex' only
     in the λ of its redex;
   - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
   - sym (sym E) → E, and sym E → refl for a trivial equation S = S;
@@ -153,7 +152,7 @@ bind(env(I, B0, U), X, V, env(I, B, U)) :- put_assoc(X, B0, V, B).
 
 binding(env(_, B, _), X, V) :- get_assoc(X, B, V).
 
-use(env(_, _, U), X, Use) :- ( get_assoc(X, U, Use) -> true ; Use = u(0, false, false, false) ).
+use(env(_, _, U), X, Use) :- ( get_assoc(X, U, Use) -> true ; Use = u(0, false) ).
 
 % the term with its eigenvariables replaced by their values (free ones are kept, by name)
 substituted(Env, '$VAR'(N), T) :- integer(N), !, ( binding(Env, '$VAR'(N), T) -> true ; T = '$VAR'(N) ).
@@ -221,7 +220,7 @@ inferable(M) :- ( var(M) -> true ; M = app(_, _, _) ).
 
 % the term M0 of a substituted hypothesis, at the head of an application
 applied_term(Env, M0, [], [], M) :- !, normal(Env, M0, M).
-applied_term(Env, app(G, Ts0, Ms0), Ts, Cs, M) :- !,
+applied_term(Env, app(G, Ts0, Ms0), Ts, Cs, M) :- ( Ms0 == [] ; Ts == [] ), !,
   maplist(substituted(Env), Ts0, Ts1),
   closures(Env, Ms0, Cs0),
   (   Ms0 == []
@@ -230,6 +229,10 @@ applied_term(Env, app(G, Ts0, Ms0), Ts, Cs, M) :- !,
       append(Cs0, Cs, Cs1), applied(Env, G, Ts1, Cs1, M)
   ).
 applied_term(Env, lam(X, A, M0), Ts, Cs, M) :- !, reduced(Env, lam(X, A, M0), Ts, Cs, M).
+% ...or else it stays at the head, as a proof applied to proofs is not merged with terms
+applied_term(Env, M0, Ts, Cs, app(M, Ts, Ms)) :- ( M0 = app(_, _, _) ; M0 = rewrite(_, _, _, _) ), !,
+  normal(Env, M0, M),
+  maplist(forced, Cs, Ms).
 applied_term(Env, F, Ts, Cs, M) :- applied(Env, F, Ts, Cs, M).
 
 % β-reduction: the binders of the λs take the arguments, terms first
@@ -240,7 +243,7 @@ reduced(Env, lam(X, _, M0), [T|Ts], Cs, M) :- !,
 reduced(Env, lam(X, A, M0), [], [C|Cs], M) :- !,
   use(Env, X, Use),
   C = c(V0, Env0),
-  (   ( Use = u(0, _, _, _) ; A == '$inferred' ; substitutable(Env0, V0, Use) )
+  (   ( Use = u(0, _) ; A == '$inferred' ; substitutable(Env0, V0, Use) )
   ->  bind(Env, X, C, Env1), reduced(Env1, M0, [], Cs, M)
   ;   substituted(Env, A, A1),
       forced(C, V),
@@ -250,16 +253,12 @@ reduced(Env, lam(X, A, M0), [], [C|Cs], M) :- !,
   ).
 reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 
-% a value may replace a hypothesis used as Use (see hypothesis_uses): where its use can take it
-% a hypothesis whose type is inferred is not replaced, as its binder's type may unfold the value's
+% a value may replace a hypothesis used as Use (see hypothesis_uses) if it is cheap or used once, as
+% any term may be a head; but not one whose type is inferred, as its binder's type may unfold the value's
 substitutable(_, app('$nex', _, _), _) :- !, fail.
-substitutable(_, _, u(_, _, _, true)) :- !, fail.
+substitutable(_, _, u(_, true)) :- !, fail.
 substitutable(Env, V, _) :- cheap(Env, V), !.
-substitutable(_, V, u(1, Head, Terms, _)) :-
-  (   V = app(_, _, Ms) -> ( Ms == [] -> true ; Terms == false )
-  ;   V = lam(_, _, _) -> true
-  ;   Head == false
-  ).
+substitutable(_, _, u(1, _)).
 
 % a hypothesis or a constant (not an inlined step), applied to terms only, so copying it is cheap
 cheap(Env, F) :- F = h(_), !, binding(Env, F, V), ( V = c(V0, Env0) -> cheap(Env0, V0) ; true ).
@@ -278,9 +277,9 @@ eta(Y, _, M0, M) :-
   application(F, Ts, Ms1, M).
 eta(Y, A, M, lam(Y, A, M)).
 
-% the uses of each hypothesis of a term, as u(Count, Head, Terms, Inferred): Head if it is applied,
-% Terms if to terms, and Inferred if where the checker infers a type (an equation to rewrite by, or the
-% formula of an expansion rule), from the hypothesis' type as its binder states it
+% the uses of each hypothesis of a term, as u(Count, Inferred): Inferred if where the checker infers a
+% type (an equation to rewrite by, or the first argument of '$sym' or an expansion rule), from the
+% hypothesis' type as its binder states it
 hypothesis_uses(M, Uses) :-
   phrase(uses(false, M), Occurrences),
   msort(Occurrences, Sorted),
@@ -289,24 +288,20 @@ hypothesis_uses(M, Uses) :-
 
 uses(_, lam(_, _, M)) --> !, uses(false, M).
 uses(_, rewrite(_, _, E, M)) --> !, uses(true, E), uses(false, M).
-uses(Inferred, app(F, Ts, Ms)) --> !,
-  use(F, Ts, Ms, Inferred),
+uses(Inferred, app(F, _, Ms)) --> !,
+  use(F, Inferred),
   ( { atom(F), inferred_premise(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ),
   ( { compound(F), F \= h(_) } -> uses(false, F) ; [] ).
-uses(Inferred, F) --> use(F, [], [], Inferred).
+uses(Inferred, F) --> use(F, Inferred).
 
-use(F, Ts, Ms, Inferred) --> { F = h(_) }, !,
-  { ( Ts == [], Ms == [] -> Head = false ; Head = true ), ( Ts == [] -> Terms = false ; Terms = true ) },
-  [F-u(Head, Terms, Inferred)].
-use(_, _, _, _) --> [].
+use(F, Inferred) --> { F = h(_) }, !, [F-Inferred].
+use(_, _) --> [].
 
-add_use(X-u(Head, Terms, Inferred), Uses0, Uses) :-
-  ( get_assoc(X, Uses0, u(N0, H0, T0, I0)) -> true ; N0 = 0, H0 = false, T0 = false, I0 = false ),
+add_use(X-Inferred, Uses0, Uses) :-
+  ( get_assoc(X, Uses0, u(N0, I0)) -> true ; N0 = 0, I0 = false ),
   N is N0 + 1,
-  either(H0, Head, H),
-  either(T0, Terms, T),
   either(I0, Inferred, I),
-  put_assoc(X, Uses0, u(N, H, T, I), Uses).
+  put_assoc(X, Uses0, u(N, I), Uses).
 
 either(false, false, false) :- !.
 either(_, _, true).
