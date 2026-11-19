@@ -167,7 +167,7 @@ proof_step(definition(Symbol, Bs, Body), Name, formula(F)) -->
   ;   []
   ).
 proof_step(proof(M), Name, Conclusion) -->
-  header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proof(M), ";\n".
+  header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proved(Conclusion, M), ";\n".
 
 proof_step(todo(Record, _), Name, Conclusion) -->
   header(Name), assumption(Name), conclusion(Conclusion), " ≔ begin admit end; // TODO ", rule(Record), "\n".
@@ -186,6 +186,11 @@ discharge(_) --> [].
 
 conclusion(clause(Bs, Ls)) --> statement(clause(Bs, Ls)).
 conclusion(formula(F)) --> "π ", formula(F).
+
+% '$dne' proves a formula step, whose formula it takes explicitly, as lambdapi cannot unify π p with a
+% formula that π reduces
+proved(formula(F), app('$dne', [], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
+proved(_, M) --> proof(M).
 
 % step statements use framework-level Π and →, rather than `∀ and ⇒ which must be rewritten
 statement(clause(Bs, Ls)) --> pis(Bs), arrows_to(Ls).
@@ -244,7 +249,6 @@ proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
-proof(app('$dne', [F], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
 % the eigenvariable of a δ rule may be a type
 proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).

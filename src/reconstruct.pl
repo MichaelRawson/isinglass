@@ -102,7 +102,7 @@ refutation(clause(Bs, Ls), Hs, Body, M) :-
   hypotheses(Ls, Hs),
   binders(Bs, Hs, Binders),
   lambdas(Binders, Body, M).
-refutation(formula(F), [H-(~F)], Body, app('$dne', [F], [lam(H, ~F, Body)])).
+refutation(formula(F), [H-(~F)], Body, app('$dne', [], [lam(H, ~F, Body)])).
 
 % a definition cites no steps, so those of the function symbols in T come first, by name
 definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).

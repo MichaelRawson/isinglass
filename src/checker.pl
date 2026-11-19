@@ -9,8 +9,9 @@ well sorted, as the prover gives them.
 
 Terms and their types are ground. The only Prolog variables bound in checking are those of fresh
 instances of steps and built-ins: quantifier binders, which are bound to ground terms
-(instantiation), and the parameters of a built-in, bound by unifying its first premise with the type
-of its first argument, or its type with the one it is checked against.
+(instantiation), and the parameters of a built-in, which unification binds: the result of its type
+with the type against which it is checked, if any, and then each premise with the type of its
+argument, in order, so that a type is checked against a pattern as well as a ground type.
 
 A head may be any term. A λ applied to arguments, a β-redex, is checked by binding its binders to
 them: an eigenvariable is substituted by its term, and a hypothesis takes the type of the λ's binder,
@@ -132,11 +133,12 @@ argument(X:S, Gamma, Gamma1) :- valid_sort(Gamma, S), put_assoc(X, Gamma, S, Gam
 conclusion_type(clause(_, _), T, T).
 conclusion_type(formula(_), T0, T) :- canonical(T0, T).
 
-% M : T, where M and T are ground; heads are closed instances, so their types are ground once
-% instantiated. Types are canonical (see logic.pl), so they are compared syntactically, and
-% annotations are made so
+% M : T, where M is ground, and T is ground but for the parameters of built-ins still to infer, which
+% unification binds (see type/4). Types are canonical (see logic.pl), so they are compared
+% syntactically, and annotations are made so
 % Gamma is an assoc mapping hypotheses to their types, and eigenvariables to their sorts
 check(Steps, Gamma, lam(X, A, M), T0) :- !,
+  nonvar(T0),
   unfold(T0, T),
   (   T = '!'(Y:S, B)
   ->  eigenvariable(X),
@@ -148,8 +150,10 @@ check(Steps, Gamma, lam(X, A, M), T0) :- !,
       check(Steps, Gamma1, M, T1)
   ;   T = (A1 => B),
       hypothesis(X),
-      % the annotation, if any, is the binder's type (it may unfold the expected one, as a redex would)
-      ( A == '$inferred' -> A3 = A1 ; A == A1 -> A3 = A1 ; canonical(A, A3), convertible(A3, A1) ),
+      % the annotation, if any, is the binder's type (it may unfold the expected one, as a redex
+      % would), and binds its parameters
+      ( A == '$inferred' -> A3 = A1 ; A == A1 -> A3 = A1 ; canonical(A, A3), matches(A3, A1) ),
+      ground(A3),
       put_assoc(X, Gamma, A3, Gamma1),
       check(Steps, Gamma1, M, B)
   ).
@@ -157,14 +161,19 @@ check(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
   check(Steps, Gamma1, M, T).
+check(Steps, Gamma, app(F, Ts, Ms), T) :- !, application(Steps, Gamma, F, Ts, Ms, T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
-  ( ground(T1) -> convertible(T1, T) ; instance_of(T1, T) ).
+  matches(T1, T).
 
-% a type T1 with parameters still to infer ('$refl') is an instance of T, or of T unfolded, as types
-% are compared up to unfolding
-instance_of(T1, T) :- T1 = T, !.
-instance_of(T1, T) :- expanded(T, T1), ground(T1).
+% T1 is T: if both are ground, up to unfolding, and otherwise by unification, which binds the
+% parameters of either, as it is or with a defined atom at the top of T1 unfolded (as the binder of a
+% value substituted for a hypothesis may have stated it, see optimise.pl), or else T1 is an instance
+% of T unfolded
+matches(T1, T) :- ground(T1), ground(T), !, convertible(T1, T).
+matches(T1, T) :- T1 = T, !.
+matches(T1, T) :- nonvar(T1), unfold(T1, U), U = T, !.
+matches(T1, T) :- ground(T), expanded(T, U), U = T1, ground(T1).
 
 % types are the same, or the same once defined predicates and function terms are unfolded (see ir.pl)
 convertible(T1, T) :- T1 == T, !.
@@ -195,9 +204,7 @@ unfolds(A, F) :-
   \+ ( subterm(Body, Q), functor(Q, B, 2), ( B == '!' ; B == '?' ) ), !,
   defined_atom(A, F).
 
-% the type of an application is determined by its head, instantiated by its terms; the parameters
-% of a built-in (see ir.pl) are found by unifying the type of its first argument, or for '$refl',
-% the type against which it is checked
+% the type T of M, inferred: ground but for the parameters of a built-in that nothing has bound
 type(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
@@ -206,23 +213,38 @@ type(Steps, Gamma, M0, T) :-
 type(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   eigenvariable(X),
   \+ get_assoc(X, Gamma, _),
-  inferred(Steps, Gamma, E, '$='(Sort, S, U)),
+  check(Steps, Gamma, E, '$='(Sort, S, U)),
   ground(Sort-S-U),
   put_assoc(X, Gamma, Sort, Gamma1),
   well_sorted(Gamma1, A),
   substitute(X, S, A, AS),
   check(Steps, Gamma, M, AS),
   substitute(X, U, A, T).
-type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
+type(Steps, Gamma, app(F, Ts, Ms), T) :- !, application(Steps, Gamma, F, Ts, Ms, T).
+type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
+
+% F applied to Ts and Ms is of type T. The type of the head, instantiated by its terms, is
+% A_1 => ... => A_n => R for the n arguments Ms: a built-in's is a fresh instance, whose parameters
+% (see ir.pl) are bound by unification, first of R with T (a variable if T is to be inferred), then of
+% each A_i with the type of its argument, in order. So the parameters of '$refl' and '$dne' come from
+% T, and those of '$sym' and the expansion rules from T or the first argument
+application(Steps, Gamma, F, Ts, Ms, T) :-
   head(Steps, Gamma, F, T0),
   instantiate(Gamma, Ts, T0, T1),
-  % a clause is ground by now, and has no bound variables; a built-in's type may not be, until it
-  % is inferred
-  (   F \== '$dne', ( ground(T1) ; atom(F), head_type(F, _) ) -> T2 = T1
-  ;   canonical(T1, T2), ground(T2)
-  ),
-  arguments(Ms, Steps, Gamma, T2, T).
-type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
+  % a clause is ground by now, and has no bound variables; a quantified hypothesis instantiated by
+  % fewer terms than it has binders is canonical again
+  ( ( ground(T1) ; atom(F), head_type(F, _) ) -> T2 = T1 ; canonical(T1, T2), ground(T2) ),
+  premises(Ms, T2, As, R),
+  matches(R, T),
+  maplist(check(Steps, Gamma), Ms, As),
+  ground(T).
+
+% the premises As of a type, for the arguments Ms, and its result R
+premises([], R, [], R).
+premises([_|Ms], T0, [A|As], R) :-
+  nonvar(T0),
+  unfold(T0, (A => T)),
+  premises(Ms, T, As, R).
 
 % β-reduction by binding: the λs of a redex M0 take its arguments, terms first, and M is the rest of
 % its body, applied to any arguments left over, in Gamma with the hypotheses bound
@@ -301,20 +323,6 @@ well_sorted(Gamma, A) :- sorted(Gamma, A, '$o').
 binder('$BOUND'(H):S, Gamma, Gamma1) :-
   valid_sort(Gamma, S),
   put_assoc('$BOUND'(H), Gamma, S, Gamma1).
-
-arguments([], _, _, T, T).
-% each argument is checked against its premise, or for an expansion rule's first, its type is
-% inferred, and unified with the premise
-arguments([M|Ms], Steps, Gamma, T0, T) :-
-  unfold(T0, (A => B)),
-  ( ground(A) -> check(Steps, Gamma, M, A) ; inferred(Steps, Gamma, M, A), ground(A) ),
-  arguments(Ms, Steps, Gamma, B, T).
-
-% the type of M is an instance of the pattern A, as it is or with a defined atom at its top unfolded
-% (as the binder of a value substituted for a hypothesis may have stated it, see optimise.pl)
-inferred(Steps, Gamma, M, A) :-
-  type(Steps, Gamma, M, A1),
-  ( A1 = A -> true ; unfold(A1, A2), A2 = A ).
 
 % weak head normal form: negation is implication, and defined atoms (split symbols among them) are their
 % definitions, which a redex or annotation would otherwise unfold (optimise.pl removes some)

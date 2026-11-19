@@ -60,11 +60,11 @@ A λ at the head of an application is a β-redex, which binds its binders to the
 need not be β-normal: app(lam(X, F, N), [], [M]) is a lemma X : F, proved by M, in N (a let). The
 λ of a redex states the types of its hypotheses, so none is '$inferred'.
 
-A head of type '!'(X:S, T) is applied to a term of sort S for X. A built-in's type is a fresh
-instance, whose Prolog variables are its parameters: those bound by '!' are its terms Ts, as for a
-step, and the others are inferred by one pass of unification, from the type of its first argument
-(inferred_premise/1), which is itself inferred as for E above, or else from the type against which it
-is checked. So '$sym' : S = T => T = S takes no terms, nor does '$refl' : S = S.
+A head of type '!'(X:S, T) is applied to a term of sort S for X. A built-in takes no terms: its type
+is a fresh instance, whose Prolog variables are its parameters, inferred by unification, first with
+the type against which the application is checked, and then with the type of each argument in turn.
+So '$refl' : S = S and '$dne' : ~~F => F are typed by the former, and '$sym' : S = T => T = S and
+the expansion rules by either.
 
 The expansion rules (transform.pl) are the built-ins that take a formula apart, as in a tableau: a
 rule is applied to a proof of the formula, and then to a refutation of each branch, which binds the
@@ -132,7 +132,7 @@ formula_step(Name) :-
 head_type('$trivial', '$true').
 head_type('$refl', '$='(_, X, X)).
 head_type('$sym', ('$='(A, X, Y) => '$='(A, Y, X))).
-head_type('$dne', '!'(F:'$o', (~(~F) => F))).
+head_type('$dne', (~(~F) => F)).
 % the expansion rules: each takes a proof of a formula, and a refutation of each branch, but for '$nex'
 head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
 head_type('$or', ((F | G) => ((F => '$false') => ((G => '$false') => '$false')))).
@@ -146,8 +146,8 @@ head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
 head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
 head_type('$nex', (~'?'(B, F) => '!'(B, ~F))).
 
-% a built-in whose parameters are inferred from the type of its first argument: '$sym', and the
-% expansion rules
+% a built-in whose first premise has parameters, which the type of its first argument may bind:
+% '$sym', '$dne', and the expansion rules
 inferred_premise(Name) :- head_type(Name, (A => _)), \+ ground(A).
 
 % the Branches of the expansion Rule applied to a proof of the formula F, each the formulas that it
