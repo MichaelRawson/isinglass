@@ -89,10 +89,10 @@ argument_types(Env, F, Ms, Types) :-
 
 known_types(Env, Rule, [M|Ms], [T0|Ts]) :-
   atom(Rule),
-  rule_type(Rule, _, _), !,
+  expansion_rule(Rule), !,
   var(M),
   typed(Env, M, T0),
-  rule_type(Rule, T0, T1),
+  head_type(Rule, (T0 => T1)),
   premises(Ms, T1, Ts).
 known_types(Env, X, Ms, Ts) :-
   var(X),
@@ -130,7 +130,7 @@ instantiated([X:S|Bs0], [T|Ts], [T:S|Bs]) :- substitute(X, T, Bs0, Bs1), instant
 
 % a step, a built-in, or a hypothesis whose type is a split symbol
 head_binders(_, F, Bs) :- atom(F), step(F, clause(Bs, _), _), !.
-head_binders(_, F, Bs) :- atom(F), builtin_type(F, T), quantifier_prefix('!', T, Bs, _), Bs = [_|_], !.
+head_binders(_, F, Bs) :- atom(F), head_type(F, T), quantifier_prefix('!', T, Bs, _), Bs = [_|_], !.
 head_binders(Env, F, Bs) :- member(X-T, Env), X == F, !, atom(T), split(T, clause(Bs, _)).
 
 % a hypothesis is a variable until named, so the clauses below would bind it: hence the guard

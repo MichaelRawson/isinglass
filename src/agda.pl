@@ -170,7 +170,7 @@ proof(let(X, F, M, N)) --> !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
 proof(rewrite(X:_, A, E, M)) --> !, rewritten(A, X, E, M).
 % Agda infers the terms of sym and refl
-proof(app(F, _, Ms)) --> { builtin_type(F, _) }, !, head(F), foldl(spaced_operand, Ms).
+proof(app(F, _, Ms)) --> { builtin(F) }, !, head(F), foldl(spaced_operand, Ms).
 proof(app(F, Ts, Ms)) --> !, head(F), arguments(Ts), foldl(spaced_operand, Ms).
 proof(X) --> head(X).
 

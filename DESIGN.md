@@ -40,13 +40,14 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - First-order arguments `Ts` are terms, kept apart from proof arguments (so that back ends can read premise instances directly).
 - `clause(Bs, [L₀…Lₙ₋₁])` has type `Π Bs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`.
 - `formula(F)` has type `F`.
-- Formulas are taken apart by expansion rules, as in a tableau (`ir:rule_type/3`): a built-in head applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`.
+- Formulas are taken apart by expansion rules, as in a tableau: a built-in head applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`.
+- Built-ins and expansion rules are typed by one table, `ir:head_type/2`, of fresh instances whose Prolog variables are their parameters. Those bound by `'!'` (`$refl`, `$sym`, `$dne`) are the terms `Ts` of an application, as for a step. The others are an expansion rule's (`ir:expansion_rule/1`), found by unifying its first premise with the inferred type of its first argument: one pass of first-order unification, as quantifiers have one binder and bound variables canonical names.
 - The hypotheses that an expansion rule binds are annotated `'$inferred'` rather than with their formulas, which follow from the rule's first argument: annotating the parts of a conjunction would make terms quadratic in its size. The checker and `close.pl` infer them; back ends that print binder types must too.
 - The rules for `?` and `~!` bind an eigenvariable. `'$nex'` turns `~?` into `!~`.
 - Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
 - The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed. The IR is therefore sound under any reading of `⊥`: classical falsity, or the conjecture of the A-translation.
 - Heads are variables or constants, so terms are β-normal apart from `let`.
-- `'$nex'` occurs only as the value of a `let`, which states its type `![Xs] : ~F`: back ends read its binders from it.
+- `'$nex'` occurs only as the value of a `let`, which states its type `![X] : ~F`: back ends read its binder from it.
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
 - Clause splits: a split symbol is a predicate `definition` of no arguments, whose body is the type of its clause, so it unfolds to that type. The front end restates Vampire's `spl <=> C` as `spl <=> T` for the clause type `T` of `C`, and keeps `C` as `split/2` for the AVATAR tactics.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
@@ -180,7 +181,7 @@ An optional pass between reconstruction and the back end makes proofs smaller, a
 An independent-ish type checker of each ground, annotated term against the type of its conclusion.
 - First-order terms are checked against the signature.
 - Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a defined atom (such as a split) its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
-- An expansion rule is typed by its first argument (`ir:rule_type/3`).
+- An application is typed by its head (`ir:head_type/2` for a built-in), instantiated by its terms; an expansion rule's first argument has its type inferred and unified with the rule's first premise, and the application's type must be ground.
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
 - A Skolem symbol is defined once, by a well-sorted `?` formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
@@ -252,7 +253,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
 | `optimise.pl` | Optional inlining and simplification of the IR |
-| `ir.pl` | IR documentation; `clause_type/2`, `step_type/2`, `builtin_type/2`, `rule_type/3`, `formula_step/1`, `reference/2` |
+| `ir.pl` | IR documentation; `clause_type/2`, `step_type/2`, `head_type/2`, `formula_step/1`, `reference/2` |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
 | `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |

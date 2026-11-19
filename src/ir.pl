@@ -6,8 +6,8 @@ The intermediate representation (IR) of proofs, and the types of clauses.
   Conclusion    ::= clause(Bs, Literals) | formula(F)
   Justification ::= input(Role, Source)             an axiom (never the conjecture)
                   | skolem_def(Symbol, Bs, F)       Symbol(Xs), for the binders Bs = Xs : Sorts, is
-                                                    defined by choice, as ε Y. T, where F is ?[Y:S|Ys] : G
-                                                    (T is ?[Ys] : G); its conclusion is the choice axiom
+                                                    defined by choice, as ε Y. T, where F is ?[Y:S] : T;
+                                                    its conclusion is the choice axiom
                                                     ![Bs] : (F => T[Symbol(Xs)/Y]) (choice_axiom/4)
                   | definition(Symbol, Bs, Body)    Symbol(Xs) is defined as Body, for the binders
                                                     Bs = Xs : Sorts; for a function symbol, Body is a
@@ -46,22 +46,23 @@ of any type that differs from it only by unfolding these (expanded/2), as back e
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
       | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort; T is
                           '$inferred' for a hypothesis of an expansion rule, whose type follows
-                          from the rule's first argument
+                          from the type of the rule's first argument
       | let(X, F, M, M')  X : F is M, in M' (a lemma)
       | rewrite(X:S, A, E, M)
                           E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
                           '$VAR'(N) of sort S bound only in the motive A, and E's type is
                           inferred (a hypothesis or an application)
   F ::= X | Name          a hypothesis, or a step: a clause or a formula
-      | '$trivial'        built-in: '$true'
-      | '$refl'           built-in: '!'([A:'$tType', X:A], '$='(A, X, X))
-      | '$sym'            built-in: '!'([A:'$tType', X:A, Y:A], '$='(A, X, Y) => '$='(A, Y, X))
-      | '$dne'            built-in: '!'([F:'$o'], ~ ~F => F), classical
-      | Rule              an expansion rule (transform.pl), below
+      | '$trivial' | '$refl' | '$sym' | '$dne'
+                          a built-in, or
+      | Rule              an expansion rule (transform.pl): a built-in whose parameters are inferred
 
-A hypothesis of type '!'(Bs, F) is applied to terms, as a step is. An expansion rule is applied to
-a proof of a formula, whose type is inferred as for E above, and then to a refutation of each
-branch, which binds the formulas of the branch, and first an eigenvariable for ? and ~!:
+A head of type '!'([X:S], T) is applied to a term of sort S for X, as a step or a hypothesis is. The
+built-ins are typed by head_type/2, whose Prolog variables are their parameters. Those bound by '!',
+as a step's are, are the terms Ts. Any others are an expansion rule's, found by unifying its first
+premise with the type of its first argument, which is inferred as for E above: an expansion rule is
+applied to a proof of a formula, and then to a refutation of each branch, which binds the formulas of
+the branch, and first an eigenvariable for ? and ~!:
 
   '$and'   F & G        F, G              '$nor'   ~(F | G)     ~F, ~G
   '$or'    F | G        F ; G             '$nand'  ~(F & G)     ~F ; ~G
@@ -69,8 +70,8 @@ branch, which binds the formulas of the branch, and first an eigenvariable for ?
   '$iff'   F <=> G      F, G ; ~F, ~G     '$niff'  ~(F <=> G)   F, ~G ; ~F, G
   '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
 
-'$nex' is not a refutation: applied to a proof of ~ ?[Xs] : F it proves ![Xs] : ~F. It occurs only
-as the value of a let, which states that type (back ends read its binders from it).
+'$nex' is not a refutation: applied to a proof of ~ ?[X] : F it proves ![X] : ~F. It occurs only
+as the value of a let, which states that type (back ends read its binder from it).
 Skolemisation is not a rule: a ? formula is opened by its choice axiom, a step (skolem_def). The
 prover Skolemises in negation normal form, so a δ formula ~! is never chosen for.
 '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so the steps that use them
@@ -89,7 +90,7 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, builtin_type/2, rule_type/3, formula_step/1, choice_axiom/4,
+:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, expansion_rule/1, builtin/1, formula_step/1, choice_axiom/4,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
@@ -120,29 +121,34 @@ formula_step(Name) :-
   step(Name, _, tactic(Tactic, _)),
   ( Tactic = transform(_) ; Tactic == clausify ), !.
 
-% the types of the built-in heads
-builtin_type('$sym', '!'([A:'$tType'], '!'([X:A], '!'([Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))))).
-builtin_type('$refl', '!'([A:'$tType'], '!'([X:A], '$='(A, X, X)))).
-builtin_type('$trivial', '$true').
-builtin_type('$dne', '!'([F:'$o'], (~(~F) => F))).
+% the types of the built-in heads, fresh instances: their Prolog variables are their parameters, the
+% terms of an application for those bound by '!', and otherwise inferred from its first argument
+head_type('$trivial', '$true').
+head_type('$refl', '!'([A:'$tType'], '!'([X:A], '$='(A, X, X)))).
+head_type('$sym', '!'([A:'$tType'], '!'([X:A], '!'([Y:A], ('$='(A, X, Y) => '$='(A, Y, X)))))).
+head_type('$dne', '!'([F:'$o'], (~(~F) => F))).
+% the expansion rules: each takes a proof of a formula, and a refutation of each branch, but for '$nex'
+head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
+head_type('$or', ((F | G) => ((F => '$false') => ((G => '$false') => '$false')))).
+head_type('$imp', ((F => G) => ((~F => '$false') => ((G => '$false') => '$false')))).
+head_type('$iff', ((F <=> G) => ((F => (G => '$false')) => ((~F => (~G => '$false')) => '$false')))).
+head_type('$nand', (~(F & G) => ((~F => '$false') => ((~G => '$false') => '$false')))).
+head_type('$nor', (~(F | G) => ((~F => (~G => '$false')) => '$false'))).
+head_type('$nimp', (~(F => G) => ((F => (~G => '$false')) => '$false'))).
+head_type('$niff', (~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false')))).
+head_type('$ex', ('?'([B], F) => ('!'([B], (F => '$false')) => '$false'))).
+head_type('$nall', (~'!'([B], F) => ('!'([B], (~F => '$false')) => '$false'))).
+head_type('$nex', (~'?'([B], F) => '!'([B], ~F))).
 
-% the expansion rules: rule_type(Rule, T, T1), where the rule applied to a proof of T is of type
-% T1, which takes a refutation of each branch, but for '$nex'
-rule_type('$and', (F & G), ((F => (G => '$false')) => '$false')).
-rule_type('$or', (F | G), ((F => '$false') => ((G => '$false') => '$false'))).
-rule_type('$imp', (F => G), ((~F => '$false') => ((G => '$false') => '$false'))).
-rule_type('$iff', (F <=> G), ((F => (G => '$false')) => ((~F => (~G => '$false')) => '$false'))).
-rule_type('$nand', ~((F & G)), ((~F => '$false') => ((~G => '$false') => '$false'))).
-rule_type('$nor', ~((F | G)), ((~F => (~G => '$false')) => '$false')).
-rule_type('$nimp', ~((F => G)), ((F => (~G => '$false')) => '$false')).
-rule_type('$niff', ~((F <=> G)), ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false'))).
-rule_type('$ex', '?'([B|Bs], F), ('!'([B], (G => '$false')) => '$false')) :- quantified('?', Bs, F, G).
-rule_type('$nall', ~'!'([B|Bs], F), ('!'([B], (~G => '$false')) => '$false')) :- quantified('!', Bs, F, G).
-rule_type('$nex', ~'?'(Bs, F), '!'(Bs, ~F)).
+% an expansion rule: its parameters are inferred from the type of its first argument
+expansion_rule(Name) :- head_type(Name, (A => _)), \+ ground(A).
 
-% the choice axiom of Symbol, defined for binders Bs as ε Y. T, where F is ?[Y:S|Ys] : G (T is ?[Ys] : G)
+% ...and the other built-ins, whose parameters are the terms of an application
+builtin(Name) :- head_type(Name, _), \+ expansion_rule(Name).
+
+% the choice axiom of Symbol, defined for binders Bs as ε Y. T, where F is ?[Y:S] : T
 choice_axiom(Symbol, Bs, F, A) :-
-  rule_type('$ex', F, ('!'([Y:_], (T => '$false')) => '$false')),
+  F = '?'([Y:_], T),
   binder_variables(Bs, Xs),
   Term =.. [Symbol|Xs],
   substitute(Y, Term, T, T1),
@@ -200,10 +206,6 @@ defined_term(T, Body) :-
   foldl(abstract, Xs, Vs, Body0, Body),
   Vs = Ts.
 
-% a quantifier over binders Bs, if any
-quantified(_, [], F, F) :- !.
-quantified(Q, Bs, F, G) :- G =.. [Q, Bs, F].
-
 % a step that a justification cites, one at a time
 reference(proof(M), Name) :- head(M, Name).
 reference(todo(_, Parents), Name) :- member(Name, Parents).
@@ -213,5 +215,5 @@ reference(conjecture(_, Negated, Refutation), Name) :- ( Name = Negated ; Name =
 head(lam(_, _, M), Name) :- head(M, Name).
 head(let(_, _, M, N), Name) :- ( head(M, Name) ; head(N, Name) ).
 head(rewrite(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
-head(app(F, _, _), F) :- atom(F), \+ builtin_type(F, _), \+ rule_type(F, _, _).
+head(app(F, _, _), F) :- atom(F), \+ head_type(F, _).
 head(app(_, _, Ms), Name) :- member(M, Ms), head(M, Name).

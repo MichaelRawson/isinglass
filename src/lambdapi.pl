@@ -191,8 +191,8 @@ abstraction([X|Xs]) --> "λ", variables([X|Xs]), ", ".
 
 consequent(A, T) :- quantifier_prefix('!', A, _, (_ => T)).
 
-% the δ formula F, ?[Y:S|Ys] : G, is opened with Y for the body T
-delta_body(F, B, T) :- rule_type('$ex', F, ('!'([B], (T => '$false')) => '$false')).
+% the δ formula F, ?[Y:S] : T, is opened with Y for the body T
+delta_body('?'([B], T), B, T).
 
 epsilon(S) --> { S == '$tType' }, !, "εₜ".
 epsilon(_) --> "ε".

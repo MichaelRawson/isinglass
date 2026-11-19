@@ -287,7 +287,7 @@ cheap(env(Inlined, _, _), F) :- atom(F), \+ get_assoc(F, Inlined, _).
 eta(Y, _, M0, M) :-
   nonvar(M0),
   M0 = app(F, Ts, Ms),
-  ( var(F) ; atom(F), \+ builtin_type(F, _), \+ rule_type(F, _, _) ),
+  ( var(F) ; atom(F), \+ head_type(F, _) ),
   append(Ms1, [X], Ms),
   X == Y,
   \+ occurs(Y, F-Ts-Ms1), !,
@@ -308,7 +308,7 @@ uses(_, let(_, _, M, N)) --> !, uses(false, M), uses(false, N).
 uses(_, rewrite(_, _, E, M)) --> !, uses(true, E), uses(false, M).
 uses(Inferred, app(F, Ts, Ms)) --> !,
   use(F, Ts, Ms, Inferred),
-  ( { atom(F), rule_type(F, _, _), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ).
+  ( { atom(F), expansion_rule(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ).
 uses(Inferred, F) --> use(F, [], [], Inferred).
 
 use(F, Ts, Ms, Inferred) --> { F = h(_) }, !,

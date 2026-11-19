@@ -7,14 +7,15 @@ First-order terms are checked against the signature (signature.pl): instances ar
 so are the sorts of eigenvariables and the motives of rewrites. The types of steps are taken to be
 well sorted, as the prover gives them.
 
-Terms and their types are ground. The only Prolog variables bound in checking are the quantifier
-binders of fresh instances of steps, split definitions and built-ins, which are bound to ground
-terms (instantiation) or to eigenvariables (an unfolded split definition, under λs).
+Terms and their types are ground. The only Prolog variables bound in checking are those of fresh
+instances of steps and built-ins: quantifier binders, which are bound to ground terms
+(instantiation), and the parameters of an expansion rule, bound by unifying its first premise with
+the type of its first argument.
 
 Formulas are types too, compared up to the names of their bound variables: these are named
 canonically (see logic.pl), in the types of steps and in the annotations of terms, and a
-quantified hypothesis is instantiated by substitution. The expansion rules (ir.pl) are
-typed by ir:rule_type/3.
+quantified hypothesis is instantiated by substitution. The built-ins and expansion rules are typed
+by ir:head_type/2.
 */
 :- module(checker, [emit_checker/0]).
 :- use_module(library(lists)).
@@ -71,7 +72,7 @@ justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
   canonical(F, F1),
   F1 == F,
   well_sorted(Gamma, F),
-  rule_type('$ex', F, ('!'([_:S], _) => _)),
+  F = '?'([_:S], _),
   S == Sort,
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A1),
@@ -133,12 +134,12 @@ conclusion_type(formula(_), T0, T) :- canonical(T0, T).
 % Gamma is an assoc mapping hypotheses to their types, and eigenvariables to their sorts
 check(Steps, Gamma, lam(X, A, M), T0) :- !,
   unfold(T0, T),
-  (   T = '!'([Y:S|Bs], B)
+  (   T = '!'([Y:S], B)
   ->  eigenvariable(X),
       \+ get_assoc(X, Gamma, _),
       A == S,
       valid_sort(Gamma, S),
-      instantiated(Y, X, Bs, B, T1),
+      instantiated(Y, X, B, T1),
       put_assoc(X, Gamma, S, Gamma1),
       check(Steps, Gamma1, M, T1)
   ;   T = (A1 => B),
@@ -198,25 +199,24 @@ unfolds(A, F) :-
   \+ ( subterm(Body, Q), functor(Q, B, 2), ( B == '!' ; B == '?' ) ), !,
   defined_atom(A, F).
 
-% the type of an application is determined by its head, or for an expansion rule (see ir.pl) by
-% the type of its first argument
-type(Steps, Gamma, app(Rule, [], [M|Ms]), T) :-
-  atom(Rule),
-  rule_type(Rule, _, _), !,
-  type(Steps, Gamma, M, T0),
-  rule_type(Rule, T0, T1),
-  arguments(Ms, Steps, Gamma, T1, T).
+% the type of an application is determined by its head, instantiated by its terms; an expansion
+% rule's parameters (see ir.pl) are found by unifying the type of its first argument, so that its
+% type is ground by the end
 type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
   head(Steps, Gamma, F, T0),
   instantiate(Gamma, Ts, T0, T1),
   % a clause is ground by now, and has no bound variables
-  ( F \== '$dne', ground(T1) -> T2 = T1 ; canonical(T1, T2), ground(T2) ),
-  arguments(Ms, Steps, Gamma, T2, T).
+  (   atom(F), expansion_rule(F) -> T2 = T1
+  ;   F \== '$dne', ground(T1) -> T2 = T1
+  ;   canonical(T1, T2), ground(T2)
+  ),
+  arguments(Ms, Steps, Gamma, T2, T),
+  ground(T).
 type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
 
 % the type of a head: steps and built-ins are fresh instances
 head(_, Gamma, X, T) :- hypothesis(X), !, get_assoc(X, Gamma, T).
-head(_, _, Name, T) :- atom(Name), builtin_type(Name, T), !.
+head(_, _, Name, T) :- atom(Name), head_type(Name, T), !.
 head(Steps, _, Name, T) :-
   atom(Name),
   get_assoc(Name, Steps, true),
@@ -226,23 +226,18 @@ head(Steps, _, Name, T) :-
 % each term is of the sort of its binder, which depends on the terms before it
 instantiate(_, [], T, T) :- !.
 instantiate(Gamma, [U|Us], T0, T) :-
-  unfold(T0, '!'([X:S|Bs], F)),
+  unfold(T0, '!'([X:S], F)),
   sorted(Gamma, U, S),
-  instantiated(X, U, Bs, F, T1),
+  instantiated(X, U, F, T1),
   instantiate(Gamma, Us, T1, T).
 
-% '!'([X:_|Bs], F) with U for X: X is a variable in a fresh instance, where instantiation is
+% '!'([X:_], F) with U for X: X is a variable in a fresh instance, where instantiation is
 % unification, or U itself, an eigenvariable named after the binder of its clause, or else it is
 % canonical, and substituted. U is ground and has no bound variables (it is an eigenvariable, or
 % well sorted), so none is captured
-instantiated(X, U, Bs, F, T) :- var(X), !, X = U, quantified(Bs, F, T).
-instantiated(X, U, Bs, F, T) :- X == U, !, quantified(Bs, F, T).
-instantiated('$BOUND'(H), U, Bs0, F0, T) :-
-  substitute('$BOUND'(H), U, Bs0-F0, Bs-F),
-  quantified(Bs, F, T).
-
-quantified([], F, F) :- !.
-quantified(Bs, F, '!'(Bs, F)).
+instantiated(X, U, F, F) :- var(X), !, X = U.
+instantiated(X, U, F, F) :- X == U, !.
+instantiated('$BOUND'(H), U, F0, F) :- substitute('$BOUND'(H), U, F0, F).
 
 % first-order term T is of sort S, which is ground; every variable is an eigenvariable of Gamma
 sorted(Gamma, '$VAR'(N), S) :- !, get_assoc('$VAR'(N), Gamma, S0), S0 == S.
@@ -275,9 +270,11 @@ binder('$BOUND'(H):S, Gamma, Gamma1) :-
   put_assoc('$BOUND'(H), Gamma, S, Gamma1).
 
 arguments([], _, _, T, T).
+% each argument is checked against its premise, or for an expansion rule's first, its type is
+% inferred, and unified with the premise
 arguments([M|Ms], Steps, Gamma, T0, T) :-
   unfold(T0, (A => B)),
-  check(Steps, Gamma, M, A),
+  ( ground(A) -> check(Steps, Gamma, M, A) ; type(Steps, Gamma, M, A) ),
   arguments(Ms, Steps, Gamma, B, T).
 
 % weak head normal form: negation is implication, and defined atoms (split symbols among them) are their
