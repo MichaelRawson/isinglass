@@ -25,11 +25,9 @@ refutes('$='(A, S, T), X, ~B, lam(K, ~B, app(K, [], [app('$sym', [], [X])]))) :-
 flipped('$='(A, S, T), X, lam(E, '$='(A, S, T), app(X, [], [app('$sym', [], [E])]))).
 flipped(~'$='(A, S, T), X, lam(K, ~'$='(A, S, T), app(X, [], [lam(E, '$='(A, T, S), app(K, [], [app('$sym', [], [E])]))]))).
 
-% M : ~T applied to W : T; a λ is β-reduced, to a let unless W is a hypothesis, so that heads stay
-% variables or constants
-applied(M, W, app(M, [], [W])) :- var(M), !.
-applied(lam(V, _, B), W, B) :- var(W), !, V = W.
-applied(lam(V, T, B), W, let(V, T, W, B)).
+% M : ~T applied to W : T; a λ applied to a hypothesis W is β-reduced
+applied(M, W, B) :- nonvar(M), M = lam(V, _, B), var(W), !, V = W.
+applied(M, W, app(M, [], [W])).
 
 % M abstracted over binders X-T
 lambdas([], M, M).

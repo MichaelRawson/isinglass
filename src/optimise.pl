@@ -15,12 +15,12 @@ binder, or to a closure c(M, Env), a term to be normalised where it is used. So 
 β-redex that is reduced by binding its binders, and a substituted hypothesis is normalised once, at
 its single use, which keeps the pass linear. Then
 
-  - β: an inlined step, or a λ substituted at the head of an application, binds its binders to the
-    arguments; a hypothesis argument is substituted if it is cheap or used once, else it is a let;
-  - let: a let is dropped if unused, and substituted if cheap (a hypothesis or constant, applied to
-    terms only) or used once (where its use can take it: a proof applied to proofs is not then
-    applied to terms, and a let or rewrite is not at a head); '$nex' lets are kept, as the IR
-    states the type of '$nex' only there;
+  - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
+    its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
+    cheap (a hypothesis or constant, applied to terms only) or used once (where its use can take
+    it: a proof applied to proofs is not then applied to terms, and a redex or rewrite is not at a
+    head), else it stays a redex; '$nex' arguments stay, as the IR states the type of '$nex' only
+    in the λ of its redex;
   - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
   - sym (sym E) → E, and sym E → refl for a trivial equation S = S;
   - a rewrite whose motive does not mention its variable, or by reflexivity, is its proof.
@@ -78,10 +78,9 @@ full(Name, Ts, Ms) :- ir_step(Name, clause(Bs, Ls), _), same_length(Bs, Ts), sam
 
 % the steps cited in a proof term, with their arguments
 cited(lam(_, _, M), Name, Ts, Ms) :- !, cited(M, Name, Ts, Ms).
-cited(let(_, _, M, N), Name, Ts, Ms) :- !, ( cited(M, Name, Ts, Ms) ; cited(N, Name, Ts, Ms) ).
 cited(rewrite(_, _, E, M), Name, Ts, Ms) :- !, ( cited(E, Name, Ts, Ms) ; cited(M, Name, Ts, Ms) ).
 cited(app(F, Ts0, Ms0), Name, Ts, Ms) :- !,
-  ( step_name(F), Name = F, Ts = Ts0, Ms = Ms0 ; member(M, Ms0), cited(M, Name, Ts, Ms) ).
+  ( step_name(F), Name = F, Ts = Ts0, Ms = Ms0 ; compound(F), cited(F, Name, Ts, Ms) ; member(M, Ms0), cited(M, Name, Ts, Ms) ).
 cited(F, F, [], []) :- step_name(F).
 
 step_name(F) :- atom(F), ir_step(F, _, _), !.
@@ -167,18 +166,6 @@ normal(Env, lam(X, A, M0), M) :- !,
   ->  Y = '$VAR'(_), bind(Env, X, Y, Env1), normal(Env1, M0, M1), M = lam(Y, A1, M1)
   ;   bind(Env, X, v(Y), Env1), normal(Env1, M0, M1), eta(Y, A1, M1, M)
   ).
-normal(Env, let(X, F, V0, N0), M) :- !,
-  use(Env, X, Use),
-  (   Use = u(0, _, _, _)
-  ->  normal(Env, N0, M)
-  ;   substitutable(Env, V0, Use)
-  ->  bind(Env, X, c(V0, Env), Env1), normal(Env1, N0, M)
-  ;   substituted(Env, F, F1),
-      normal(Env, V0, V),
-      bind(Env, X, v(Y), Env1),
-      normal(Env1, N0, N),
-      M = let(Y, F1, V, N)
-  ).
 normal(Env, rewrite(X:S0, A0, E0, M0), M) :- !,
   Y = '$VAR'(_),
   substituted(Env, S0, S),
@@ -215,6 +202,7 @@ applied(Env, F, Ts, Cs, M) :-
   hypothesis_uses(M0, Uses),
   empty_assoc(Empty),
   reduced(env(Inlined, Empty, Uses), M0, Ts, Cs, M).
+applied(Env, F, Ts, Cs, M) :- F = lam(_, _, _), !, reduced(Env, F, Ts, Cs, M).
 applied(_, F, Ts, Cs, M) :-
   atom(F),
   maplist(forced, Cs, Ms),
@@ -258,7 +246,7 @@ reduced(Env, lam(X, A, M0), [], [C|Cs], M) :- !,
       forced(C, V),
       bind(Env, X, v(Y), Env1),
       reduced(Env1, M0, [], Cs, N),
-      M = let(Y, A1, V, N)
+      M = app(lam(Y, A1, N), [], [V])
   ).
 reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 
@@ -300,11 +288,11 @@ hypothesis_uses(M, Uses) :-
   foldl(add_use, Sorted, Empty, Uses).
 
 uses(_, lam(_, _, M)) --> !, uses(false, M).
-uses(_, let(_, _, M, N)) --> !, uses(false, M), uses(false, N).
 uses(_, rewrite(_, _, E, M)) --> !, uses(true, E), uses(false, M).
 uses(Inferred, app(F, Ts, Ms)) --> !,
   use(F, Ts, Ms, Inferred),
-  ( { atom(F), inferred_premise(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ).
+  ( { atom(F), inferred_premise(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ),
+  ( { compound(F), F \= h(_) } -> uses(false, F) ; [] ).
 uses(Inferred, F) --> use(F, [], [], Inferred).
 
 use(F, Ts, Ms, Inferred) --> { F = h(_) }, !,
@@ -326,10 +314,9 @@ either(_, _, true).
 % the eigenvariables bound in the term are numbered from N0, in order; a hypothesis is still a variable
 number_eigenvariables(V, N, N) :- var(V), !.
 number_eigenvariables(lam(X, _, M), N0, N) :- !, number_binder(X, N0, N1), number_eigenvariables(M, N1, N).
-number_eigenvariables(let(_, _, M, M1), N0, N) :- !, number_eigenvariables(M, N0, N1), number_eigenvariables(M1, N1, N).
 number_eigenvariables(rewrite(X:_, _, E, M), N0, N) :- !,
   number_binder(X, N0, N1), number_eigenvariables(E, N1, N2), number_eigenvariables(M, N2, N).
-number_eigenvariables(app(_, _, Ms), N0, N) :- !, foldl(number_eigenvariables, Ms, N0, N).
+number_eigenvariables(app(F, _, Ms), N0, N) :- !, foldl(number_eigenvariables, Ms, N0, N1), number_eigenvariables(F, N1, N).
 number_eigenvariables(_, N, N).
 
 number_binder(X, N0, N) :- nonvar(X), X = '$VAR'(I), var(I), !, I = N0, N is N0 + 1.

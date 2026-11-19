@@ -62,12 +62,16 @@ parameter(Depth, Env, P) :- small_term(Depth, Env, '$tType', P).
 argument(Depth, Env, S, U) :- small_term(Depth, Env, S, U), !.
 
 % a hole(Env, X, S) for each binder X : S of the instances in M, with X unified with the term
-% instantiating it; Env holds the types of the λ and let binders in scope, as X-T, where a
+% instantiating it; Env holds the types of the λ binders in scope, as X-T, where a
 % hypothesis X is still a variable and an eigenvariable is not. T is the type of M, if known: a
 % binder annotated '$inferred' takes its type from it
 instances(_, _, V) --> { var(V) }, !.
 instances(Env, T, lam(X, A, M)) --> !, { abstraction(T, X, A, A1, T1) }, instances([X-A1|Env], T1, M).
-instances(Env, _, let(X, F, M, M1)) --> !, instances(Env, F, M), instances([X-F|Env], _, M1).
+% a redex: each λ takes an argument, of the type of its binder (a hypothesis at the head is a variable)
+instances(Env, T, app(L, [], [M|Ms])) --> { nonvar(L), L = lam(X, F, N) }, !,
+  instances(Env, F, M),
+  { ( Ms == [] -> N1 = N, T1 = T ; N1 = app(N, [], Ms) ) },
+  instances([X-F|Env], T1, N1).
 instances(Env, _, rewrite(_, _, E, M)) --> !, instances(Env, _, E), instances(Env, _, M).
 instances(Env, _, app(F, Ts, Ms)) --> !,
   { instance_binders(Env, F, Ts, Bs), maplist(hole(Env), Bs, Holes), argument_types(Env, F, Ms, Types) },
@@ -136,8 +140,9 @@ head_binders(Env, F, Bs) :- member(X-T, Env), X == F, !, atom(T), split(T, claus
 % a hypothesis is a variable until named, so the clauses below would bind it: hence the guard
 name_binders(V, N, N) :- var(V), !.
 name_binders(lam(X, _, M), N0, N) :- !, bind(X, N0, N1), name_binders(M, N1, N).
-name_binders(let(X, _, M, M1), N0, N) :- !, bind(X, N0, N1), name_binders(M, N1, N2), name_binders(M1, N2, N).
-name_binders(app(_, _, Ms), N0, N) :- !, foldl(name_binders, Ms, N0, N).
+name_binders(app(L, _, Ms), N0, N) :- nonvar(L), L = lam(X, _, B), !,
+  bind(X, N0, N1), foldl(name_binders, Ms, N1, N2), name_binders(B, N2, N).
+name_binders(app(F, _, Ms), N0, N) :- !, foldl(name_binders, Ms, N0, N1), name_binders(F, N1, N).
 name_binders(rewrite(_, _, E, M), N0, N) :- !, name_binders(E, N0, N1), name_binders(M, N1, N).
 name_binders(_, N, N).
 

@@ -39,32 +39,36 @@ The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.p
 are compared syntactically.
 
 So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
-A defined predicate (a split symbol among them) unfolds to its body, and a defined function term to its term, so a formula is also
-of any type that differs from it only by unfolding these (expanded/2), as back ends unfold definitions.
+A defined predicate (a split symbol among them) unfolds to its body, and a defined function term to
+its term, so a formula is also of any type that differs from it only by unfolding these
+(expanded/2), as back ends unfold definitions.
 
   M ::= X                 a hypothesis h(N)
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
       | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort; T is
                           '$inferred' for a hypothesis of an expansion rule, whose type follows
                           from the type of the rule's first argument
-      | let(X, F, M, M')  X : F is M, in M' (a lemma)
       | rewrite(X:S, A, E, M)
                           E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
                           '$VAR'(N) of sort S bound only in the motive A, and E's type is
-                          inferred (a hypothesis or an application)
-  F ::= X | Name          a hypothesis, or a step: a clause or a formula
-      | '$trivial' | '$refl' | '$sym' | '$dne'
-                          a built-in, or
-      | Rule              an expansion rule (transform.pl)
+                          inferred (not a λ)
+  F ::= M                 any term: a hypothesis, or
+      | Name              a step: a clause or a formula, or
+      | Builtin           a built-in, typed by head_type/2
 
-A head of type '!'(X:S, T) is applied to a term of sort S for X, as a step or a hypothesis is. The
-built-ins are typed by head_type/2, whose Prolog variables are their parameters. Those bound by '!'
-are the terms Ts, as a step's are: only '$dne' has one, the formula F. The others are inferred, by one
-pass of unification: from the type of the first argument, which is inferred as for E above, for
-'$sym' and the expansion rules (inferred_premise/1), or else from the type against which the
-application is checked, for '$refl'. An expansion rule is applied to a proof of a formula, and then to
-a refutation of each branch, which binds the formulas of the branch, and first an eigenvariable for
-? and ~!:
+A λ at the head of an application is a β-redex, which binds its binders to the arguments, so terms
+need not be β-normal: app(lam(X, F, N), [], [M]) is a lemma X : F, proved by M, in N (a let). The
+λ of a redex states the types of its hypotheses, so none is '$inferred'.
+
+A head of type '!'(X:S, T) is applied to a term of sort S for X. A built-in's type is a fresh
+instance, whose Prolog variables are its parameters: those bound by '!' are its terms Ts, as for a
+step, and the others are inferred by one pass of unification, from the type of its first argument
+(inferred_premise/1), which is itself inferred as for E above, or else from the type against which it
+is checked. So '$sym' : S = T => T = S takes no terms, nor does '$refl' : S = S.
+
+The expansion rules (transform.pl) are the built-ins that take a formula apart, as in a tableau: a
+rule is applied to a proof of the formula, and then to a refutation of each branch, which binds the
+formulas of the branch (rule_branches/3), and first an eigenvariable for ? and ~!:
 
   '$and'   F & G        F, G              '$nor'   ~(F | G)     ~F, ~G
   '$or'    F | G        F ; G             '$nand'  ~(F & G)     ~F ; ~G
@@ -73,13 +77,12 @@ a refutation of each branch, which binds the formulas of the branch, and first a
   '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
 
 '$nex' is not a refutation: applied to a proof of ~ ?[X] : F it proves ![X] : ~F. It occurs only
-as the value of a let, which states that type (back ends read its binder from it).
+as the argument of a redex, whose λ states that type (back ends read its binder from it).
 Skolemisation is not a rule: a ? formula is opened by its choice axiom, a step (skolem_def). The
 prover Skolemises in negation normal form, so a δ formula ~! is never chosen for.
-'$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so the steps that use them
-are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.
+'$nimp', '$niff', '$nall' and '$dne' : ~~F => F are not valid in minimal logic, so the steps that
+use them are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.
 
-Heads are always variables or constants, so terms are β-normal but for let.
 The outermost ~ of the negated conjecture is the refutation's ⊥. A classical back end proves the
 conjecture G by ¬¬-elimination; the A-translation takes ⊥ to be G, and the hypothesis ~G to be the
 identity, so that the conjecture is the refutation itself. Only steps between formulas
@@ -99,7 +102,7 @@ of sort S was found; S is '$tType' for a type variable (see close.pl).
 :- use_module(db).
 :- use_module(logic).
 
-% the type of proofs of a clause: '!'(Bs, ~L_0 => ... => ~L_n-1 => '$false')
+% the type of proofs of a clause: ~L_0 => ... => ~L_n-1 => '$false', under a '!' for each binder
 clause_type(clause(Bs, Ls), T) :-
   implications(Ls, F),
   quantify('!', Bs, F, T).
@@ -123,8 +126,8 @@ formula_step(Name) :-
   step(Name, _, tactic(Tactic, _)),
   ( Tactic = transform(_) ; Tactic == clausify ), !.
 
-% the types of the built-in heads, fresh instances: their Prolog variables are their parameters, the
-% terms of an application for those bound by '!', and otherwise inferred from its first argument
+% the types of the built-ins, fresh instances: their Prolog variables are their parameters, the terms
+% of an application for those bound by '!', and otherwise inferred (see above)
 head_type('$trivial', '$true').
 head_type('$refl', '$='(_, X, X)).
 head_type('$sym', ('$='(A, X, Y) => '$='(A, Y, X))).
@@ -219,7 +222,7 @@ reference(conjecture(_, Negated, Refutation), Name) :- ( Name = Negated ; Name =
 
 % a step at the head of an application in a proof term
 head(lam(_, _, M), Name) :- head(M, Name).
-head(let(_, _, M, N), Name) :- ( head(M, Name) ; head(N, Name) ).
 head(rewrite(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
 head(app(F, _, _), F) :- atom(F), \+ head_type(F, _).
+head(app(F, _, _), Name) :- compound(F), head(F, Name).
 head(app(_, _, Ms), Name) :- member(M, Ms), head(M, Name).

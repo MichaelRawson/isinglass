@@ -166,7 +166,8 @@ conclusion(formula(F)) --> type(F).
 
 % proof terms are printed bare, and parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
-proof(let(X, F, M, N)) --> !,
+% a redex of one hypothesis is a let
+proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
 proof(rewrite(X:_, A, E, M)) --> !, rewritten(A, X, E, M).
 % Agda infers the terms of sym and refl
@@ -181,7 +182,8 @@ binders(M) --> " → ", proof(M).
 head('$sym') --> !, "sym".
 head('$refl') --> !, "refl".
 head(h(N)) --> !, variable(h(N)).
-head(Name) --> atom(Name).
+head(Name) --> { atom(Name) }, !, atom(Name).
+head(M) --> "(", proof(M), ")".
 
 spaced_operand(M) --> " ", operand(M).
 

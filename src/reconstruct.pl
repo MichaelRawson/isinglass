@@ -248,20 +248,20 @@ unfolded_hypotheses(Ps, [H0|Hs0], [H|Hs], M, M1) :-
   unfolded_hypothesis(Ps, H0, H, M, M0),
   unfolded_hypotheses(Ps, Hs0, Hs, M0, M1).
 
-% X : ~L is Y : ~L1, where L1 is the literal L with its atom, of a symbol of Ps, unfolded, by a let
-% that states the unfolded type; a hypothesis ~~~C is ~C, refuting C, by one more let
+% X : ~L is Y : ~L1, where L1 is the literal L with its atom, of a symbol of Ps, unfolded, by a redex
+% that states the unfolded type; a hypothesis ~~~C is ~C, refuting C, by one more redex
 unfolded_hypothesis(Ps, X-(~L), H, M, M1) :-
   unfolded_literal(Ps, L, L1), !,
   (   L1 = ~(~C)
   ->  H = Y-(~C),
       triple_negation(X, C, Y, M, M1)
   ;   H = Y-(~L1),
-      M = let(Y, ~L1, X, M1)
+      M = app(lam(Y, ~L1, M1), [], [X])
   ).
 unfolded_hypothesis(_, H, H, M, M).
 
-% X : ~~~C is Y : ~C, by two lets
-triple_negation(X, C, Y, let(Z, ~(~(~C)), X, let(Y, ~C, lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))])), M)), M).
+% X : ~~~C is Y : ~C, by two redexes
+triple_negation(X, C, Y, app(lam(Z, ~(~(~C)), app(lam(Y, ~C, M), [], [lam(W, C, app(Z, [], [lam(N, ~C, app(N, [], [W]))]))])), [], [X]), M).
 
 % general splitting: a hypothesis ~~P(ts), where P is the symbol of the cited definition, defined as the
 % negation of the type of a component clause, is refuted by proving the component, with hypotheses for
@@ -344,13 +344,13 @@ normalised_all(Fresh, Rules, [H0|Hs0], [H|Hs], M, M1) :-
   normalised(Fresh, Rules, H0, H, M, M0),
   normalised_all(Fresh, Rules, Hs0, Hs, M0, M1).
 
-% X : T is Y : T1, in normal form: each rule E : L = R rewrites every occurrence of L, by a let
+% X : T is Y : T1, in normal form: each rule E : L = R rewrites every occurrence of L, by a redex
 normalised(Fresh, Rules, X-T, H, M, M1) :-
   member(E-'$='(S, L, R), Rules),
   occurs(L, T), !,
   substitute(L, '$VAR'(Fresh), T, Motive),
   substitute(L, R, T, T0),
-  M = let(Y, T0, rewrite('$VAR'(Fresh):S, Motive, E, X), M0),
+  M = app(lam(Y, T0, M0), [], [rewrite('$VAR'(Fresh):S, Motive, E, X)]),
   normalised(Fresh, Rules, Y-T0, H, M0, M1).
 normalised(_, _, H, H, M, M).
 

@@ -14,7 +14,7 @@ checks the clauses that contain it:
 
   - every literal false: a conflict, refuted by app(P, [], Ms), where Ms refute its literals;
   - all but one literal L false, and L not already true: a unit. L is made true, by making its
-    complement C false: the lemma let(G, ~C, lam(X, C, app(P, [], Ms)), M') proves ~C from P,
+    complement C false: the lemma app(lam(G, ~C, M'), [], [lam(X, C, app(P, [], Ms))]) proves ~C from P,
     with X : C refuting L (see assumption/3), and G-(~C) is added to False and queued;
   - otherwise, the clause is skipped: it is checked again only when one of its literals is made
     false.
@@ -76,7 +76,7 @@ new(L-_, False) :- complement(L, C), \+ get_assoc(C, False, _).
 
 % a conflict refutes the clause; a unit L makes its complement C false, as a lemma G : ~C
 checked(conflict, P, Ms, _, _, _, _, app(P, [], Ms)).
-checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, let(G, ~C, lam(X, C, app(P, [], Ms)), M)) :-
+checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, app(lam(G, ~C, M), [], [lam(X, C, app(P, [], Ms))])) :-
   complement(L, C),
   assumption(C, X, A),
   false(G-(~C), False, False1),

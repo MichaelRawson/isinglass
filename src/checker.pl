@@ -9,8 +9,12 @@ well sorted, as the prover gives them.
 
 Terms and their types are ground. The only Prolog variables bound in checking are those of fresh
 instances of steps and built-ins: quantifier binders, which are bound to ground terms
-(instantiation), and the parameters of an expansion rule, bound by unifying its first premise with
-the type of its first argument.
+(instantiation), and the parameters of a built-in, bound by unifying its first premise with the type
+of its first argument, or its type with the one it is checked against.
+
+A head may be any term. A λ applied to arguments, a β-redex, is checked by binding its binders to
+them: an eigenvariable is substituted by its term, and a hypothesis takes the type of the λ's binder,
+against which its proof is checked, so no proof is substituted into another.
 
 Formulas are types too, compared up to the names of their bound variables: these are named
 canonically (see logic.pl), in the types of steps and in the annotations of terms, and a
@@ -144,29 +148,15 @@ check(Steps, Gamma, lam(X, A, M), T0) :- !,
       check(Steps, Gamma1, M, T1)
   ;   T = (A1 => B),
       hypothesis(X),
-      % the annotation, if any, is the binder's type (it may unfold the expected one, as a let would)
+      % the annotation, if any, is the binder's type (it may unfold the expected one, as a redex would)
       ( A == '$inferred' -> A3 = A1 ; A == A1 -> A3 = A1 ; canonical(A, A3), convertible(A3, A1) ),
       put_assoc(X, Gamma, A3, Gamma1),
       check(Steps, Gamma1, M, B)
   ).
-check(Steps, Gamma, let(X, F0, M, M1), T) :- !,
-  hypothesis(X),
-  canonical(F0, F),
-  check(Steps, Gamma, M, F),
-  put_assoc(X, Gamma, F, Gamma1),
-  check(Steps, Gamma1, M1, T).
-% E : S = U and M : A[X:=S] give A[X:=U], where X : Sort is bound in the motive A only
-check(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
-  eigenvariable(X),
-  \+ get_assoc(X, Gamma, _),
-  type(Steps, Gamma, E, '$='(Sort, S, U)),
-  ground(Sort-S-U),
-  put_assoc(X, Gamma, Sort, Gamma1),
-  well_sorted(Gamma1, A),
-  substitute(X, S, A, AS),
-  check(Steps, Gamma, M, AS),
-  substitute(X, U, A, AU),
-  convertible(AU, T).
+check(Steps, Gamma, M0, T) :-
+  redex(M0), !,
+  reduced(Steps, Gamma, M0, Gamma1, M),
+  check(Steps, Gamma1, M, T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
   ( ground(T1) -> convertible(T1, T) ; T1 = T ).
@@ -203,6 +193,21 @@ unfolds(A, F) :-
 % the type of an application is determined by its head, instantiated by its terms; the parameters
 % of a built-in (see ir.pl) are found by unifying the type of its first argument, or for '$refl',
 % the type against which it is checked
+type(Steps, Gamma, M0, T) :-
+  redex(M0), !,
+  reduced(Steps, Gamma, M0, Gamma1, M),
+  type(Steps, Gamma1, M, T).
+% E : S = U and M : A[X:=S] give A[X:=U], where X : Sort is bound in the motive A only
+type(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
+  eigenvariable(X),
+  \+ get_assoc(X, Gamma, _),
+  type(Steps, Gamma, E, '$='(Sort, S, U)),
+  ground(Sort-S-U),
+  put_assoc(X, Gamma, Sort, Gamma1),
+  well_sorted(Gamma1, A),
+  substitute(X, S, A, AS),
+  check(Steps, Gamma, M, AS),
+  substitute(X, U, A, T).
 type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
   head(Steps, Gamma, F, T0),
   instantiate(Gamma, Ts, T0, T1),
@@ -214,8 +219,32 @@ type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
   arguments(Ms, Steps, Gamma, T2, T).
 type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
 
-% the type of a head: steps and built-ins are fresh instances
+% β-reduction by binding: the λs of a redex M0 take its arguments, terms first, and M is the rest of
+% its body, applied to any arguments left over, in Gamma with the hypotheses bound
+redex(app(lam(_, _, _), _, _)).
+
+reduced(Steps, Gamma0, app(lam(X, S, B0), [U|Ts], Ms), Gamma, M) :-
+  eigenvariable(X), !,
+  sorted(Gamma0, U, S),
+  substitute(X, U, B0, B),
+  applied(B, Ts, Ms, M1),
+  reduced(Steps, Gamma0, M1, Gamma, M).
+reduced(Steps, Gamma0, app(lam(X, A0, B), [], [W|Ms]), Gamma, M) :-
+  hypothesis(X), !,
+  A0 \== '$inferred',
+  canonical(A0, A),
+  check(Steps, Gamma0, W, A),
+  put_assoc(X, Gamma0, A, Gamma1),
+  applied(B, [], Ms, M1),
+  reduced(Steps, Gamma1, M1, Gamma, M).
+reduced(_, Gamma, M, Gamma, M) :- \+ redex(M).
+
+applied(M, [], [], M) :- !.
+applied(M, Ts, Ms, app(M, Ts, Ms)).
+
+% the type of a head: steps and built-ins are fresh instances, and a term is typed as any other
 head(_, Gamma, X, T) :- hypothesis(X), !, get_assoc(X, Gamma, T).
+head(Steps, Gamma, M, T) :- ( M = app(_, _, _) ; M = rewrite(_, _, _, _) ), !, type(Steps, Gamma, M, T).
 head(_, _, Name, T) :- atom(Name), head_type(Name, T), !.
 head(Steps, _, Name, T) :-
   atom(Name),
@@ -277,7 +306,7 @@ arguments([M|Ms], Steps, Gamma, T0, T) :-
   arguments(Ms, Steps, Gamma, B, T).
 
 % weak head normal form: negation is implication, and defined atoms (split symbols among them) are their
-% definitions, which a let or annotation would otherwise unfold (optimise.pl removes some)
+% definitions, which a redex or annotation would otherwise unfold (optimise.pl removes some)
 % types are compared syntactically (T1 == T above), not up to unfolding: enough for clauses
 unfold(~A, (A => '$false')) :- !.
 unfold(A, T) :- defined_atom(A, F0), !, opened(F0, F1), canonical(F1, F), unfold(F, T).

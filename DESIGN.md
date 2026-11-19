@@ -47,8 +47,8 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - The rules for `?` and `~!` bind an eigenvariable. `'$nex'` turns `~?` into `!~`.
 - Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
 - The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed. The IR is therefore sound under any reading of `⊥`: classical falsity, or the conjecture of the A-translation.
-- Heads are variables or constants, so terms are β-normal apart from `let`.
-- `'$nex'` occurs only as the value of a `let`, which states its type `![X] : ~F`: back ends read its binder from it.
+- A head may be any term, so terms need not be β-normal. A λ at a head is a β-redex, which binds its binders to the arguments: `app(lam(X, F, N), [], [M])` is a lemma `X : F` proved by `M` (there is no separate `let`), and back ends may print it as a `let`. The λ of a redex states the types of its hypotheses.
+- `'$nex'` occurs only as the argument of a redex, whose λ states its type `![X] : ~F`: back ends read its binder from it.
 - Rewriting: in `rewrite(X:S, A, E, M)` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`.
 - Clause splits: a split symbol is a predicate `definition` of no arguments, whose body is the type of its clause, so it unfolds to that type. The front end restates Vampire's `spl <=> C` as `spl <=> T` for the clause type `T` of `C`, and keeps `C` as `split/2` for the AVATAR tactics.
 - A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
@@ -89,7 +89,7 @@ Reconstruction tries to build an IR term with the conclusion's type given that t
 - Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses whose symbols the step's cited definitions define are unfolded (others are as the parent states them), where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`.
 - A ground tautology of equality (`tautology`, no premise) is closed by ground completion: the facts of its negative literals give equations, oriented by size and then the standard order and inter-reduced into rules, and each literal is normalised by rewrites. Then a fact is refuted by a hypothesis, or a positive equation is reflexive. Rigid variables are constants.
 - `first(Tactics)` is the first of `Tactics` that succeeds.
-- General splitting (`components`): as for an AVATAR split, the hypothesis `~~P(ts)` of the cited definition's symbol, as `~T` for the clause type `T` of the component (two `let`s), is refuted by proving `T` with eigenvariables and hypotheses for its literals; then the conclusion is a variant of the parent.
+- General splitting (`components`): as for an AVATAR split, the hypothesis `~~P(ts)` of the cited definition's symbol, as `~T` for the clause type `T` of the component (two redexes), is refuted by proving `T` with eigenvariables and hypotheses for its literals; then the conclusion is a variant of the parent.
 - A clausal step proves the definitions of its split literals first, whether or not it cites them (`sat_conversion` does not), so that back ends define them before use.
 - A failed tactic leaves the step as `todo`, with a warning. So does an unknown rule. A `todo` step only warns about a parent it cannot prove (e.g. the conjecture), as the proof is partial anyway.
 
@@ -112,7 +112,7 @@ Instead, each prover rule names the transformation it performs, and the tactic c
 - Weakening steps:
   - `pure`: the pure predicates are those of the parent that are not in the conclusion.
   - `definition`: one `<=>` of the parent becomes the `=>` that makes the keys equal.
-- Definition folding (`transform(fold)`): the parent and the conclusion are unfolded throughout (by `let`s that state the unfolded types), and are then the same, as in `base`.
+- Definition folding (`transform(fold)`): the parent and the conclusion are unfolded throughout (by redexes that state the unfolded types), and are then the same, as in `base`.
 - Skolemisation (`transform(skolem)`) is an entailment once each Skolem symbol is defined by choice (see IR):
   - the Skolem symbols are those of the conclusion that are `introduced(_, skolem)` and not in the parent;
   - a δ formula of the parent is opened by the choice axiom of a Skolem term `sK(As)` in its counterpart, so the term is read off the conclusion, and no prover convention (e.g. argument order) is assumed. Its arguments must be distinct eigenvariables, including those of the δ formula, and the definitions of a symbol must agree;
@@ -169,7 +169,7 @@ A clause-shaped conclusion of a preprocessing step is a clause, like any other, 
 An optional pass between reconstruction and the back end makes proofs smaller, as their statements dominate the size of the output (e.g. SYN837-1's 28-binder clauses, with tiny proofs). The result is ordinary IR, so back ends are unchanged.
 - A clausal step (not a step between formulas) is inlined where it is cited if every citation is a full application in the term of a clausal step, and it is cited once, or `(Uses - 1) × Size < size of its clause`. `Size` is that of its term under the λs of its binders, which inlining removes, with what it inlines in turn.
 - Each remaining term is normalised in one top-down pass, in an environment from the names of the original term to their values: an eigenvariable to a term, a hypothesis to a fresh binder or to a closure, normalised where it is used. So an inlined step is a β-redex reduced by binding, and the pass is linear, even for long chains of steps cited once.
-- A hypothesis argument of a β-redex, or a `let`, is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once where its use can take it (head positions merge applications: `app(app(F, Ts, []), Us, Ms)` is `app(F, Ts ++ Us, Ms)`); otherwise it is a `let`. Unused `let`s are dropped; `'$nex'` ones are kept, as the IR states the type of `'$nex'` only there.
+- A hypothesis argument of a β-redex is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once where its use can take it (head positions merge applications: `app(app(F, Ts, []), Us, Ms)` is `app(F, Ts ++ Us, Ms)`); otherwise it stays a redex. Unused arguments are dropped; `'$nex'` ones are kept, as the IR states the type of `'$nex'` only in the λ of its redex.
 - Nothing is substituted for a hypothesis where the checker infers its type (the equation of a rewrite, the formula of an expansion rule): its binder's type may unfold that of the value, as a cast. Nor is a non-application left there by `sym (sym E)`.
 - η for hypotheses: `λ h, F … h` is `F …`, where `F` is a hypothesis or a step (not a rule or built-in); eigenvariable λs are kept, e.g. for AVATAR definitions and type rules.
 - `sym (sym E)` is `E`, and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
@@ -183,6 +183,7 @@ An independent-ish type checker of each ground, annotated term against the type 
 - First-order terms are checked against the signature.
 - Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a defined atom (such as a split) its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
 - An application is typed by its head (`ir:head_type/2` for a built-in), instantiated by its terms. The first argument of `$sym` or an expansion rule has its type inferred and unified with the first premise; `$refl`'s type is unified with the type it is checked against. A type that is still not ground is rejected.
+- A β-redex is checked by binding, without substituting one proof into another: an eigenvariable λ takes its term, which is substituted into the body, and a hypothesis λ takes a proof, checked against the λ's type, which the hypothesis then has. A head that is an application or a rewrite is typed as any other term (a rewrite's type, `A[X:=T]`, is inferred from its equation and motive).
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
 - A Skolem symbol is defined once, by a well-sorted `?` formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.

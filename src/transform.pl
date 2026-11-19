@@ -50,14 +50,14 @@ the clause's predicates and signs.
 % a clause conclusion whose variables are not those of the outermost universal quantifiers of the parent,
 % as in Vampire's AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
 % definition folding: the parent and the conclusion are the same once the defined predicates of both
-% are unfolded (see ir.pl), and these unfolded types are stated by lets
+% are unfolded (see ir.pl), and these unfolded types are stated by redexes
 transform(fold, Fresh, Hs0, [Parent|_], M) :- !,
   expanded_hypotheses(Hs0, Hs, M, M0),
   step(Parent, Conclusion, _),
   step_type(Conclusion, F0),
   canonical(F0, F1),
   expanded(F1, F),
-  M0 = let(X, F, app(Parent, [], []), M1),
+  M0 = app(lam(X, F, M1), [], [app(Parent, [], [])]),
   transformed_from(base, Fresh, Hs, X-F, M1).
 transform(Mode, Fresh, Hs, [Parent], M) :-
   parent(Parent, X, F, M, M1),
@@ -78,7 +78,7 @@ transformed_from(Mode0, Fresh, Hs, X-F, M1) :-
 expanded_hypotheses([], [], M, M).
 expanded_hypotheses([X-T|Hs0], [H|Hs], M, M1) :-
   expanded(T, T1),
-  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = let(Y, T1, X, M0) ),
+  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = app(lam(Y, T1, M0), [], [X]) ),
   expanded_hypotheses(Hs0, Hs, M0, M1).
 
 % Ctx is ctx(Mode, Fresh, Defs), with Defs the Skolem definitions so far, an open list; the Skolem
@@ -94,7 +94,7 @@ transformed(ctx(Mode0, Fresh, Defs), H, G, Hs, M) :-
   conclusion(ctx(Mode, Fresh, Defs), H, Hs, M).
 
 % the parent is the hypothesis X : F, its formula or the type of its clause
-parent(Parent, X, F, let(X, F, app(Parent, [], []), M), M) :-
+parent(Parent, X, F, app(lam(X, F, M), [], [app(Parent, [], [])]), M) :-
   step(Parent, Conclusion, _),
   step_type(Conclusion, F0),
   canonical(F0, F).
@@ -254,12 +254,12 @@ fewer(unlimited, unlimited).
 fewer([_|Limit], Limit).
 
 % the γ formulas nested outermost in X : F, with fresh variables Vs, are Y : G
-universals(X-F0, Vs, H, let(Y, G, app(X, Us, []), M0), M) :-
+universals(X-F0, Vs, H, app(lam(Y, G, M0), [], [app(X, Us, [])]), M) :-
   quantifier_prefix('!', F0, Bs, F), Bs = [_|_], !,
   instance(Bs, F, Us, G),
   universals(Y-G, Ws, H, M0, M),
   append(Us, Ws, Vs).
-universals(X-(~'?'(Bs, F)), Vs, H, let(Y, T, app('$nex', [], [X]), M0), M) :- !,
+universals(X-(~'?'(Bs, F)), Vs, H, app(lam(Y, T, M0), [], [app('$nex', [], [X])]), M) :- !,
   T = '!'(Bs, ~F),
   universals(Y-T, Vs, H, M0, M).
 universals(H, [], H, M, M).
@@ -373,7 +373,7 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
 skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
 
 % ...and Hinted is true if the term is the prover's choice
-skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, let(Y, T1, app(Name, As, [X]), M), M) :-
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, app(lam(Y, T1, M), [], [app(Name, As, [X])]), M) :-
   delta(F, '$ex', B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),

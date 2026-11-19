@@ -224,9 +224,11 @@ input(Input) --> "{|", atom(Input), "²|}".
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
 proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
-proof(let(X, '!'(B:S, F), app('$nex', [], [M]), N)) --> !,
+% a redex of one hypothesis is a let
+proof(app(lam(X, '!'(B:S, F), N), [], [app('$nex', [], [M])])) --> { X = h(_) }, !,
   "let ", variable(X), " : π ", formula('!'(B:S, F)), " ≔ ", not_exists(S), " ", operand(M), " in ", proof(N).
-proof(let(X, F, M, N)) --> !, "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
+proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
+  "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
@@ -254,7 +256,8 @@ value(M) --> proof(M).
 annotation('$VAR'(_), S) --> !, sort(S).
 annotation(_, F) --> "π ", formula(F).
 
-% a head is a built-in, a hypothesis or a step
+% a head is a built-in, a hypothesis or a step, or a term
+head(M) --> { compound_term(M) }, !, "(", proof(M), ")".
 head('$sym') --> !, "eq_sym".
 head('$refl') --> !, "(eq_refl _)".
 head('$trivial') --> !, "⊤ᵢ".
@@ -284,10 +287,12 @@ operands([]) --> [].
 operands([M|Ms]) --> " ", operand(M), operands(Ms).
 
 operand(app(F, [], [])) --> !, head(F).
-operand(M) --> { M = app(_, _, _) ; M = lam(_, _, _) ; M = let(_, _, _, _) ; M = rewrite(_, _, _, _) }, !, "(", proof(M), ")".
+operand(M) --> { compound_term(M) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
 hypothesis(h(I)) --> "h", number(I).
+
+compound_term(M) :- ( M = app(_, _, _) ; M = lam(_, _, _) ; M = rewrite(_, _, _, _) ), !.
 
 /********************************************************************************
  * formulas and terms
