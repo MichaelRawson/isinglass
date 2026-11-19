@@ -41,7 +41,8 @@ With `ISING_OPTIMISE` set, the IR is optimised before it is emitted (`[optimise]
 - `clause(Bs, [L₀…Lₙ₋₁])` has type `Π Bs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`), where `¬F` is `F → ⊥`.
 - `formula(F)` has type `F`.
 - Formulas are taken apart by expansion rules, as in a tableau: a built-in head applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`.
-- Built-ins and expansion rules are typed by one table, `ir:head_type/2`, of fresh instances whose Prolog variables are their parameters. Those bound by `'!'` (`$refl`, `$sym`, `$dne`) are the terms `Ts` of an application, as for a step. The others are an expansion rule's (`ir:expansion_rule/1`), found by unifying its first premise with the inferred type of its first argument: one pass of first-order unification, as quantifiers have one binder and bound variables canonical names.
+- Built-ins and expansion rules are typed by one table, `ir:head_type/2`, of fresh instances whose Prolog variables are their parameters. Those bound by `'!'` are the terms `Ts` of an application, as for a step: only `$dne`'s formula. The others are inferred by one pass of first-order unification (quantifiers have one binder, and bound variables canonical names): for `$sym` and the expansion rules, from the inferred type of the first argument (`ir:inferred_premise/1`), and for `$refl`, from the type it is checked against. So `$sym E` is `app('$sym', [], [E])` and `$refl` is `app('$refl', [], [])`.
+- The α and β rules of the preprocessing tactics are read off the head types (`ir:rule_branches/3`): a rule's type after its first premise is a refutation of each branch, `H₁ => … => $false`, over the formulas the branch binds.
 - The hypotheses that an expansion rule binds are annotated `'$inferred'` rather than with their formulas, which follow from the rule's first argument: annotating the parts of a conjunction would make terms quadratic in its size. The checker and `close.pl` infer them; back ends that print binder types must too.
 - The rules for `?` and `~!` bind an eigenvariable. `'$nex'` turns `~?` into `!~`.
 - Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
@@ -169,9 +170,9 @@ An optional pass between reconstruction and the back end makes proofs smaller, a
 - A clausal step (not a step between formulas) is inlined where it is cited if every citation is a full application in the term of a clausal step, and it is cited once, or `(Uses - 1) × Size < size of its clause`. `Size` is that of its term under the λs of its binders, which inlining removes, with what it inlines in turn.
 - Each remaining term is normalised in one top-down pass, in an environment from the names of the original term to their values: an eigenvariable to a term, a hypothesis to a fresh binder or to a closure, normalised where it is used. So an inlined step is a β-redex reduced by binding, and the pass is linear, even for long chains of steps cited once.
 - A hypothesis argument of a β-redex, or a `let`, is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once where its use can take it (head positions merge applications: `app(app(F, Ts, []), Us, Ms)` is `app(F, Ts ++ Us, Ms)`); otherwise it is a `let`. Unused `let`s are dropped; `'$nex'` ones are kept, as the IR states the type of `'$nex'` only there.
-- Nothing is substituted for a hypothesis where the checker infers its type (the equation of a rewrite, the formula of an expansion rule): its binder's type may unfold that of the value, as a cast. Nor is a non-application left there by `sym (sym E)`, whose instances must match.
+- Nothing is substituted for a hypothesis where the checker infers its type (the equation of a rewrite, the formula of an expansion rule): its binder's type may unfold that of the value, as a cast. Nor is a non-application left there by `sym (sym E)`.
 - η for hypotheses: `λ h, F … h` is `F …`, where `F` is a hypothesis or a step (not a rule or built-in); eigenvariable λs are kept, e.g. for AVATAR definitions and type rules.
-- `sym (sym E)` is `E`, `sym E` of a trivial equation `S = S` is `refl`, and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
+- `sym (sym E)` is `E`, and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
 - Binders are Prolog variables while normalising, named at the end; a clause's own eigenvariables keep their names, as its type mentions them.
 - An inlined step is not checked separately by SMT-LIB, but as part of the step that cites it.
 
@@ -181,7 +182,7 @@ An optional pass between reconstruction and the back end makes proofs smaller, a
 An independent-ish type checker of each ground, annotated term against the type of its conclusion.
 - First-order terms are checked against the signature.
 - Formula types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a defined atom (such as a split) its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
-- An application is typed by its head (`ir:head_type/2` for a built-in), instantiated by its terms; an expansion rule's first argument has its type inferred and unified with the rule's first premise, and the application's type must be ground.
+- An application is typed by its head (`ir:head_type/2` for a built-in), instantiated by its terms. The first argument of `$sym` or an expansion rule has its type inferred and unified with the first premise; `$refl`'s type is unified with the type it is checked against. A type that is still not ground is rejected.
 - The sort of each eigenvariable is well formed.
 - The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
 - A Skolem symbol is defined once, by a well-sorted `?` formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
@@ -195,7 +196,7 @@ Uses the `Stdlib` encoding of first-order logic.:
 - Input symbols are printed `{|f¹|}`, or `{|f/n¹|}` for a name overloaded by arity.
 - Inputs are declared as `{|name²|}` with their original formula.
 - A clause is stated as its IR type with framework-level `Π`/`→`; for `~A` that is `π (¬ ¬ A)`.
-- Proof terms are printed directly, with `'$sym'` and `'$refl'` as our symbols `sym` and `refl`, and `rewrite(X:S, A, E, M)` as `rw (λ (x : τ S), A) E M` (`rewrite` is a lambdapi keyword), where `rw` is defined by `ind_eq`.
+- Proof terms are printed directly, with `'$sym'` and `'$refl'` as Stdlib's `eq_sym` and `eq_refl _`, whose arguments lambdapi infers, and `rewrite(X:S, A, E, M)` as `rw (λ (x : τ S), A) E M` (`rewrite` is a lambdapi keyword), where `rw` is defined by `ind_eq`.
 - Sorts are terms of `Set` (`Stdlib.Set`): `'$i'` is `ι`, a type constructor is declared `Set → Set`, and a polymorphic symbol `Π (x0 : Set), ...`. `'$inhabited'(S)` is `el S`.
 - Type quantification: Stdlib's `` `∀ `` ranges over the elements of a `Set`, not over `Set`, so our prelude adds a binder `∀ₜ : (Set → Prop) → Prop` with `π (∀ₜ p) ↪ Π a : Set, π (p a)`.
 - `∃ₜ` is declared with its introduction and elimination rules.

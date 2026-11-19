@@ -160,6 +160,7 @@ check(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   eigenvariable(X),
   \+ get_assoc(X, Gamma, _),
   type(Steps, Gamma, E, '$='(Sort, S, U)),
+  ground(Sort-S-U),
   put_assoc(X, Gamma, Sort, Gamma1),
   well_sorted(Gamma1, A),
   substitute(X, S, A, AS),
@@ -168,7 +169,7 @@ check(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   convertible(AU, T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
-  convertible(T1, T).
+  ( ground(T1) -> convertible(T1, T) ; T1 = T ).
 
 % types are the same, or the same once defined predicates and function terms are unfolded (see ir.pl)
 convertible(T1, T) :- T1 == T, !.
@@ -199,19 +200,18 @@ unfolds(A, F) :-
   \+ ( subterm(Body, Q), functor(Q, B, 2), ( B == '!' ; B == '?' ) ), !,
   defined_atom(A, F).
 
-% the type of an application is determined by its head, instantiated by its terms; an expansion
-% rule's parameters (see ir.pl) are found by unifying the type of its first argument, so that its
-% type is ground by the end
+% the type of an application is determined by its head, instantiated by its terms; the parameters
+% of a built-in (see ir.pl) are found by unifying the type of its first argument, or for '$refl',
+% the type against which it is checked
 type(Steps, Gamma, app(F, Ts, Ms), T) :- !,
   head(Steps, Gamma, F, T0),
   instantiate(Gamma, Ts, T0, T1),
-  % a clause is ground by now, and has no bound variables
-  (   atom(F), expansion_rule(F) -> T2 = T1
-  ;   F \== '$dne', ground(T1) -> T2 = T1
+  % a clause is ground by now, and has no bound variables; a built-in's type may not be, until it
+  % is inferred
+  (   F \== '$dne', ( ground(T1) ; atom(F), head_type(F, _) ) -> T2 = T1
   ;   canonical(T1, T2), ground(T2)
   ),
-  arguments(Ms, Steps, Gamma, T2, T),
-  ground(T).
+  arguments(Ms, Steps, Gamma, T2, T).
 type(_, Gamma, X, T) :- hypothesis(X), get_assoc(X, Gamma, T).
 
 % the type of a head: steps and built-ins are fresh instances
@@ -273,7 +273,7 @@ arguments([], _, _, T, T).
 % inferred, and unified with the premise
 arguments([M|Ms], Steps, Gamma, T0, T) :-
   unfold(T0, (A => B)),
-  ( ground(A) -> check(Steps, Gamma, M, A) ; type(Steps, Gamma, M, A) ),
+  ( ground(A) -> check(Steps, Gamma, M, A) ; type(Steps, Gamma, M, A), ground(A) ),
   arguments(Ms, Steps, Gamma, B, T).
 
 % weak head normal form: negation is implication, and defined atoms (split symbols among them) are their

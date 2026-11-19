@@ -47,8 +47,6 @@ prelude -->
   "constant symbol ∀ₜ : (Set → Prop) → Prop;\nnotation ∀ₜ quantifier;\n",
   "rule π (∀ₜ $p) ↪ Π a : Set, π ($p a);\n",
   "constant symbol ∃ₜ : (Set → Prop) → Prop;\nnotation ∃ₜ quantifier;\n",
-  "opaque symbol sym (a : Set) (x y : τ a) : π (x = y) → π (y = x) ≔ λ e, eq_sym e;\n",
-  "opaque symbol refl (a : Set) (x : τ a) : π (x = x) ≔ eq_refl x;\n",
   "opaque symbol rw [a] [x y : τ a] (p : τ a → Prop) : π (x = y) → π (p x) → π (p y) ≔ λ e h, ind_eq (eq_sym e) p h;\n",
   rules, type_choice, "\n".
 
@@ -148,9 +146,9 @@ proof_step(skolem_def(Sk, Bs, F), Name, formula(_)) -->
   epsilon(S), "ᵢ (λ (", term(Y), " : ", sort(S), "), ", formula(0, T), ") h;\n".
 % a function symbol unfolds to its definition, so that its equation holds by reflexivity
 proof_step(definition(Symbol, Bs, Body), Name, clause(Cs, [Eq])) -->
-  { length(Bs, N), binder_variables(Bs, Xs), binder_variables(Cs, Ys), Eq = '$='(S, A, _) },
+  { length(Bs, N), binder_variables(Bs, Xs), binder_variables(Cs, Ys), Eq = '$='(_, A, _) },
   "rule ", sym(Symbol/N), " ↪ ", abstraction(Xs), term(0, Body), ";\n",
-  header(Name), statement(clause(Cs, [Eq])), " ≔ λ", variables(Ys), " h0, h0 (refl ", term(S), " ", term(A), ");\n".
+  header(Name), statement(clause(Cs, [Eq])), " ≔ λ", variables(Ys), " h0, h0 (eq_refl ", term(A), ");\n".
 % ...and a predicate unfolds to its body, so that each side of its definition implies the other
 proof_step(definition(Symbol, Bs, Body), Name, formula(F)) -->
   { length(Bs, N), binder_variables(Bs, Xs) },
@@ -257,8 +255,8 @@ annotation('$VAR'(_), S) --> !, sort(S).
 annotation(_, F) --> "π ", formula(F).
 
 % a head is a built-in, a hypothesis or a step
-head('$sym') --> !, "sym".
-head('$refl') --> !, "refl".
+head('$sym') --> !, "eq_sym".
+head('$refl') --> !, "(eq_refl _)".
 head('$trivial') --> !, "⊤ᵢ".
 head(Rule) --> { rule_symbol(Rule, Codes) }, !, codes(Codes).
 head(h(N)) --> !, hypothesis(h(N)).

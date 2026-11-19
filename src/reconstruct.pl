@@ -309,7 +309,7 @@ fact(X-(~(~A)), E-A, app(X, [], [lam(E, A, M)]), M).
 
 equation_fact(_-'$='(_, _, _)).
 
-closed(Ns, _, app(N, [], [app('$refl', [S, T], [])])) :- member(N-(~'$='(S, T, U)), Ns), T == U.
+closed(Ns, _, app(N, [], [app('$refl', [], [])])) :- member(N-(~'$='(_, T, U)), Ns), T == U.
 closed(Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
 
 % ground completion: each equation E : S = T, in normal form, is a rule from the greater side to the
@@ -327,7 +327,7 @@ completed(Fresh, [Equation0|Equations], Rules0, Rules, M, M1) :-
   ).
 
 oriented(E, S, A, B, E-'$='(S, A, B)) :- smaller(B, A), !.
-oriented(E, S, A, B, app('$sym', [S, A, B], [E])-'$='(S, B, A)).
+oriented(E, S, A, B, app('$sym', [], [E])-'$='(S, B, A)).
 
 % terms are ordered by size, then in the standard order: a total order, closed under contexts
 smaller(T, U) :- size(T, N), size(U, K), N-T @< K-U.
@@ -399,7 +399,7 @@ rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
   applied(M, rewrite('$VAR'(Fresh):Sort, Motive, Equation, Y), Body).
 
 orientation('$='(S, A, B), E, S, A, B, E).
-orientation('$='(S, A, B), E, S, B, A, app('$sym', [S, A, B], [E])).
+orientation('$='(S, A, B), E, S, B, A, app('$sym', [], [E])).
 
 % literal K becomes K1 by rewriting L to R, of sort S, at some occurrences, which are Z in Motive;
 % rewrites are only where the sort is S (a variable side would otherwise unify with any term), which
@@ -537,7 +537,7 @@ unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Sort, Motive, Equ
   opening(D, Us, Eq, E, Is0, Is).
 
 oriented(left, '$='(_, A, B), E, A, B, E).
-oriented(right, '$='(S, A, B), E, B, A, app('$sym', [S, A, B], [E])).
+oriented(right, '$='(_, A, B), E, B, A, app('$sym', [], [E])).
 
 % an instance of definition D is opened once
 opening(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.

@@ -225,12 +225,8 @@ application(Y, [], [], Y) :- var(Y), !.
 application(Y, Ts, Ms, app(Y, Ts, Ms)).
 
 % normal terms may be hypotheses, which are variables, so they are matched with care; the type of a
-% symmetric equation may be inferred, so it is replaced only by a term whose type can be (inferable/1),
-% and is the same (the instances of sym may state a type that E's unfolds to)
-built('$sym', [A, S, T], _, app('$refl', [A, S], [])) :- S == T, !.
-built('$sym', [A, S, T], [E0], E) :-
-  nonvar(E0), E0 = app('$sym', [A0, T0, S0], [E]),
-  [A0, S0, T0] == [A, S, T], inferable(E), !.
+% symmetric equation may be inferred, so it is replaced only by a term whose type can be (inferable/1)
+built('$sym', [], [E0], E) :- nonvar(E0), E0 = app('$sym', [], [E]), inferable(E), !.
 built(F, Ts, Ms, app(F, Ts, Ms)).
 
 inferable(M) :- ( var(M) -> true ; M = app(_, _, _) ).
@@ -308,7 +304,7 @@ uses(_, let(_, _, M, N)) --> !, uses(false, M), uses(false, N).
 uses(_, rewrite(_, _, E, M)) --> !, uses(true, E), uses(false, M).
 uses(Inferred, app(F, Ts, Ms)) --> !,
   use(F, Ts, Ms, Inferred),
-  ( { atom(F), expansion_rule(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ).
+  ( { atom(F), inferred_premise(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ).
 uses(Inferred, F) --> use(F, [], [], Inferred).
 
 use(F, Ts, Ms, Inferred) --> { F = h(_) }, !,

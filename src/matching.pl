@@ -11,19 +11,19 @@ tactics of reconstruct.pl and transform.pl. Hypotheses Hs are a list of X-T pair
 matches(Hs, L, M) :-
   member(X-T, Hs),
   refutes(T, X, L, M).
-matches(_, ~'$='(A, S, T), lam(K, ~'$='(A, S, S), app(K, [], [app('$refl', [A, S], [])]))) :-
+matches(_, ~'$='(A, S, T), lam(K, ~'$='(A, S, S), app(K, [], [app('$refl', [], [])]))) :-
   unify_with_occurs_check(S, T).
 
 % refutes(T, X, L, M): X : T refutes L as M, modulo symmetry of equality
 refutes(~K, X, L, X) :- unify_with_occurs_check(K, L).
 refutes(~K, X, L, M) :- flip(K, F), unify_with_occurs_check(F, L), flipped(L, X, M).
 refutes(A, X, ~B, lam(K, ~B, app(K, [], [X]))) :- A \= ~_, unify_with_occurs_check(A, B).
-refutes('$='(A, S, T), X, ~B, lam(K, ~B, app(K, [], [app('$sym', [A, S, T], [X])]))) :-
+refutes('$='(A, S, T), X, ~B, lam(K, ~B, app(K, [], [app('$sym', [], [X])]))) :-
   unify_with_occurs_check('$='(A, T, S), B).
 
 % X refutes L with the equation the other way round
-flipped('$='(A, S, T), X, lam(E, '$='(A, S, T), app(X, [], [app('$sym', [A, S, T], [E])]))).
-flipped(~'$='(A, S, T), X, lam(K, ~'$='(A, S, T), app(X, [], [lam(E, '$='(A, T, S), app(K, [], [app('$sym', [A, T, S], [E])]))]))).
+flipped('$='(A, S, T), X, lam(E, '$='(A, S, T), app(X, [], [app('$sym', [], [E])]))).
+flipped(~'$='(A, S, T), X, lam(K, ~'$='(A, S, T), app(X, [], [lam(E, '$='(A, T, S), app(K, [], [app('$sym', [], [E])]))]))).
 
 % M : ~T applied to W : T; a λ is β-reduced, to a let unless W is a hypothesis, so that heads stay
 % variables or constants

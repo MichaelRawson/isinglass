@@ -55,14 +55,16 @@ of any type that differs from it only by unfolding these (expanded/2), as back e
   F ::= X | Name          a hypothesis, or a step: a clause or a formula
       | '$trivial' | '$refl' | '$sym' | '$dne'
                           a built-in, or
-      | Rule              an expansion rule (transform.pl): a built-in whose parameters are inferred
+      | Rule              an expansion rule (transform.pl)
 
 A head of type '!'(X:S, T) is applied to a term of sort S for X, as a step or a hypothesis is. The
-built-ins are typed by head_type/2, whose Prolog variables are their parameters. Those bound by '!',
-as a step's are, are the terms Ts. Any others are an expansion rule's, found by unifying its first
-premise with the type of its first argument, which is inferred as for E above: an expansion rule is
-applied to a proof of a formula, and then to a refutation of each branch, which binds the formulas of
-the branch, and first an eigenvariable for ? and ~!:
+built-ins are typed by head_type/2, whose Prolog variables are their parameters. Those bound by '!'
+are the terms Ts, as a step's are: only '$dne' has one, the formula F. The others are inferred, by one
+pass of unification: from the type of the first argument, which is inferred as for E above, for
+'$sym' and the expansion rules (inferred_premise/1), or else from the type against which the
+application is checked, for '$refl'. An expansion rule is applied to a proof of a formula, and then to
+a refutation of each branch, which binds the formulas of the branch, and first an eigenvariable for
+? and ~!:
 
   '$and'   F & G        F, G              '$nor'   ~(F | G)     ~F, ~G
   '$or'    F | G        F ; G             '$nand'  ~(F & G)     ~F ; ~G
@@ -90,7 +92,7 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, expansion_rule/1, builtin/1, rule_branches/3, formula_step/1, choice_axiom/4,
+:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
@@ -124,8 +126,8 @@ formula_step(Name) :-
 % the types of the built-in heads, fresh instances: their Prolog variables are their parameters, the
 % terms of an application for those bound by '!', and otherwise inferred from its first argument
 head_type('$trivial', '$true').
-head_type('$refl', '!'(A:'$tType', '!'(X:A, '$='(A, X, X)))).
-head_type('$sym', '!'(A:'$tType', '!'(X:A, '!'(Y:A, ('$='(A, X, Y) => '$='(A, Y, X)))))).
+head_type('$refl', '$='(_, X, X)).
+head_type('$sym', ('$='(A, X, Y) => '$='(A, Y, X))).
 head_type('$dne', '!'(F:'$o', (~(~F) => F))).
 % the expansion rules: each takes a proof of a formula, and a refutation of each branch, but for '$nex'
 head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
@@ -140,11 +142,9 @@ head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
 head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
 head_type('$nex', (~'?'(B, F) => '!'(B, ~F))).
 
-% an expansion rule: its parameters are inferred from the type of its first argument
-expansion_rule(Name) :- head_type(Name, (A => _)), \+ ground(A).
-
-% ...and the other built-ins, whose parameters are the terms of an application
-builtin(Name) :- head_type(Name, _), \+ expansion_rule(Name).
+% a built-in whose parameters are inferred from the type of its first argument: '$sym', and the
+% expansion rules
+inferred_premise(Name) :- head_type(Name, (A => _)), \+ ground(A).
 
 % the Branches of the expansion Rule applied to a proof of the formula F, each the formulas that it
 % binds, as read off its type: a refutation of each branch, H_1 => ... => '$false', and then

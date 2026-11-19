@@ -89,7 +89,7 @@ argument_types(Env, F, Ms, Types) :-
 
 known_types(Env, Rule, [M|Ms], [T0|Ts]) :-
   atom(Rule),
-  expansion_rule(Rule), !,
+  inferred_premise(Rule), !,
   var(M),
   typed(Env, M, T0),
   head_type(Rule, (T0 => T1)),
