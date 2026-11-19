@@ -25,10 +25,10 @@ its single use, which keeps the pass linear. Then
   - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
     its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
     cheap (a hypothesis or constant, applied to terms only) or used once (anywhere, as any term
-    may be a head, but where the checker infers its type), else it stays a redex; '$nex' arguments stay, as the IR states the type of '$nex' only
-    in the λ of its redex;
+    may be a head), else it stays a redex; '$nex' arguments stay, as the IR states the type of
+    '$nex' only in the λ of its redex;
   - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
-  - sym (sym E) → E, and sym E → refl for a trivial equation S = S;
+  - sym (sym E) → E, and sym refl → refl;
   - a rewrite whose motive does not mention its variable, or by reflexivity, is its proof.
 
 Fresh binders are Prolog variables (an eigenvariable is '$VAR'(N), N unbound), numbered at the end:
@@ -223,7 +223,7 @@ bind(env(I, B0, U), X, V, env(I, B, U)) :- put_assoc(X, B0, V, B).
 
 binding(env(_, B, _), X, V) :- get_assoc(X, B, V).
 
-use(env(_, _, U), X, Use) :- ( get_assoc(X, U, Use) -> true ; Use = u(0, false) ).
+use(env(_, _, U), X, Use) :- ( get_assoc(X, U, Use) -> true ; Use = 0 ).
 
 % the term with its eigenvariables replaced by their values (free ones are kept, by name)
 substituted(Env, '$VAR'(N), T) :- integer(N), !, ( binding(Env, '$VAR'(N), T) -> true ; T = '$VAR'(N) ).
@@ -272,7 +272,7 @@ applied(Env, F, Ts, Cs, M) :-
   hypothesis_uses(M0, Uses),
   empty_assoc(Empty),
   reduced(env(Inlined, Empty, Uses), M0, Ts, Cs, M).
-applied(Env, F, Ts, Cs, M) :- F = lam(_, _, _), !, reduced(Env, F, Ts, Cs, M).
+applied(Env, F, Ts, Cs, M) :- compound(F), !, applied_term(Env, F, Ts, Cs, M).
 applied(_, F, Ts, Cs, M) :-
   atom(F),
   maplist(forced, Cs, Ms),
@@ -282,14 +282,10 @@ applied(_, F, Ts, Cs, M) :-
 application(Y, [], [], Y) :- var(Y), !.
 application(Y, Ts, Ms, app(Y, Ts, Ms)).
 
-% normal terms may be hypotheses, which are variables, so they are matched with care; the type of a
-% symmetric equation may be inferred, so it is replaced only by a term whose type can be (inferable/1),
-% or by refl, whose type is that of the equation it proves
-built('$sym', [], [E0], E) :- nonvar(E0), E0 = app('$sym', [], [E]), inferable(E), !.
+% normal terms may be hypotheses, which are variables, so they are matched with care
+built('$sym', [], [E0], E) :- nonvar(E0), E0 = app('$sym', [], [E]), !.
 built('$sym', [], [E], E) :- nonvar(E), E = app('$refl', [], []), !.
 built(F, Ts, Ms, app(F, Ts, Ms)).
-
-inferable(M) :- ( var(M) -> true ; M = app(_, _, _) ).
 
 % the term M0 of a substituted hypothesis, at the head of an application
 applied_term(Env, M0, [], [], M) :- !, normal(Env, M0, M).
@@ -316,7 +312,7 @@ reduced(Env, lam(X, _, M0), [T|Ts], Cs, M) :- !,
 reduced(Env, lam(X, A, M0), [], [C|Cs], M) :- !,
   use(Env, X, Use),
   C = c(V0, Env0),
-  (   ( Use = u(0, _) ; A == '$inferred' ; substitutable(Env0, V0, Use) )
+  (   ( Use == 0 ; A == '$inferred' ; substitutable(Env0, V0, Use) )
   ->  bind(Env, X, C, Env1), reduced(Env1, M0, [], Cs, M)
   ;   substituted(Env, A, A1),
       forced(C, V),
@@ -326,19 +322,12 @@ reduced(Env, lam(X, A, M0), [], [C|Cs], M) :- !,
   ).
 reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 
-% a value may replace a hypothesis used as Use (see hypothesis_uses) if it is cheap or used once, as
-% any term may be a head; but not one whose type is inferred, as its binder's type may unfold the value's
+% a value may replace a hypothesis used Uses times if it is cheap or used once, as any term may be a
+% head, even where the checker infers its type: the binder's type may unfold the value's, but only
+% function terms, or a defined atom at its top, which the checker unfolds there
 substitutable(_, app('$nex', _, _), _) :- !, fail.
-substitutable(Env, V, _) :- reflexive(Env, V), !.
-substitutable(_, _, u(_, true)) :- !, fail.
 substitutable(Env, V, _) :- cheap(Env, V), !.
-substitutable(_, _, u(1, _)).
-
-% a proof of reflexivity, refl or sym of one, may replace a hypothesis anywhere, even where the checker
-% infers its type: there it is simplified away, as a rewrite by refl is its proof, and sym refl is refl
-reflexive(_, V) :- nonvar(V), V = app('$refl', [], []), !.
-reflexive(Env, V) :- nonvar(V), V = app('$sym', [], [E]), !, reflexive(Env, E).
-reflexive(Env, X) :- nonvar(X), X = h(_), binding(Env, X, c(V, Env1)), reflexive(Env1, V).
+substitutable(_, _, 1).
 
 % a hypothesis or a constant (not an inlined step), applied to terms only, so copying it is cheap
 cheap(Env, F) :- F = h(_), !, binding(Env, F, V), ( V = c(V0, Env0) -> cheap(Env0, V0) ; true ).
@@ -357,34 +346,22 @@ eta(Y, _, M0, M) :-
   application(F, Ts, Ms1, M).
 eta(Y, A, M, lam(Y, A, M)).
 
-% the uses of each hypothesis of a term, as u(Count, Inferred): Inferred if where the checker infers a
-% type (an equation to rewrite by, or the first argument of '$sym' or an expansion rule), from the
-% hypothesis' type as its binder states it
+% the number of uses of each hypothesis of a term
 hypothesis_uses(M, Uses) :-
-  phrase(uses(false, M), Occurrences),
+  phrase(uses(M), Occurrences),
   msort(Occurrences, Sorted),
   empty_assoc(Empty),
   foldl(add_use, Sorted, Empty, Uses).
 
-uses(_, lam(_, _, M)) --> !, uses(false, M).
-uses(_, rewrite(_, _, E, M)) --> !, uses(true, E), uses(false, M).
-uses(Inferred, app(F, _, Ms)) --> !,
-  use(F, Inferred),
-  ( { atom(F), inferred_premise(F), Ms = [M|Ms1] } -> uses(true, M), foldl(uses(false), Ms1) ; foldl(uses(false), Ms) ),
-  ( { compound(F), F \= h(_) } -> uses(false, F) ; [] ).
-uses(Inferred, F) --> use(F, Inferred).
+uses(lam(_, _, M)) --> !, uses(M).
+uses(rewrite(_, _, E, M)) --> !, uses(E), uses(M).
+uses(app(F, _, Ms)) --> !, uses(F), foldl(uses, Ms).
+uses(F) --> ( { F = h(_) } -> [F] ; [] ).
 
-use(F, Inferred) --> { F = h(_) }, !, [F-Inferred].
-use(_, _) --> [].
-
-add_use(X-Inferred, Uses0, Uses) :-
-  ( get_assoc(X, Uses0, u(N0, I0)) -> true ; N0 = 0, I0 = false ),
+add_use(X, Uses0, Uses) :-
+  ( get_assoc(X, Uses0, N0) -> true ; N0 = 0 ),
   N is N0 + 1,
-  either(I0, Inferred, I),
-  put_assoc(X, Uses0, u(N, I), Uses).
-
-either(false, false, false) :- !.
-either(_, _, true).
+  put_assoc(X, Uses0, N, Uses).
 
 % the eigenvariables bound in the term are numbered from N0, in order; a hypothesis is still a variable
 number_eigenvariables(V, N, N) :- var(V), !.

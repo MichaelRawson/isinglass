@@ -206,7 +206,7 @@ type(Steps, Gamma, M0, T) :-
 type(Steps, Gamma, rewrite(X:Sort, A, E, M), T) :- !,
   eigenvariable(X),
   \+ get_assoc(X, Gamma, _),
-  type(Steps, Gamma, E, '$='(Sort, S, U)),
+  inferred(Steps, Gamma, E, '$='(Sort, S, U)),
   ground(Sort-S-U),
   put_assoc(X, Gamma, Sort, Gamma1),
   well_sorted(Gamma1, A),
@@ -307,8 +307,14 @@ arguments([], _, _, T, T).
 % inferred, and unified with the premise
 arguments([M|Ms], Steps, Gamma, T0, T) :-
   unfold(T0, (A => B)),
-  ( ground(A) -> check(Steps, Gamma, M, A) ; type(Steps, Gamma, M, A), ground(A) ),
+  ( ground(A) -> check(Steps, Gamma, M, A) ; inferred(Steps, Gamma, M, A), ground(A) ),
   arguments(Ms, Steps, Gamma, B, T).
+
+% the type of M is an instance of the pattern A, as it is or with a defined atom at its top unfolded
+% (as the binder of a value substituted for a hypothesis may have stated it, see optimise.pl)
+inferred(Steps, Gamma, M, A) :-
+  type(Steps, Gamma, M, A1),
+  ( A1 = A -> true ; unfold(A1, A2), A2 = A ).
 
 % weak head normal form: negation is implication, and defined atoms (split symbols among them) are their
 % definitions, which a redex or annotation would otherwise unfold (optimise.pl removes some)
