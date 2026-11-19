@@ -90,7 +90,7 @@ First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and
 an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
 of sort S was found; S is '$tType' for a type variable (see close.pl).
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, expansion_rule/1, builtin/1, formula_step/1, choice_axiom/4,
+:- module(ir, [clause_type/2, step_type/2, reference/2, head_type/2, expansion_rule/1, builtin/1, rule_branches/3, formula_step/1, choice_axiom/4,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(ops).
@@ -145,6 +145,17 @@ expansion_rule(Name) :- head_type(Name, (A => _)), \+ ground(A).
 
 % ...and the other built-ins, whose parameters are the terms of an application
 builtin(Name) :- head_type(Name, _), \+ expansion_rule(Name).
+
+% the Branches of the expansion Rule applied to a proof of the formula F, each the formulas that it
+% binds, as read off its type: a refutation of each branch, H_1 => ... => '$false', and then
+% '$false'. The rules of quantifiers bind an eigenvariable first, so they have none
+rule_branches(F, Rule, Branches) :- nonvar(F), head_type(Rule, (F => T)), refutations(T, Branches), !.
+
+refutations('$false', []).
+refutations((K => T), [Hs|Branches]) :- hypotheses(K, Hs), refutations(T, Branches).
+
+hypotheses('$false', []).
+hypotheses((H => K), [H|Hs]) :- hypotheses(K, Hs).
 
 % the choice axiom of Symbol, defined for binders Bs as ε Y. T, where F is ?[Y:S] : T
 choice_axiom(Symbol, Bs, F, A) :-

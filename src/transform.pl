@@ -577,15 +577,10 @@ inferred_lambdas([X-_|Es], M, lam(X, '$inferred', N)) :- inferred_lambdas(Es, M,
 entries([], []).
 entries([T|Ts], [_-T|Es]) :- entries(Ts, Es).
 
-alpha((F & G), '$and', [F, G]).
-alpha(~((F | G)), '$nor', [~F, ~G]).
-alpha(~((F => G)), '$nimp', [F, ~G]).
+% an expansion rule of one branch (α), or of two (β), see ir.pl
+alpha(F, Rule, Ts) :- rule_branches(F, Rule, [Ts]).
 
-beta((F | G), '$or', [F], [G]).
-beta((F => G), '$imp', [~F], [G]).
-beta(~((F & G)), '$nand', [~F], [~G]).
-beta((F <=> G), '$iff', [F, G], [~F, ~G]).
-beta(~((F <=> G)), '$niff', [F, ~G], [~F, G]).
+beta(F, Rule, Ts1, Ts2) :- rule_branches(F, Rule, [Ts1, Ts2]).
 
 % T is to be refuted for the first bound variable B, an eigenvariable
 delta(F, Rule, B, T) :-
