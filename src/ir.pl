@@ -116,7 +116,10 @@ head_type('$nimp', (~(F => G) => ((F => (~G => '$false')) => '$false'))).
 head_type('$niff', (~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false')))).
 head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
 head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
+% the γ rules turn ~? into the ! that a hypothesis instantiates: '$nex' for a binder of a sort, and
+% '$nex_t' for one of '$tType' (a type), by convention, as unification cannot exclude it from '$nex'
 head_type('$nex', (~'?'(B, F) => (('!'(B, ~F) => '$false') => '$false'))).
+head_type('$nex_t', (~'?'(X:'$tType', F) => (('!'(X:'$tType', ~F) => '$false') => '$false'))).
 
 % a built-in whose first premise has parameters, which the type of its first argument may bind:
 % '$sym', '$dne', and the expansion rules

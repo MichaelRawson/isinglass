@@ -249,16 +249,11 @@ proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
 % rw, as rewrite is a lambdapi keyword
 proof(rewrite(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
-% the eigenvariable of a δ rule may be a type, as may the binder of the branch of '$nex'
-proof(app('$nex', [], [M, lam(X, '!'(_:S, F), K)])) --> !,
-  not_exists(S), " ", operand(M), " ", operand(lam(X, '!'(_:S, F), K)).
+% the eigenvariable of a δ rule may be a type
 proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).
 proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
-
-not_exists('$tType') --> !, "nex_t".
-not_exists(_) --> "nex_e".
 
 % consecutive λs are merged
 binders(lam(X, _, M)) --> !, " ", variable(X), binders(M).
@@ -294,6 +289,8 @@ rule_symbol('$nimp', "nimp_e").
 rule_symbol('$niff', "niff_e").
 rule_symbol('$ex', "ex_e").
 rule_symbol('$nall', "nall_e").
+rule_symbol('$nex', "nex_e").
+rule_symbol('$nex_t', "nex_t").
 
 type_rule('$ex', "ex_t").
 type_rule('$nall', "nall_t").
