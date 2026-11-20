@@ -1,49 +1,44 @@
 /*
-The intermediate representation (IR) of proofs, and the types of clauses.
+The intermediate representation (IR) of proofs.
 
-  ir_step(Name, Conclusion, Justification)        (db.pl), checked by checker.pl
+Each IR step is kept as a record (db.pl):
+   ir_step(Name, Conclusion, Justification)
+
+where a conclusion is either a clause or a formula.
 
   Conclusion    ::= clause(Bs, Literals) | formula(F)
-  Justification ::= input(Role, Source)             an axiom (never the conjecture)
-                  | skolem_def(Symbol, Bs, F)       Symbol(Xs), for the binders Bs = Xs : Sorts, is
-                                                    defined by choice, as ε Y. T, where F is ?[Y:S] : T;
-                                                    its conclusion is the choice axiom
-                                                    ![Bs] : (F => T[Symbol(Xs)/Y]) (choice_axiom/4)
-                  | definition(Symbol, Bs, Body)    Symbol(Xs) is defined as Body, for the binders
-                                                    Bs = Xs : Sorts; for a function symbol, Body is a
-                                                    term, and the conclusion is the unit clause
-                                                    [Symbol(Xs) = Body], either way round; for a
-                                                    predicate, Body is a formula, and the conclusion is
-                                                    ![Bs] : (Symbol(Xs) <=> Body); an AVATAR split symbol
-                                                    is a proposition defined as the type of its clause
-                  | proof(M)                        M is a proof term of the conclusion clause
-                  | negated_conjecture(Conjecture)  the hypothesis ~G, discharged by Conjecture
-                  | conjecture(Source, Negated, Refutation)
-                                                    G, as Refutation refutes the hypothesis Negated:
-                                                    by contradiction, the last step
-                  | todo(Record, Parents)           not (yet) reconstructed: Record is a Rule for an
-                                                    entailment, or esa(Rule, Symbols) if it only
-                                                    preserves satisfiability, introducing Symbols
 
-Proofs are λ-terms, Curry-Howard style, in minimal logic: no particular logic is fixed, and
-⊥ ('$false') is abstract. Classically it is falsity, but in the A-translation it is the conjecture G.
-Types are formulas, where ~F is F → ⊥ and F => G is implication:
+Each is justified by one of a few kinds of records.
+
+  Justification ::= input(Role, Source)
+                  | negated_conjecture(Conjecture)
+                  | conjecture(Source, Negated, Refutation)
+                  | definition(Symbol, Bs, Body)
+                  | skolem_def(Symbol, Bs, F)
+                  | proof(M)
+                  | todo(Record, Parents)
+
+`input` is an axiom provided by the user and reported by the ATP.
+`negated_conjecture` is the negated conjecture: it will be discharged by `conjecture`.
+`definition` introduces a definition for a term, clause or formula.
+`skolem_def` introduces a Skolem: the conclusion is a choice axiom.
+`proof` justifies a step by deduction with a proof term `M`.
+Finally, `todo` indicates that a step is yet to be reconstructed.
+
+Throughout, binders B are a variable X and a sort S.
+
+The internal logic is a typed λ-calculus.
+Formulas are also types, where ~F is F → ⊥ and F => G is implication:
 
   clause([B_0, ..., B_m-1], [L_0, ..., L_n-1])
                  has type  '!'(B_0, ... '!'(B_m-1, ~L_0 => ... => ~L_n-1 => '$false'))
   formula(F)     has type  F
 
-where the binders B_i are X : Sort, as in quantifiers, which have one binder each (see load.pl);
-the literals contain the variables X.
-The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.pl), so that types
-are compared syntactically.
+The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.pl), so that types are compared syntactically.
 
-So the hypothesis for a negative literal ~A is ~~A, and ¬¬-elimination is never needed.
-A defined predicate (a split symbol among them) unfolds to its body, and a defined function term to
-its term, so a formula is also of any type that differs from it only by unfolding these
-(expanded/2), as back ends unfold definitions.
+Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is fixed, and ⊥ ('$false') is abstract.
 
-  M ::= X                 a hypothesis h(N)
+  M ::= X
       | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
       | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort; T is
                           '$inferred' for a hypothesis of an expansion rule, whose type follows
@@ -56,46 +51,21 @@ its term, so a formula is also of any type that differs from it only by unfoldin
       | Name              a step: a clause or a formula, or
       | Builtin           a built-in, typed by head_type/2
 
-A λ at the head of an application is a β-redex, which binds its binders to the arguments, so terms
-need not be β-normal: app(lam(X, F, N), [], [M]) is a lemma X : F, proved by M, in N (a let). The
-λ of a redex states the types of its hypotheses, so none is '$inferred'.
+The λ of a redex states the types of its hypotheses, so none are '$inferred'.
 
-A head of type '!'(X:S, T) is applied to a term of sort S for X. A built-in takes no terms: its type
-is a fresh instance, whose Prolog variables are its parameters, inferred by unification, first with
-the type against which the application is checked, and then with the type of each argument in turn.
-So '$refl' : S = S and '$dne' : ~~F => F are typed by the former, and '$sym' : S = T => T = S and
-the expansion rules by either.
-
-The expansion rules (transform.pl) are the built-ins that take a formula apart, as in a tableau: a
-rule is applied to a proof of the formula, and then to a refutation of each branch, which binds the
-formulas of the branch (rule_branches/3), and first an eigenvariable for ? and ~!:
-
-  '$and'   F & G        F, G              '$nor'   ~(F | G)     ~F, ~G
-  '$or'    F | G        F ; G             '$nand'  ~(F & G)     ~F ; ~G
-  '$imp'   F => G       ~F ; G            '$nimp'  ~(F => G)    F, ~G
-  '$iff'   F <=> G      F, G ; ~F, ~G     '$niff'  ~(F <=> G)   F, ~G ; ~F, G
-  '$ex'    ?[X] : F     F                 '$nall'  ~ ![X] : F   ~F
-  '$nex'   ~ ?[X] : F   ![X] : ~F
-
-'$nex' is a γ rule, not an α rule: it takes nothing apart, but turns ~? into the ! that a
-hypothesis is instantiated by applying it to terms. Its branch states its type, ![X] : ~F, rather
-than '$inferred', as back ends read its binder from it.
-Skolemisation is not a rule: a ? formula is opened by its choice axiom, a step (skolem_def). The
-prover Skolemises in negation normal form, so a δ formula ~! is never chosen for.
-'$nimp', '$niff', '$nall' and '$dne' : ~~F => F are not valid in minimal logic, so the steps that
-use them are classical; a formula conclusion F is proved by '$dne', from a refutation of ~F.
+A head of type '!'(X:S, T) is applied to a term of sort S for X.
+A built-in (presently) takes no terms: its type variables are inferred by unification.
+Builtins '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so steps that use them are classical.
 
 The outermost ~ of the negated conjecture is the refutation's ⊥. A classical back end proves the
 conjecture G by ¬¬-elimination; the A-translation takes ⊥ to be G, and the hypothesis ~G to be the
 identity, so that the conjecture is the refutation itself. Only steps between formulas
 (preprocessing and clausification) are otherwise classical.
 
-Equations are typed, as '$='(A, S, T) with A the sort of S and T. Sorts are terms of sort '$tType'
-(see signature.pl), and type variables are binders X : '$tType', as in TF1.
+Equations are typed, as '$='(A, S, T) with A the sort of S and T.
+Sorts are terms of sort '$tType' (signature.pl), and type variables are binders X : '$tType', as in TF1.
 
-First-order terms Ts are built from the signature, eigenvariables '$VAR'(N), and '$inhabited'(S),
-an arbitrary individual of sort S for a variable that search left unconstrained, where no such term
-of sort S was found; S is '$tType' for a type variable (see close.pl).
+First-order terms Ts are built from the signature, variables '$VAR'(N), and '$inhabited'(S), which asserts that `S` is inhabited.
 */
 :- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
