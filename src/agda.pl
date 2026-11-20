@@ -94,18 +94,18 @@ signs([_|Ls], [I|Is], Ns, [I|Ps]) :- signs(Ls, Is, Ns, Ps).
 lambdas([], []) --> !.
 lambdas(Xs, Is) --> "λ", arguments(Xs), foldl(hypothesis_binder, Is), " → ".
 
-hypothesis_binder(I) --> " ", variable(h(I)).
+hypothesis_binder(I) --> " ", hypothesis(I).
 
 % h_i : ¬¬A_i gives a_i : A_i
-continuation(I) --> variable(h(I)), " (λ a", number(I), " → ".
+continuation(I) --> hypothesis(I), " (λ a", number(I), " → ".
 
 antecedent(I) --> " a", number(I).
 
 close(_) --> ")".
 
 cases([]) --> !, "⊥-elim".
-cases([I]) --> !, variable(h(I)).
-cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
+cases([I]) --> !, hypothesis(I).
+cases([I|Is]) --> "[ ", hypothesis(I), " , ", cases(Is), " ]′".
 
 /********************************************************************************
  * steps
@@ -114,10 +114,10 @@ cases([I|Is]) --> "[ ", variable(h(I)), " , ", cases(Is), " ]′".
 % a function symbol is defined by its term, so that its equation holds by reflexivity, stated only if
 % a step cites it (Cited)
 emitted(Cited, step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
-  { binder_variables(Bs, Xs), binder_variables(Cs, Ys), append(Ys, [h(0)], Zs) },
+  { binder_variables(Bs, Xs), binder_variables(Cs, Ys), length(Ys, K), append(Ys, ['$VAR'(K)], Zs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined(Xs, Body)),
   (   { get_assoc(Name, Cited, _) }
-  ->  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, app(h(0), [], ['$refl'])))
+  ->  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, '$app'('$VAR'(K), [], ['$refl'])))
   ;   []
   ).
 % ...and a predicate by its body, where Agda can state it (formulas of clauses), else a hole
@@ -151,7 +151,7 @@ stated(~F) :- !, stated(F).
 stated('$false') :- !.
 stated(F) :- \+ connective(F, _).
 
-body(app(F, Ts, Ms)) --> !, proof(app(F, Ts, Ms)).
+body('$app'(F, Ts, Ms)) --> !, proof('$app'(F, Ts, Ms)).
 body(formula(F)) --> !, type(F).
 body(T) --> term(T).
 
@@ -171,34 +171,36 @@ conclusion(formula(F)) --> type(F).
  ********************************************************************************/
 
 % proof terms are printed bare, and parenthesised by operand//1 where they are arguments
-proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
+proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
-proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
+proof('$app'('$lam'(X, '$proof'(F), N), [], [M])) --> !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
-proof(rewrite(X:_, A, E, M)) --> !, rewritten(A, X, E, M).
+proof('$rewrite'(X:_, A, E, M)) --> !, rewritten(A, X, E, M).
 % Agda infers the terms of sym and refl
-proof(app(F, _, Ms)) --> { head_type(F, _) }, !, head(F), foldl(spaced_operand, Ms).
-proof(app(F, Ts, Ms)) --> !, head(F), arguments(Ts), foldl(spaced_operand, Ms).
+proof('$app'(F, _, Ms)) --> { head_type(F, _) }, !, head(F), foldl(spaced_operand, Ms).
+proof('$app'(F, Ts, Ms)) --> !, head(F), arguments(Ts), foldl(spaced_operand, Ms).
 proof(X) --> head(X).
 
 % consecutive λs are merged
-binders(lam(X, _, M)) --> !, " ", variable(X), binders(M).
+binders('$lam'(X, _, M)) --> !, " ", variable(X), binders(M).
 binders(M) --> " → ", proof(M).
 
 head('$sym') --> !, "sym".
 head('$refl') --> !, "refl".
-head(h(N)) --> !, variable(h(N)).
+head('$VAR'(N)) --> !, variable('$VAR'(N)).
 head(Name) --> { atom(Name) }, !, atom(Name).
 head(M) --> "(", proof(M), ")".
 
 spaced_operand(M) --> " ", operand(M).
 
-operand(app('$refl', _, [])) --> !, "refl".
-operand(app(F, [], [])) --> !, head(F).
-operand(M) --> { compound(M), M \= h(_) }, !, "(", proof(M), ")".
+operand('$app'('$refl', _, [])) --> !, "refl".
+operand('$app'(F, [], [])) --> !, head(F).
+operand(M) --> { compound(M), M \= '$VAR'(_) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
-variable(h(N)) --> !, "h", number(N).
+% the hypotheses of an input's bridge, by the index of their literals
+hypothesis(I) --> "h", number(I).
+
 variable('$VAR'(N)) --> "x", number(N).
 variable('$BOUND'(N)) --> "y", number(N).
 
@@ -215,14 +217,14 @@ applied to the path the other way, from e : s[r] ≡ t[r]. Any other literal is 
 The steps of a path are e, proof(M), eq(E) and cong(X, S, P), for P along the side S[X];
 none is no step, where X does not occur in the side.
 */
-rewritten('$='(A, S, T), X, E, M) --> !, path([proof(rewrite(X:_, '$='(A, S, T), E, M))]).
+rewritten('$='(A, S, T), X, E, M) --> !, path([proof('$rewrite'(X:_, '$='(A, S, T), E, M))]).
 rewritten(~'$='(A, S, T), X, E, M) --> !,
-  "λ e → ", refutation(rewrite(X:_, ~'$='(A, S, T), E, M), [e]).
+  "λ e → ", refutation('$rewrite'(X:_, ~'$='(A, S, T), E, M), [e]).
 rewritten(A, X, E, M) -->
   "subst (λ ", variable(X), " → ", type(A), ") ", operand(E), " ", operand(M).
 
 % M refutes the equation of the path Ps; a rewrite of M lengthens the path instead
-refutation(rewrite(X:_, ~'$='(_, S, T), E, M), Ps) --> !,
+refutation('$rewrite'(X:_, ~'$='(_, S, T), E, M), Ps) --> !,
   { side(X, S, E, P), side(X, T, E, Q), inverse(Q, Q1), append([P|Ps], [Q1], Ps1) },
   refutation(M, Ps1).
 refutation(M, Ps) --> operand(M), " ", { present(Ps, Qs) }, path_operand(Qs).
@@ -238,9 +240,9 @@ inverse(cong(X, S, P), cong(X, S, Q)) :- inverse(P, Q).
 
 % sym E, with sym pushed down to the hypotheses: through a rewrite of an equation L = R, which is a
 % rewrite of sym of its proof by R = L, to cancel against sym
-inverted(app('$sym', _, [E]), E) :- !.
-inverted(rewrite(X, '$='(A, L, R), E, M0), rewrite(X, '$='(A, R, L), E, M)) :- !, inverted(M0, M).
-inverted(E, app('$sym', [], [E])).
+inverted('$app'('$sym', _, [E]), E) :- !.
+inverted('$rewrite'(X, '$='(A, L, R), E, M0), '$rewrite'(X, '$='(A, R, L), E, M)) :- !, inverted(M0, M).
+inverted(E, '$app'('$sym', [], [E])).
 
 % the steps of a path, flat: a step whose proof is a rewrite of an equation is its own path
 present([], []).
@@ -251,10 +253,10 @@ present([P|Ps], [P|Qs]) :- present(Ps, Qs).
 step_path(proof(M), Ps) :- equation_path(M, Ps).
 step_path(eq(E), Ps) :- equation_path(E, Ps).
 
-equation_path(rewrite(X:_, '$='(_, S, T), E, M), [P1, proof(M), Q]) :-
+equation_path('$rewrite'(X:_, '$='(_, S, T), E, M), [P1, proof(M), Q]) :-
   side(X, S, E, P), side(X, T, E, Q), inverse(P, P1).
-equation_path(app('$sym', _, [E]), Ps) :-
-  E = rewrite(_, '$='(_, _, _), _, _),
+equation_path('$app'('$sym', _, [E]), Ps) :-
+  E = '$rewrite'(_, '$='(_, _, _), _, _),
   inverted(E, E1),
   equation_path(E1, Ps).
 

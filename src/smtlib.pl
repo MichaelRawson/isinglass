@@ -222,19 +222,19 @@ Variables are Skolem constants in a check, shared by its assertions: the conclus
 from negating it, and the eigenvariables of split definitions proved in the term (see fact//4).
 Both are bound by the λs of the proof term, with their sorts.
 */
-skolem_constants(lam('$VAR'(N), S, M)) --> !, ['$VAR'(N):S], skolem_constants(M).
-skolem_constants(lam(_, _, M)) --> !, skolem_constants(M).
-skolem_constants(app(F, _, Ms)) --> !, foldl(skolem_constants, Ms), skolem_constants(F).
-skolem_constants(rewrite(_, _, E, M)) --> !, skolem_constants(E), skolem_constants(M).
+skolem_constants('$lam'(X, S, M)) --> { \+ proof_annotation(S) }, !, [X:S], skolem_constants(M).
+skolem_constants('$lam'(_, _, M)) --> !, skolem_constants(M).
+skolem_constants('$app'(F, _, Ms)) --> !, foldl(skolem_constants, Ms), skolem_constants(F).
+skolem_constants('$rewrite'(_, _, E, M)) --> !, skolem_constants(E), skolem_constants(M).
 skolem_constants(_) --> [].
 
 asserts([]) --> [].
 asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
 % the ground facts used in proof term M, in order; Env maps binders to their types
-facts(Env, lam(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
-facts(Env, app(F, Ts, Ms)) --> !, fact(Env, F, Ts, Ms), foldl(facts(Env), Ms), facts(Env, F).
-facts(Env, rewrite(_, _, E, M)) --> !, facts(Env, E), facts(Env, M).
+facts(Env, '$lam'(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
+facts(Env, '$app'(F, Ts, Ms)) --> !, fact(Env, F, Ts, Ms), foldl(facts(Env), Ms), facts(Env, F).
+facts(Env, '$rewrite'(_, _, E, M)) --> !, facts(Env, E), facts(Env, M).
 facts(_, _) --> [].
 
 % a premise instance
@@ -245,19 +245,19 @@ fact(_, F, Ts, _) -->
 fact(_, F, [], _) --> { atom(F), step(F, formula(G), negated_conjecture(_)) }, !, [G].
 % the definition of Split is used, from F : Split
 fact(Env, F, Ts, _) -->
-  { get_assoc(F, Env, Split), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts) }, !,
+  { get_assoc(F, Env, '$proof'(Split)), atom(Split), split(Split, clause(Bs, Ls)), binder_variables(Bs, Ts) }, !,
   { disjunction(Ls, D) }, [(Split => D)].
 % the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds: sound by
 % Skolemisation of ~Split => ? [X] : ~C, as the eigenvariables are fresh (which search guarantees,
 % and checker.pl checks, but this back end does not)
 fact(Env, F, [], [M]) -->
-  { get_assoc(F, Env, ~Split), atom(Split), split(Split, clause(Bs, Ls)),
+  { get_assoc(F, Env, '$proof'(~Split)), atom(Split), split(Split, clause(Bs, Ls)),
     binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
   { disjunction(Ls, D) }, [(D => Split)].
 % ...and so does a component C of a general split, of clause type T (ir:typed_clause/2), refuting F : ~T,
 % or F : P(ts), its defined predicate, which unfolds to ~T
 fact(Env, F, [], [M]) -->
-  { get_assoc(F, Env, A), component_type(A, T), typed_clause(T, clause(Bs, Ls)),
+  { get_assoc(F, Env, '$proof'(A)), component_type(A, T), typed_clause(T, clause(Bs, Ls)),
     binder_variables(Bs, Xs), eigenvariables(M, Xs) }, !,
   { disjunction(Ls, D) }, [(D => T)].
 fact(_, _, _, _) --> [].
@@ -265,7 +265,7 @@ fact(_, _, _, _) --> [].
 component_type(~T, T) :- !.
 component_type(A, T) :- defined_atom(A, ~T).
 
-eigenvariables(lam('$VAR'(N), _, M), ['$VAR'(N)|Xs]) :- !, eigenvariables(M, Xs).
+eigenvariables('$lam'(X, S, M), [X|Xs]) :- \+ proof_annotation(S), !, eigenvariables(M, Xs).
 eigenvariables(_, []).
 
 /********************************************************************************

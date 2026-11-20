@@ -28,32 +28,40 @@ Finally, `todo` indicates that a step is yet to be reconstructed.
 Throughout, binders B are a variable X and a sort S.
 
 The internal logic is a typed λ-calculus.
-Formulas are also types, where ~F is F → ⊥ and F => G is implication:
+A type is a sort, of the terms of that sort, or '$proof'(F), of the proofs of the formula F, so the
+two are disjoint (as τ and π in Lambdapi). '$proof' is folded: a proof type is taken apart as needed,
+'$proof'(F => G) as a function from '$proof'(F) to '$proof'(G), '$proof'(~F) as '$proof'(F => '$false'),
+and '$proof'('!'(X:S, F)) as a function from terms X of sort S to '$proof'(F).
 
   clause([B_0, ..., B_m-1], [L_0, ..., L_n-1])
-                 has type  '!'(B_0, ... '!'(B_m-1, ~L_0 => ... => ~L_n-1 => '$false'))
-  formula(F)     has type  F
+                 has type  '$proof'('!'(B_0, ... '!'(B_m-1, ~L_0 => ... => ~L_n-1 => '$false')))
+  formula(F)     has type  '$proof'(F)
 
 The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.pl), so that types are compared syntactically.
 
 Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is fixed, and ⊥ ('$false') is abstract.
 
   M ::= X
-      | app(F, Ts, Ms)    F applied to first-order terms Ts, then to proofs Ms
-      | lam(X, T, M)      X : T is h(N) for a proof, or an eigenvariable '$VAR'(N) : Sort; T is
-                          '$inferred' for a hypothesis of an expansion rule, whose type follows
-                          from the type of the rule's first argument
-      | rewrite(X:S, A, E, M)
-                          E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
-                          '$VAR'(N) of sort S bound only in the motive A, and E's type is
-                          inferred (not a λ)
-  F ::= M                 any term: a hypothesis, or
-      | Name              a step: a clause or a formula, or
-      | Builtin           a built-in, typed by head_type/2
+      | '$app'(F, Ts, Ms)       F applied to first-order terms Ts, then to proofs Ms
+      | '$lam'(X, T, M)         X : T is a variable '$VAR'(N), a hypothesis of type '$proof'(F), or
+                                an eigenvariable of a sort; T is '$inferred' for a hypothesis of an
+                                expansion rule, whose type follows from the type of the rule's first
+                                argument. Its annotation tells the two apart, and the variables of a
+                                term are numbered apart
+      | '$rewrite'(X:S, A, E, M)
+                                E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
+                                '$VAR'(N) of sort S bound only in the motive A, and E's type is
+                                inferred (not a λ)
+  F ::= M                       any term: a hypothesis, or
+      | Name                    a step: a clause or a formula, or
+      | Builtin                 a built-in, typed by head_type/2
+
+The constructors of proofs are named with '$', as TPTP reserves such names, so they cannot clash
+with a problem's symbols.
 
 The λ of a redex states the types of its hypotheses, so none are '$inferred'.
 
-A head of type '!'(X:S, T) is applied to a term of sort S for X.
+A head of type '$proof'('!'(X:S, F)) is applied to a term of sort S for X.
 A built-in (presently) takes no terms: its type variables are inferred by unification.
 Builtins '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so steps that use them are classical.
 
@@ -67,7 +75,7 @@ Sorts are terms of sort '$tType' (signature.pl), and type variables are binders 
 
 First-order terms Ts are built from the signature, variables '$VAR'(N), and '$inhabited'(S), which asserts that `S` is inhabited.
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4,
+:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4, proof_annotation/1,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
@@ -75,7 +83,8 @@ First-order terms Ts are built from the signature, variables '$VAR'(N), and '$in
 :- use_module(db).
 :- use_module(logic).
 
-% the type of proofs of a clause: ~L_0 => ... => ~L_n-1 => '$false', under a '!' for each binder
+% the formula of a clause, whose proofs are of type '$proof' of it (step_type/2):
+% ~L_0 => ... => ~L_n-1 => '$false', under a '!' for each binder
 clause_type(clause(Bs, Ls), T) :-
   implications(Ls, F),
   quantify('!', Bs, F, T).
@@ -90,8 +99,12 @@ typed_clause(T0, clause(Bs, Ls)) :-
   implications(Ls, F).
 
 % the type of a step: that of its clause, or its formula
-step_type(clause(Bs, Ls), T) :- clause_type(clause(Bs, Ls), T).
-step_type(formula(F), F).
+step_type(clause(Bs, Ls), '$proof'(T)) :- clause_type(clause(Bs, Ls), T).
+step_type(formula(F), '$proof'(F)).
+
+% the annotation of a λ that binds a hypothesis, rather than an eigenvariable: a proof type, or
+% '$inferred' (see above)
+proof_annotation(A) :- ( nonvar(A), A = '$proof'(_) -> true ; A == '$inferred' ).
 
 % a step between formulas, preprocessing or clausification (transform.pl): its proof uses the
 % expansion rules, and its parent as a formula, or as the type of its clause
@@ -101,34 +114,34 @@ formula_step(Name) :-
 
 % the types of the built-ins, fresh instances: their Prolog variables are their parameters, the terms
 % of an application for those bound by '!', and otherwise inferred (see above)
-head_type('$trivial', '$true').
-head_type('$refl', '$='(_, X, X)).
-head_type('$sym', ('$='(A, X, Y) => '$='(A, Y, X))).
-head_type('$dne', (~(~F) => F)).
+head_type('$trivial', '$proof'('$true')).
+head_type('$refl', '$proof'('$='(_, X, X))).
+head_type('$sym', '$proof'(('$='(A, X, Y) => '$='(A, Y, X)))).
+head_type('$dne', '$proof'((~(~F) => F))).
 % the expansion rules: each takes a proof of a formula, and a refutation of each branch
-head_type('$and', ((F & G) => ((F => (G => '$false')) => '$false'))).
-head_type('$or', ((F | G) => ((F => '$false') => ((G => '$false') => '$false')))).
-head_type('$imp', ((F => G) => ((~F => '$false') => ((G => '$false') => '$false')))).
-head_type('$iff', ((F <=> G) => ((F => (G => '$false')) => ((~F => (~G => '$false')) => '$false')))).
-head_type('$nand', (~(F & G) => ((~F => '$false') => ((~G => '$false') => '$false')))).
-head_type('$nor', (~(F | G) => ((~F => (~G => '$false')) => '$false'))).
-head_type('$nimp', (~(F => G) => ((F => (~G => '$false')) => '$false'))).
-head_type('$niff', (~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false')))).
-head_type('$ex', ('?'(B, F) => ('!'(B, (F => '$false')) => '$false'))).
-head_type('$nall', (~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'))).
+head_type('$and', '$proof'(((F & G) => ((F => (G => '$false')) => '$false')))).
+head_type('$or', '$proof'(((F | G) => ((F => '$false') => ((G => '$false') => '$false'))))).
+head_type('$imp', '$proof'(((F => G) => ((~F => '$false') => ((G => '$false') => '$false'))))).
+head_type('$iff', '$proof'(((F <=> G) => ((F => (G => '$false')) => ((~F => (~G => '$false')) => '$false'))))).
+head_type('$nand', '$proof'((~(F & G) => ((~F => '$false') => ((~G => '$false') => '$false'))))).
+head_type('$nor', '$proof'((~(F | G) => ((~F => (~G => '$false')) => '$false')))).
+head_type('$nimp', '$proof'((~(F => G) => ((F => (~G => '$false')) => '$false')))).
+head_type('$niff', '$proof'((~(F <=> G) => ((F => (~G => '$false')) => ((~F => (G => '$false')) => '$false'))))).
+head_type('$ex', '$proof'(('?'(B, F) => ('!'(B, (F => '$false')) => '$false')))).
+head_type('$nall', '$proof'((~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false')))).
 % the γ rules turn ~? into the ! that a hypothesis instantiates: '$nex' for a binder of a sort, and
 % '$nex_t' for one of '$tType' (a type), by convention, as unification cannot exclude it from '$nex'
-head_type('$nex', (~'?'(B, F) => (('!'(B, ~F) => '$false') => '$false'))).
-head_type('$nex_t', (~'?'(X:'$tType', F) => (('!'(X:'$tType', ~F) => '$false') => '$false'))).
+head_type('$nex', '$proof'((~'?'(B, F) => (('!'(B, ~F) => '$false') => '$false')))).
+head_type('$nex_t', '$proof'((~'?'(X:'$tType', F) => (('!'(X:'$tType', ~F) => '$false') => '$false')))).
 
 % a built-in whose first premise has parameters, which the type of its first argument may bind:
 % '$sym', '$dne', and the expansion rules
-inferred_premise(Name) :- head_type(Name, (A => _)), \+ ground(A).
+inferred_premise(Name) :- head_type(Name, '$proof'((A => _))), \+ ground(A).
 
 % the Branches of the expansion Rule applied to a proof of the formula F, each the formulas that it
 % binds, as read off its type: a refutation of each branch, H_1 => ... => '$false', and then
 % '$false'. The rules of quantifiers bind an eigenvariable first, so they have none
-rule_branches(F, Rule, Branches) :- nonvar(F), head_type(Rule, (F => T)), refutations(T, Branches), !.
+rule_branches(F, Rule, Branches) :- nonvar(F), head_type(Rule, '$proof'((F => T))), refutations(T, Branches), !.
 
 refutations('$false', []).
 refutations((K => T), [Hs|Branches]) :- hypotheses(K, Hs), refutations(T, Branches).
@@ -203,8 +216,8 @@ cited_steps(Cited) :-
   list_to_assoc(Pairs, Cited).
 
 % a step at the head of an application in a proof term
-head(lam(_, _, M), Name) :- head(M, Name).
-head(rewrite(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
-head(app(F, _, _), F) :- atom(F), \+ head_type(F, _).
-head(app(F, _, _), Name) :- compound(F), head(F, Name).
-head(app(_, _, Ms), Name) :- member(M, Ms), head(M, Name).
+head('$lam'(_, _, M), Name) :- head(M, Name).
+head('$rewrite'(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
+head('$app'(F, _, _), F) :- atom(F), \+ head_type(F, _).
+head('$app'(F, _, _), Name) :- compound(F), head(F, Name).
+head('$app'(_, _, Ms), Name) :- member(M, Ms), head(M, Name).

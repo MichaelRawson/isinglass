@@ -54,10 +54,10 @@ the clause's predicates and signs.
 transform(fold, Fresh, Hs0, [Parent|_], M) :- !,
   expanded_hypotheses(Hs0, Hs, M, M0),
   step(Parent, Conclusion, _),
-  step_type(Conclusion, F0),
+  step_type(Conclusion, '$proof'(F0)),
   canonical(F0, F1),
   expanded(F1, F),
-  M0 = app(lam(X, F, M1), [], [app(Parent, [], [])]),
+  M0 = '$app'('$lam'(X, '$proof'(F), M1), [], ['$app'(Parent, [], [])]),
   transformed_from(base, Fresh, Hs, X-F, M1).
 transform(Mode, Fresh, Hs, [Parent], M) :-
   parent(Parent, X, F, M, M1),
@@ -78,7 +78,7 @@ transformed_from(Mode0, Fresh, Hs, X-F, M1) :-
 expanded_hypotheses([], [], M, M).
 expanded_hypotheses([X-T|Hs0], [H|Hs], M, M1) :-
   expanded(T, T1),
-  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = app(lam(Y, T1, M0), [], [X]) ),
+  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = '$app'('$lam'(Y, '$proof'(T1), M0), [], [X]) ),
   expanded_hypotheses(Hs0, Hs, M0, M1).
 
 % Ctx is ctx(Mode, Fresh, Defs), with Defs the Skolem definitions so far, an open list; the Skolem
@@ -94,9 +94,9 @@ transformed(ctx(Mode0, Fresh, Defs), H, G, Hs, M) :-
   conclusion(ctx(Mode, Fresh, Defs), H, Hs, M).
 
 % the parent is the hypothesis X : F, its formula or the type of its clause
-parent(Parent, X, F, app(lam(X, F, M), [], [app(Parent, [], [])]), M) :-
+parent(Parent, X, F, '$app'('$lam'(X, '$proof'(F), M), [], ['$app'(Parent, [], [])]), M) :-
   step(Parent, Conclusion, _),
-  step_type(Conclusion, F0),
+  step_type(Conclusion, '$proof'(F0)),
   canonical(F0, F).
 
 % the eigenvariables of a clause conclusion, in order
@@ -184,8 +184,8 @@ pair(_, X-F, _, M) :- closes(F, X, M), !.
 pair(_, _, Y-G, M) :- closes(G, Y, M), !.
 % ...or the one is the negation of the other, as they are (canonical), before either is taken apart:
 % a chain of <=> splits into exponentially many branches
-pair(_, X-F, Y-G, app(Y, [], [X])) :- G == ~F, !.
-pair(_, X-F, Y-G, app(X, [], [Y])) :- F == ~G, !.
+pair(_, X-F, Y-G, '$app'(Y, [], [X])) :- G == ~F, !.
+pair(_, X-F, Y-G, '$app'(X, [], [Y])) :- F == ~G, !.
 pair(_, X-F, Y-G, M) :- literal(F), literal(G), !, refutes(G, Y, F, R), !, applied(R, X, M).
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, X-F, Y-G, M), !.
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, Y-G, X-F, M), !.
@@ -234,7 +234,7 @@ limit(_, Vs, Vs).
 % variable, are Y : G; a conjunction of one part and units of the key (a pure atom, as $true) is that
 % part, so ?[X] : (p(X) & ?[Y] : q(X,Y)) opens as ?[X,Y] : q(X,Y), and so is ~~F, as ~! [X] : ~?[Y]
 % is opened as its γ counterpart ![X] : ~?[Y] is instantiated
-existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, app(Rule, [], [X, lam(E, S, lam(Y, '$inferred', M0))]), M) :-
+existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, '$app'(Rule, [], [X, '$lam'(E, S, '$lam'(Y, '$inferred', M0))]), M) :-
   fewer(Limit0, Limit),
   delta(F, Rule, B:S, T0), !,
   E = '$VAR'(Fresh0),
@@ -254,12 +254,12 @@ fewer(unlimited, unlimited).
 fewer([_|Limit], Limit).
 
 % the γ formulas nested outermost in X : F, with fresh variables Vs, are Y : G
-universals(X-F0, Vs, H, app(lam(Y, G, M0), [], [app(X, Us, [])]), M) :-
+universals(X-F0, Vs, H, '$app'('$lam'(Y, '$proof'(G), M0), [], ['$app'(X, Us, [])]), M) :-
   quantifier_prefix('!', F0, Bs, F), Bs = [_|_], !,
   instance(Bs, F, Us, G),
   universals(Y-G, Ws, H, M0, M),
   append(Us, Ws, Vs).
-universals(X-(~'?'(B, F)), Vs, H, app(Rule, [], [X, lam(Y, '$inferred', M0)]), M) :- !,
+universals(X-(~'?'(B, F)), Vs, H, '$app'(Rule, [], [X, '$lam'(Y, '$inferred', M0)]), M) :- !,
   not_exists_rule(B, Rule),
   universals(Y-'!'(B, ~F), Vs, H, M0, M).
 universals(H, [], H, M, M).
@@ -377,7 +377,7 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
 skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
 
 % ...and Hinted is true if the term is the prover's choice
-skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, app(lam(Y, T1, M), [], [app(Name, As, [X])]), M) :-
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$app'('$lam'(Y, '$proof'(T1), M), [], ['$app'(Name, As, [X])]), M) :-
   delta(F, '$ex', B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
@@ -527,7 +527,7 @@ fits(F, Sig) :-
  ********************************************************************************/
 
 closes('$false', X, X).
-closes(~'$true', X, app(X, [], [app('$trivial', [], [])])).
+closes(~'$true', X, '$app'(X, [], ['$app'('$trivial', [], [])])).
 
 literal(~A) :- !, \+ connective(A, _).
 literal(A) :- \+ connective(A, _).
@@ -539,11 +539,11 @@ alpha_like(~(~_)).
 disjunctive(Mode, F) :- Mode \== nnf, beta(F, Rule, _, _), Rule \== '$iff', Rule \== '$niff'.
 
 % X : F is expanded at once, to the hypotheses Es: M is M1 : ⊥ with these bound
-expansion(F, X, Es, app(Rule, [], [X, K]), M) :-
+expansion(F, X, Es, '$app'(Rule, [], [X, K]), M) :-
   alpha(F, Rule, Ts), !,
   entries(Ts, Es),
   inferred_lambdas(Es, M, K).
-expansion(~(~F), X, [Y-F], app(X, [], [lam(Y, '$inferred', M)]), M).
+expansion(~(~F), X, [Y-F], '$app'(X, [], ['$lam'(Y, '$inferred', M)]), M).
 
 % in Skolemisation, the branches smallest first: a wrong counterpart, as Skolem keys allow, fails on
 % its smallest branch before the others are taken apart. Otherwise ~(C & p(sK1)) against
@@ -565,7 +565,7 @@ formula_size(F, N0, N) :- connective(F, Gs), !, N1 is N0 + 1, foldl(formula_size
 formula_size(_, N0, N) :- N is N0 + 1.
 
 % X : F is split into branches Es-M, each M : ⊥ with the hypotheses Es bound
-split(X-F, [Es1-M1, Es2-M2], app(Rule, [], [X, K1, K2])) :-
+split(X-F, [Es1-M1, Es2-M2], '$app'(Rule, [], [X, K1, K2])) :-
   beta(F, Rule, Ts1, Ts2),
   entries(Ts1, Es1),
   entries(Ts2, Es2),
@@ -575,7 +575,7 @@ split(X-F, [Es1-M1, Es2-M2], app(Rule, [], [X, K1, K2])) :-
 % M abstracted over the hypotheses Es, whose types follow from the rule (see ir.pl): annotating each
 % with its formula would make terms quadratic in the size of a conjunction
 inferred_lambdas([], M, M).
-inferred_lambdas([X-_|Es], M, lam(X, '$inferred', N)) :- inferred_lambdas(Es, M, N).
+inferred_lambdas([X-_|Es], M, '$lam'(X, '$inferred', N)) :- inferred_lambdas(Es, M, N).
 
 % a hypothesis for each formula
 entries([], []).
@@ -590,4 +590,4 @@ beta(F, Rule, Ts1, Ts2) :- rule_branches(F, Rule, [Ts1, Ts2]).
 % T is to be refuted for the first bound variable B, an eigenvariable
 delta(F, Rule, B, T) :-
   ( Rule = '$ex' ; Rule = '$nall' ),
-  head_type(Rule, (F => ('!'(B, (T => '$false')) => '$false'))), !.
+  head_type(Rule, '$proof'((F => ('!'(B, (T => '$false')) => '$false')))), !.

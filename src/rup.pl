@@ -12,9 +12,9 @@ as the hypotheses, and the queue holds the literals made false but not yet propa
 like the hypotheses. Every clause is checked once at the start, and then propagating a literal
 checks the clauses that contain it:
 
-  - every literal false: a conflict, refuted by app(P, [], Ms), where Ms refute its literals;
+  - every literal false: a conflict, refuted by '$app'(P, [], Ms), where Ms refute its literals;
   - all but one literal L false, and L not already true: a unit. L is made true, by making its
-    complement C false: the lemma app(lam(G, ~C, M'), [], [lam(X, C, app(P, [], Ms))]) proves ~C from P,
+    complement C false: the lemma '$app'('$lam'(G, ~C, M'), [], ['$lam'(X, C, '$app'(P, [], Ms))]) proves ~C from P,
     with X : C refuting L (see assumption/3), and G-(~C) is added to False and queued;
   - otherwise, the clause is skipped: it is checked again only when one of its literals is made
     false.
@@ -75,8 +75,8 @@ new(conflict, _).
 new(L-_, False) :- complement(L, C), \+ get_assoc(C, False, _).
 
 % a conflict refutes the clause; a unit L makes its complement C false, as a lemma G : ~C
-checked(conflict, P, Ms, _, _, _, _, app(P, [], Ms)).
-checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, app(lam(G, ~C, M), [], [lam(X, C, app(P, [], Ms))])) :-
+checked(conflict, P, Ms, _, _, _, _, '$app'(P, [], Ms)).
+checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, '$app'('$lam'(G, '$proof'(~C), M), [], ['$lam'(X, '$proof'(C), '$app'(P, [], Ms))])) :-
   complement(L, C),
   assumption(C, X, A),
   false(G-(~C), False, False1),
@@ -85,4 +85,4 @@ checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, app(lam(G, ~C, M), [], [
 
 % X : C refutes the complement of C, as M: X itself if C is negative, ~~-introduction otherwise
 assumption(~_, X, X) :- !.
-assumption(C, X, lam(K, ~C, app(K, [], [X]))).
+assumption(C, X, '$lam'(K, '$proof'(~C), '$app'(K, [], [X]))).

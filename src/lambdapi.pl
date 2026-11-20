@@ -191,7 +191,7 @@ conclusion(formula(F)) --> "π ", formula(F).
 
 % '$dne' proves a formula step, whose formula it takes explicitly, as lambdapi cannot unify π p with a
 % formula that π reduces
-proved(formula(F), app('$dne', [], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
+proved(formula(F), '$app'('$dne', [], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
 proved(_, M) --> proof(M).
 
 % step statements use framework-level Π and →, rather than `∀ and ⇒ which must be rewritten
@@ -221,13 +221,13 @@ variables([]) --> [].
 variables([X|Xs]) --> " ", term(X), variables(Xs).
 
 hypotheses([]) --> [].
-hypotheses([I|Is]) --> " ", hypothesis(h(I)), hypotheses(Is).
+hypotheses([I|Is]) --> " ", hypothesis(I), hypotheses(Is).
 
 % from a proof of the input disjunction, refute each literal by case analysis
 cases([], D) --> call(D).
-cases([I], D) --> "(", hypothesis(h(I)), " ", call(D), ")".
+cases([I], D) --> "(", hypothesis(I), " ", call(D), ")".
 cases([I, J|Is], D) -->
-  "(∨ₑ ", call(D), " (λ l, ", hypothesis(h(I)), " l) (λ r", number(I), ", ", cases([J|Is], r(I)), "))".
+  "(∨ₑ ", call(D), " (λ l, ", hypothesis(I), " l) (λ r", number(I), ", ", cases([J|Is], r(I)), "))".
 
 r(I) --> "r", number(I).
 
@@ -242,32 +242,32 @@ input(Input) --> "{|", atom(Input), "²|}".
 
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
-proof(lam(X, _, M)) --> !, "λ ", variable(X), binders(M).
+proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
-proof(app(lam(X, F, N), [], [M])) --> { X = h(_) }, !,
+proof('$app'('$lam'(X, '$proof'(F), N), [], [M])) --> !,
   "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
-proof(rewrite(X:S, A, E, M)) --> !,
+proof('$rewrite'(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
 % the eigenvariable of a δ rule may be a type
-proof(app(Rule, [], [M, lam(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
-  codes(Codes), " ", operand(M), " ", operand(lam(X, S, K)).
-proof(app(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
+proof('$app'(Rule, [], [M, '$lam'(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
+  codes(Codes), " ", operand(M), " ", operand('$lam'(X, S, K)).
+proof('$app'(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
 proof(X) --> head(X).
 
 % consecutive λs are merged
-binders(lam(X, _, M)) --> !, " ", variable(X), binders(M).
+binders('$lam'(X, _, M)) --> !, " ", variable(X), binders(M).
 binders(M) --> ", ", proof(M).
 
 % lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
 % (without, inference can be very slow, e.g. PUZ017-1)
-value(lam(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(X, T), ")", binders(M).
+value('$lam'(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(T), ")", binders(M).
 
 value(M) --> proof(M).
 
-% an eigenvariable has a sort, and a hypothesis a formula
-annotation('$VAR'(_), S) --> !, sort(S).
-annotation(_, F) --> "π ", formula(F).
+% an eigenvariable has a sort, and a hypothesis a proof type
+annotation('$proof'(F)) --> !, "π ", formula(F).
+annotation(S) --> sort(S).
 
 % a head is a built-in, a hypothesis or a step, or a term
 head(M) --> { compound_term(M) }, !, "(", proof(M), ")".
@@ -275,7 +275,7 @@ head('$sym') --> !, "eq_sym".
 head('$refl') --> !, "(eq_refl _)".
 head('$trivial') --> !, "⊤ᵢ".
 head(Rule) --> { rule_symbol(Rule, Codes) }, !, codes(Codes).
-head(h(N)) --> !, hypothesis(h(N)).
+head('$VAR'(N)) --> !, term('$VAR'(N)).
 head(Name) --> { atom(Name), cone(Name), negated(N, _) }, !, "(", atom(Name), " ", atom(N), ")".
 head(Name) --> { atom(Name) }, atom(Name).
 
@@ -295,19 +295,19 @@ rule_symbol('$nex_t', "nex_t").
 type_rule('$ex', "ex_t").
 type_rule('$nall', "nall_t").
 
-variable(h(N)) --> !, hypothesis(h(N)).
 variable(X) --> term(X).
 
 operands([]) --> [].
 operands([M|Ms]) --> " ", operand(M), operands(Ms).
 
-operand(app(F, [], [])) --> !, head(F).
+operand('$app'(F, [], [])) --> !, head(F).
 operand(M) --> { compound_term(M) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
-hypothesis(h(I)) --> "h", number(I).
+% the hypotheses of an input's bridge, by the index of their literals
+hypothesis(I) --> "h", number(I).
 
-compound_term(M) :- ( M = app(_, _, _) ; M = lam(_, _, _) ; M = rewrite(_, _, _, _) ), !.
+compound_term(M) :- ( M = '$app'(_, _, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
 
 /********************************************************************************
  * formulas and terms
