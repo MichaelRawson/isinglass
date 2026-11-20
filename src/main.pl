@@ -5,8 +5,8 @@ Translate a TSTP proof on standard input, given the front end for its prover and
   scryer-prolog -f -g 'main(vampire, smtlib)' src/main.pl < proof.p
   tpl -f -g 'main(vampire, checker)' src/main.pl < proof.p
 
-The script `ising` does this with SWI, and traces the steps if ISING_TRACE is set, or optimises the
-IR if ISING_OPTIMISE is set, by
+The script `ising` does this with SWI, and traces the steps given --trace, or optimises the IR given
+--optimise, by
 
   swipl -g 'main(vampire, checker, [trace, optimise])' src/main.pl < proof.p
 

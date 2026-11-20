@@ -1,26 +1,22 @@
 #!/bin/sh
 
 usage() {
-  echo "usage: [ISING_TRACE=1] [ISING_OPTIMISE=1] $0 [--trace] [--optimise] FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
+  echo "usage: $0 [--trace] [--optimise] FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
   exit 2
 }
 
-# --trace (or ISING_TRACE), prints the name and tactic of each step as its reconstruction starts;
-# --optimise (or ISING_OPTIMISE), inlines and simplifies the proof before it is emitted.
-# The flags are for callers that cannot set environment variables, such as Agda's execTC.
+# --trace prints the name and tactic of each step as its reconstruction starts;
+# --optimise inlines and simplifies the proof before it is emitted.
+options=
 while [ $# -gt 2 ]; do
   case $1 in
-    --trace) ISING_TRACE=1 ;;
-    --optimise) ISING_OPTIMISE=1 ;;
+    --trace) options=${options:+$options,}trace ;;
+    --optimise) options=${options:+$options,}optimise ;;
     *) usage ;;
   esac
   shift
 done
 if [ $# -ne 2 ]; then usage; fi
-
-options=
-if [ -n "$ISING_TRACE" ]; then options=trace; fi
-if [ -n "$ISING_OPTIMISE" ]; then options=${options:+$options,}optimise; fi
 
 # src/main.pl relative to this script (following symlinks), so that ising
 # can be called from any directory
