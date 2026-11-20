@@ -1,14 +1,28 @@
 #!/bin/sh
 
-if [ $# -ne 2 ]; then
-  echo "usage: [ISING_TRACE=1] [ISING_OPTIMISE=1] $0 FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
+usage() {
+  echo "usage: [ISING_TRACE=1] [ISING_OPTIMISE=1] $0 [--trace] [--optimise] FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
   exit 2
-fi
+}
 
-# ISING_TRACE, if set, prints the name and tactic of each step as its reconstruction starts;
-# ISING_OPTIMISE, if set, inlines and simplifies the proof before it is emitted
+# --trace (or ISING_TRACE), prints the name and tactic of each step as its reconstruction starts;
+# --optimise (or ISING_OPTIMISE), inlines and simplifies the proof before it is emitted.
+# The flags are for callers that cannot set environment variables, such as Agda's execTC.
+while [ $# -gt 2 ]; do
+  case $1 in
+    --trace) ISING_TRACE=1 ;;
+    --optimise) ISING_OPTIMISE=1 ;;
+    *) usage ;;
+  esac
+  shift
+done
+if [ $# -ne 2 ]; then usage; fi
+
 options=
 if [ -n "$ISING_TRACE" ]; then options=trace; fi
 if [ -n "$ISING_OPTIMISE" ]; then options=${options:+$options,}optimise; fi
 
-exec swipl -g "main($1, $2, [$options])" src/main.pl
+# src/main.pl relative to this script (following symlinks), so that ising
+# can be called from any directory
+here=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+exec swipl -g "main($1, $2, [$options])" "$here/src/main.pl"
