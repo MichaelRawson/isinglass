@@ -226,6 +226,7 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - A function `definition` is printed as an Agda definition of its symbol in the module (so `agda_file` does not postulate it), and its equation is proved by `refl` (stated only if a step cites it). So is a predicate, whose definition step is a formula and is not printed; a body that Agda cannot state (of `&`, `|`, `<=>` or `?`) is a hole. A split symbol is such a predicate, whose body, a clause type, Agda can state.
 - A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
 - Everything is in `Set`: no universe levels, so no split definitions over type variables.
+- `agda_term` prints the same proof as one expression, `(λ {R : Set} (leaf : type) ... → let steps in refutation) bridge ...`, for a caller that can check an expression but not declare a module (Agda's reflection, `checkFromStringTC`). The steps are printed as in the module, whose indentation is also that of the `let` block.
 - `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with names mangled such that TPTP names are Agda identifiers.
 
 ### SMT-LIB (`smtlib.pl`)

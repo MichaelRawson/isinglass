@@ -22,10 +22,25 @@ Only the prover's own symbols are renamed.
 In scope are assumed _≡_, refl, sym, trans, cong and subst, and for the bridges ⊥-elim and [_,_]′, as in
 the standard library.
 
+emit_agda_term prints the same proof as one expression, for a caller that can check an expression
+but not declare a module (Agda's reflection: checkFromStringTC), the parameters bound by λ and the
+steps by let:
+
+  (λ {R : Set}
+        (leaf : type)
+        ... →
+    let
+      step : type
+      step = proof term
+      ...
+    in refutation)
+      bridge
+      ...
+
 emit_agda_file wraps the term in a module that postulates the signature and the inputs, for testing
 on proofs whose names were not chosen for Agda: there, every name is mangled.
 */
-:- module(agda, [emit_agda/0, emit_agda_file/0]).
+:- module(agda, [emit_agda/0, emit_agda_term/0, emit_agda_file/0]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
@@ -41,19 +56,33 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 
 emit_agda :- retractall(mangled), out(fragment).
 
+emit_agda_term :- retractall(mangled), out(expression).
+
 emit_agda_file :- retractall(mangled), assertz(mangled), out(file).
 
 fragment -->
-  { leaves(Leaves),
-    findall(Name, ir_step(Name, clause([], []), _), Refutations),
-    final(Refutations, Refutation),
-    findall(step(Name, Conclusion, Justification), ir_step(Name, Conclusion, Justification), Steps) },
+  { proof_parts(Leaves, Refutation, Steps) },
   "Proof.", atom(Refutation), foldl(bridge, Leaves), "\n",
   "  where\n",
   "  module Proof {R : Set}", foldl(parameter, Leaves), "\n",
   "    where\n",
-  { cited_steps(Cited) },
-  foldl(emitted(Cited), Steps).
+  proof_steps(Steps).
+
+% the steps are printed with the indentation of the module's, which is also that of a let block
+expression -->
+  { proof_parts(Leaves, Refutation, Steps) },
+  "(λ {R : Set}", foldl(parameter, Leaves), " →\n",
+  "  let\n",
+  proof_steps(Steps),
+  "  in ", atom(Refutation), ")", foldl(bridge, Leaves), "\n".
+
+proof_parts(Leaves, Refutation, Steps) :-
+  leaves(Leaves),
+  findall(Name, ir_step(Name, clause([], []), _), Refutations),
+  final(Refutations, Refutation),
+  findall(step(Name, Conclusion, Justification), ir_step(Name, Conclusion, Justification), Steps).
+
+proof_steps(Steps) --> { cited_steps(Cited) }, foldl(emitted(Cited), Steps).
 
 /********************************************************************************
  * leaves
