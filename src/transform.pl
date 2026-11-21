@@ -46,6 +46,7 @@ the clause's predicates and signs.
 :- use_module(db).
 :- use_module(matching).
 :- use_module(normal).
+:- use_module(utils).
 
 % a clause conclusion whose variables are not those of the outermost universal quantifiers of the parent,
 % as in Vampire's AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
@@ -390,7 +391,7 @@ skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$app'('$lam'(Y, '$p
   ( Hinted == true -> true ; plausible(Ss, B, T, Term, Gs) ),
   defined(Defs, Sk, As, F),
   substitute(B, Term, T, T1),
-  choice_name(Sk, Name).
+  definition_name(Sk, Name).
 
 % the candidate Skolem terms Us for the δ formula F (? B : T), of the symbols Ss in the
 % formulas Gs. If the prover says which symbol is its choice (db.pl), only its terms, so that a δ formula
@@ -447,7 +448,6 @@ defined([_|Defs], Sk, As, F) :- defined(Defs, Sk, As, F).
 abstracted([], F, [], F).
 abstracted([A|As], F0, [W|Ws], F) :- substitute(A, W, F0, F1), abstracted(As, F1, Ws, F).
 
-choice_name(Sk, Name) :- atom_concat(Sk, '_def', Name).
 
 % each definition is recorded as a step, whose conclusion is its choice axiom, with its eigenvariables
 % renumbered from 0, and of the sorts of the arguments of its symbol
@@ -464,7 +464,7 @@ choices([def(Sk, As, F0)|Defs]) :-
   binders(Xs, Sorts, Bs),
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A),
-  choice_name(Sk, Name),
+  definition_name(Sk, Name),
   record(step(Name, formula(A), skolem_def(Sk, Bs, F))),
   record(ir_step(Name, formula(A), skolem_def(Sk, Bs, F))),
   choices(Defs).

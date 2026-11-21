@@ -130,7 +130,7 @@ from_definition(Name) :- step(Name, _, tactic(_, [D])), step(D, formula(_), defi
 A predicate definition is printed as Vampire uses it: as Symbol(Xs) <=> Body, in one direction only,
 Body | ~Symbol(Xs), for an inequality split, ~Symbol(T), where Symbol(X) is X != T, or for a general
 split, C <=> ~Symbol(Xs). The definition itself, ![Xs] : (Symbol(Xs) <=> Body), is recorded first, as
-the step Symbol_def, and the printed statement is proved from it by the Tactic.
+the step '$def:Symbol' (utils:definition_name/2), and the printed statement is proved from it by the Tactic.
 An AVATAR split Symbol <=> C is a definition itself, once restated as Symbol <=> T, for the type T of the
 clause C (ir:clause_type/2); C is recorded for the AVATAR tactics, as split(Symbol, C)
 */
@@ -165,8 +165,6 @@ same_binders(F0, D, F) :-
   quantifier_prefix('!', N, F0, _, G), !,
   quantify('!', Bs, G, F).
 same_binders(F, _, F).
-
-definition_name(Symbol, Name) :- atom_concat(Symbol, '_def', Name).
 
 predicate_definition(general_splitting_component_introduction, F, Symbol, D, transform(nnf)) :- !,
   quantifier_prefix('!', F, Bs, (C <=> ~A)),
@@ -227,7 +225,7 @@ negation_rule(conjecture_negation).
 
 /*
 Consistent polarity flipping replaces a predicate P by its negation, but keeps its name: so the steps
-after it are stated with P_flipped for P, where P_flipped is defined as ~P (the step P_flipped_def).
+after it are stated with P_flipped for P, where P_flipped is defined as ~P (the step '$def:P_flipped').
 A flipped predicate of a flipping step is one whose literals in the parent and conclusion differ in
 sign. Flipping is flips(Predicates, Before), with Before the steps before flipping (see before/4)
 */

@@ -18,7 +18,7 @@ assumed to be of the sequent type
 for the negative literals ~A_i and the positive literals B_j of the clause, in order.
 
 Names are printed as they are: the hammer names symbols, sorts and inputs after their Agda terms.
-Only the prover's own symbols are renamed.
+Only the prover's own names, of symbols, steps and definitions, are escaped (see escaped//1).
 In scope are assumed _≡_, refl, sym, trans, cong and subst, and for the bridges ⊥-elim and [_,_]′, as in
 the standard library.
 
@@ -54,27 +54,64 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 % mangled: names are made Agda identifiers, apart from each other and from ours, for testing
 :- dynamic(mangled/0).
 
-emit_agda :- retractall(mangled), out(fragment).
+emit_agda :- retractall(mangled), decorate, out(fragment).
 
-emit_agda_term :- retractall(mangled), out(expression).
+emit_agda_term :- retractall(mangled), decorate, out(expression).
 
-emit_agda_file :- retractall(mangled), assertz(mangled), out(file).
+emit_agda_file :- retractall(mangled), assertz(mangled), decorate, out(file).
+
+/*
+Our own names (variables, R, the module Proof, steps and definitions) are in the scope of the names
+that are printed as they are (the hammer's symbols and inputs, or mangled ones), so they must not
+shadow them: a symbol x0 would be captured by λ x0. So each of our names is decorated, the same
+for the whole proof, by as few primes as make it apart from every name printed as it is: usually
+none.
+*/
+:- dynamic(decoration/1).
+
+decorate :-
+  retractall(decoration(_)),
+  assertz(decoration([])),
+  findall(Cs, ( symbol(S, _, _, _), symbol(S, Cs, []) ), Symbols),
+  findall(Cs, ( ir_step(_, _, input(_, S)), source(S, Cs, []) ), Sources),
+  findall(Cs, ( ir_step(Name, _, _), name(Name, Cs, []) ), Steps),
+  append(Symbols, Sources, Theirs),
+  decoration(Theirs, Steps, [], D),
+  retractall(decoration(_)),
+  assertz(decoration(D)).
+
+% the fewest primes D such that none of Theirs is one of our names decorated by D
+decoration(Theirs, Steps, D0, D) :-
+  (   member(Cs, Theirs), append(Ours, D0, Cs), ours(Ours, Steps)
+  ->  append(D0, "′", D1), decoration(Theirs, Steps, D1, D)
+  ;   D = D0
+  ).
+
+ours(Cs, _) :- memberchk(Cs, ["R", "Proof", "e", "g"]), !.
+ours([C|Ds], _) :- memberchk(C, "ahxy"), Ds \== [], each(member(D, Ds), ( D >= 0'0, D =< 0'9 )), !.
+ours(Cs, Steps) :- memberchk(Cs, Steps).
+
+% our names are decorated
+decorated --> { decoration(D) }, codes(D).
+
+proof_module --> "Proof", decorated.
+result --> "R", decorated.
 
 fragment -->
   { proof_parts(Leaves, Refutation, Steps) },
-  "Proof.", atom(Refutation), foldl(bridge, Leaves), "\n",
+  proof_module, ".", name(Refutation), foldl(bridge, Leaves), "\n",
   "  where\n",
-  "  module Proof {R : Set}", foldl(parameter, Leaves), "\n",
+  "  module ", proof_module, " {", result, " : Set}", foldl(parameter, Leaves), "\n",
   "    where\n",
   proof_steps(Steps).
 
 % the steps are printed with the indentation of the module's, which is also that of a let block
 expression -->
   { proof_parts(Leaves, Refutation, Steps) },
-  "(λ {R : Set}", foldl(parameter, Leaves), " →\n",
+  "(λ {", result, " : Set}", foldl(parameter, Leaves), " →\n",
   "  let\n",
   proof_steps(Steps),
-  "  in ", atom(Refutation), ")", foldl(bridge, Leaves), "\n".
+  "  in ", name(Refutation), ")", foldl(bridge, Leaves), "\n".
 
 proof_parts(Leaves, Refutation, Steps) :-
   leaves(Leaves),
@@ -97,14 +134,14 @@ leaves(Leaves) :-
 leaf(input(_, _), clause(_, _)).
 leaf(negated_conjecture(_), formula(~G)) :- \+ connective(G, _).
 
-parameter(leaf(Name, Conclusion, _)) --> "\n      (", atom(Name), " : ", conclusion(Conclusion), ")".
+parameter(leaf(Name, Conclusion, _)) --> "\n      (", name(Name), " : ", conclusion(Conclusion), ")".
 
 bridge(leaf(Name, Conclusion, Justification)) -->
-  "\n    (", bridge(Justification, Conclusion), ")  -- ", atom(Name).
+  "\n    (", bridge(Justification, Conclusion), ")  -- ", name(Name).
 
 % the negated conjecture G → R is the identity; an input of sequent type is given its negative
 % literals, in continuation-passing style, and its positive literals are refuted by cases
-bridge(negated_conjecture(_), _) --> "λ g → g".
+bridge(negated_conjecture(_), _) --> "λ g", decorated, " → g", decorated.
 bridge(input(_, Source), clause(Bs, Ls)) -->
   { binder_variables(Bs, Xs),
     length(Ls, N),
@@ -126,9 +163,11 @@ lambdas(Xs, Is) --> "λ", arguments(Xs), foldl(hypothesis_binder, Is), " → ".
 hypothesis_binder(I) --> " ", hypothesis(I).
 
 % h_i : ¬¬A_i gives a_i : A_i
-continuation(I) --> hypothesis(I), " (λ a", number(I), " → ".
+continuation(I) --> hypothesis(I), " (λ ", antecedent_variable(I), " → ".
 
-antecedent(I) --> " a", number(I).
+antecedent(I) --> " ", antecedent_variable(I).
+
+antecedent_variable(I) --> "a", number(I), decorated.
 
 close(_) --> ")".
 
@@ -146,7 +185,7 @@ emitted(Cited, step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs), binder_variables(Cs, Ys), length(Ys, K), append(Ys, ['$VAR'(K)], Zs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined(Xs, Body)),
   (   { get_assoc(Name, Cited, _) }
-  ->  definition(atom(Name), conclusion(clause(Cs, Ls)), defined(Zs, '$app'('$VAR'(K), [], ['$refl'])))
+  ->  definition(name(Name), conclusion(clause(Cs, Ls)), defined(Zs, '$app'('$VAR'(K), [], ['$refl'])))
   ;   []
   ).
 % ...and a predicate by its body, where Agda can state it (formulas of clauses), else a hole
@@ -155,11 +194,11 @@ emitted(_, step(_, formula(_), definition(Symbol, Bs, Body))) --> !,
   definition(symbol(Symbol), symbol_type(Symbol), defined_predicate(Xs, Body)).
 % a step between formulas is classical, so it is left as a hole
 emitted(_, step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
-  definition(atom(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
+  definition(name(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
 emitted(_, step(Name, clause(Bs, Ls), proof(M))) --> !,
-  definition(atom(Name), conclusion(clause(Bs, Ls)), proof(M)).
+  definition(name(Name), conclusion(clause(Bs, Ls)), proof(M)).
 emitted(_, step(Name, clause(Bs, Ls), todo(Record, _))) --> !,
-  definition(atom(Name), conclusion(clause(Bs, Ls)), todo(Record)).
+  definition(name(Name), conclusion(clause(Bs, Ls)), todo(Record)).
 emitted(_, _) --> [].
 
 definition(Name, Type, Body) -->
@@ -217,7 +256,7 @@ binders(M) --> " → ", proof(M).
 head('$sym') --> !, "sym".
 head('$refl') --> !, "refl".
 head('$VAR'(N)) --> !, variable('$VAR'(N)).
-head(Name) --> { atom(Name) }, !, atom(Name).
+head(Name) --> { atom(Name) }, !, name(Name).
 head(M) --> "(", proof(M), ")".
 
 spaced_operand(M) --> " ", operand(M).
@@ -228,10 +267,10 @@ operand(M) --> { compound(M), M \= '$VAR'(_) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
 % the hypotheses of an input's bridge, by the index of their literals
-hypothesis(I) --> "h", number(I).
+hypothesis(I) --> "h", number(I), decorated.
 
-variable('$VAR'(N)) --> "x", number(N).
-variable('$BOUND'(N)) --> "y", number(N).
+variable('$VAR'(N)) --> "x", number(N), decorated.
+variable('$BOUND'(N)) --> "y", number(N), decorated.
 
 /********************************************************************************
  * rewriting
@@ -248,7 +287,7 @@ none is no step, where X does not occur in the side.
 */
 rewritten('$='(A, S, T), X, E, M) --> !, path([proof('$rewrite'(X:_, '$='(A, S, T), E, M))]).
 rewritten(~'$='(A, S, T), X, E, M) --> !,
-  "λ e → ", refutation('$rewrite'(X:_, ~'$='(A, S, T), E, M), [e]).
+  "λ e", decorated, " → ", refutation('$rewrite'(X:_, ~'$='(A, S, T), E, M), [e]).
 rewritten(A, X, E, M) -->
   "subst (λ ", variable(X), " → ", type(A), ") ", operand(E), " ", operand(M).
 
@@ -294,12 +333,12 @@ path(Ps) --> { present(Ps, Qs) }, steps(Qs).
 steps([P]) --> !, path_step(P).
 steps([P|Ps]) --> "trans ", path_operand([P]), " ", path_operand(Ps).
 
-path_operand([e]) --> !, "e".
+path_operand([e]) --> !, "e", decorated.
 path_operand([proof(M)]) --> !, operand(M).
 path_operand([eq(E)]) --> !, operand(E).
 path_operand(Ps) --> "(", steps(Ps), ")".
 
-path_step(e) --> "e".
+path_step(e) --> "e", decorated.
 path_step(proof(M)) --> proof(M).
 path_step(eq(E)) --> proof(E).
 path_step(cong(X, S, P)) --> "cong (λ ", variable(X), " → ", term(S), ") ", path_operand([P]).
@@ -311,8 +350,8 @@ path_step(cong(X, S, P)) --> "cong (λ ", variable(X), " → ", term(S), ") ", p
 % the types of the IR: ~F is F → R, and '$false' is R
 type('!'(B, F)) --> !, pi(B), type(F).
 type((F => G)) --> !, domain(F), " → ", type(G).
-type(~F) --> !, domain(F), " → R".
-type('$false') --> !, "R".
+type(~F) --> !, domain(F), " → ", result.
+type('$false') --> !, result.
 type('$='(_, S, T)) --> !, term(S), " ≡ ", term(T).
 type(A) --> term(A).
 
@@ -334,18 +373,36 @@ term('$i') --> !, "ι".
 term(T) --> { T =.. [F|Ts] }, symbol(F), arguments(Ts).
 
 % the prover's own symbols are renamed, as _ marks an argument place in an Agda name: spl0_1 is spl0-1
-symbol(F) --> { mangled }, !, dashed(F), "′".
-symbol(F) --> { introduced(F, _) }, !, dashed(F).
+symbol(F) --> { mangled }, !, escaped(F), "′".
+symbol(F) --> { introduced(F, _) }, !, escaped(F).
 symbol(F) --> atom(F).
 
 % the Agda term of an input
-source(S) --> { mangled }, !, dashed(S), "″".
-source(S) --> atom(S).
+source(S) --> { named(input, Bare, S) }, ( { mangled } -> escaped(Bare), "″" ; atom(Bare) ).
 
-dashed(F) --> { atom_codes(F, Cs) }, foldl(dash, Cs).
+% steps and definitions are the prover's and ours, so they are escaped, apart from each other by the
+% mark of a definition, and from the Agda names of symbols and inputs (the hammer's, or mangled)
+name(Name) --> { named(step, Bare, Name) }, !, escaped(Bare), decorated.
+name(Name) --> { named(definition, Symbol, Name) }, escaped(Symbol), "ᵈᵉᶠ", decorated.
 
-dash(0'_) --> !, "-".
-dash(C) --> [C].
+% a name as an Agda identifier, one to one: ASCII letters and digits are kept (but for a leading
+% digit), _ between them is -, as _ marks an argument place, and any other character is ·HH·, its
+% code in hex, so that names from SMT-LIB (with ., @, - or spaces) are Agda identifiers too
+escaped(F) --> { atom_codes(F, Cs) }, escaped_codes(Cs, start).
+
+escaped_codes([], _) --> [].
+escaped_codes([C|Cs], Previous) --> escaped_code(C, Previous, Cs), escaped_codes(Cs, C).
+
+escaped_code(C, Previous, _) --> { alphanumeric(C), \+ ( Previous == start, C >= 0'0, C =< 0'9 ) }, !, [C].
+escaped_code(0'_, Previous, [Next|_]) --> { alphanumeric(Previous), alphanumeric(Next) }, !, "-".
+escaped_code(C, _, _) --> "·", hex(C), "·".
+
+alphanumeric(C) :- integer(C), ( C >= 0'a, C =< 0'z ; C >= 0'A, C =< 0'Z ; C >= 0'0, C =< 0'9 ), !.
+
+hex(N) --> { N < 16 }, !, hex_digit(N).
+hex(N) --> { H is N // 16, L is N mod 16 }, hex(H), hex_digit(L).
+
+hex_digit(D) --> { D < 10 -> C is 0'0 + D ; C is 0'a + D - 10 }, [C].
 
 arguments(Ts) --> foldl(argument, Ts).
 
@@ -392,4 +449,4 @@ positives([I|Is], Ls) --> { nth0(I, Ls, B) }, type(B), " ⊎ ", positives(Is, Ls
 
 % the conjecture, or anything at all if the proof is a refutation of the inputs
 goal(Leaves) --> { member(leaf(_, formula(~G), _), Leaves) }, !, type(G).
-goal(_) --> "{R : Set} → R".
+goal(_) --> "{", result, " : Set} → ", result.

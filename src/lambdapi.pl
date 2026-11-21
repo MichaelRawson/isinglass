@@ -142,9 +142,9 @@ proof_step(input(_, Input), Name, formula(F)) -->
   "constant symbol ", input(Input), " : π ", formula(F), ";\n",
   header(Name), "π ", formula(F), " ≔ ", input(Input), ";\n".
 proof_step(negated_conjecture(_), Name, formula(F)) -->
-  "// ", atom(Name), " : π ", formula(F), " is a parameter of the steps that depend on it\n".
+  "// ", name(Name), " : π ", formula(F), " is a parameter of the steps that depend on it\n".
 proof_step(conjecture(_, Negated, Refutation), Name, formula(G)) -->
-  header(Name), "π ", formula(G), " ≔ ¬¬ₑ ", formula(G), " (λ ", atom(Negated), ", ", head(Refutation), ");\n".
+  header(Name), "π ", formula(G), " ≔ ¬¬ₑ ", formula(G), " (λ ", name(Negated), ", ", head(Refutation), ");\n".
 % a Skolem symbol unfolds to its choice, ε Y. T, and its choice axiom is εᵢ; a type is chosen by εₜ
 proof_step(skolem_def(Sk, Bs, F), Name, formula(_)) -->
   { length(Bs, N), binder_variables(Bs, Xs), choice_axiom(Sk, Bs, F, A), consequent(A, T1), delta_body(F, Y:S, T) },
@@ -177,13 +177,13 @@ proof_step(todo(Record, _), Name, Conclusion) -->
 rule(esa(Rule, _)) --> !, atom(Rule).
 rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 
-header(Name) --> "opaque symbol ", atom(Name), " : ".
+header(Name) --> "opaque symbol ", name(Name), " : ".
 
 % a step in the cone of the negated conjecture takes it as a parameter
-assumption(Name) --> { cone(Name), negated(N, G) }, !, "Π (", atom(N), " : π ", formula(~G), "), ".
+assumption(Name) --> { cone(Name), negated(N, G) }, !, "Π (", name(N), " : π ", formula(~G), "), ".
 assumption(_) --> [].
 
-discharge(Name) --> { cone(Name), negated(N, _) }, !, "λ ", atom(N), ", ".
+discharge(Name) --> { cone(Name), negated(N, _) }, !, "λ ", name(N), ", ".
 discharge(_) --> [].
 
 conclusion(clause(Bs, Ls)) --> statement(clause(Bs, Ls)).
@@ -234,7 +234,11 @@ r(I) --> "r", number(I).
 input_instance(Input, []) --> !, input(Input).
 input_instance(Input, Xs) --> "(", input(Input), variables(Xs), ")".
 
-input(Input) --> "{|", atom(Input), "²|}".
+input(Input) --> { named(input, Bare, Input) }, "{|", atom(Bare), "²|}".
+
+% steps and definitions are named apart from symbols ({|f¹|}), inputs, and the prelude
+name(Name) --> { named(step, Bare, Name) }, !, "{|", atom(Bare), "³|}".
+name(Name) --> { named(definition, Symbol, Name) }, "{|", atom(Symbol), "⁴|}".
 
 /********************************************************************************
  * proof terms
@@ -276,8 +280,8 @@ head('$refl') --> !, "(eq_refl _)".
 head('$trivial') --> !, "⊤ᵢ".
 head(Rule) --> { rule_symbol(Rule, Codes) }, !, codes(Codes).
 head('$VAR'(N)) --> !, term('$VAR'(N)).
-head(Name) --> { atom(Name), cone(Name), negated(N, _) }, !, "(", atom(Name), " ", atom(N), ")".
-head(Name) --> { atom(Name) }, atom(Name).
+head(Name) --> { atom(Name), cone(Name), negated(N, _) }, !, "(", name(Name), " ", name(N), ")".
+head(Name) --> { atom(Name) }, name(Name).
 
 rule_symbol('$and', "and_e").
 rule_symbol('$or', "or_e").

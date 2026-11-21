@@ -53,7 +53,8 @@ Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is
                                 '$VAR'(N) of sort S bound only in the motive A, and E's type is
                                 inferred (not a λ)
   F ::= M                       any term: a hypothesis, or
-      | Name                    a step: a clause or a formula, or
+      | Name                    a step: a clause or a formula, named apart from symbols
+                                ('$step:f12' or '$def:P', utils:named/3), or
       | Builtin                 a built-in, typed by head_type/2
 
 The constructors of proofs are named with '$', as TPTP reserves such names, so they cannot clash

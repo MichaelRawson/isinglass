@@ -17,11 +17,16 @@ Sort that of the result: list : $tType > $tType is type(list, [], ['$tType'], '$
 
 Sorts are terms: '$i', '$o', '$tType', type variables, and declared types such as list('$i').
 $-words are read as the prefix operator $ applied to a term, and become symbols named with a $.
+
+TPTP names statements apart from symbols, so the name of each statement, of each parent of an
+inference, and of the input of a file are renamed with reserved prefixes, '$step:f12' and
+'$input:ax1' (utils:named/3), so that they cannot clash with symbols or built-ins.
 */
 :- module(load, [read_tstp/1]).
 :- use_module(library(lists)).
 :- use_module(ops).
 :- use_module(logic).
+:- use_module(utils).
 
 % operators needed to read TPTP (as in tptp.pl), declared only when reading, so as not to affect the
 % parsing of code. ! is a solo character, so != and !> are two tokens each, and are read with the
@@ -83,8 +88,10 @@ read_statement(Term, [Statement|Rest]) :-
   read_statements(Rest).
 
 statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
-  Term =.. [Language, Name, Role, Formula0|Annotations],
-  source(Annotations, Source),
+  Term =.. [Language, Name0, Role, Formula0|Annotations],
+  step_name(Name0, Name),
+  source(Annotations, Source0),
+  renamed_source(Source0, Source),
   (   Role == type
   ->  declaration(Formula0, Formula)
   ;   normalise(Formula0, Formula)
@@ -93,6 +100,17 @@ statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
 % the source annotation is optional, and may be followed by useful info
 source([], none).
 source([Source|_], Source).
+
+% the names of statements and inputs are renamed apart from symbols (utils:named/3): the parents of an
+% inference, a name, Name:Info, or an inference itself, and the input name of a file
+renamed_source(inference(Rule, Info, Parents0), inference(Rule, Info, Parents)) :- !,
+  maplist(renamed_parent, Parents0, Parents).
+renamed_source(file(File, Input0), file(File, Input)) :- !, named(input, Input0, Input).
+renamed_source(Source, Source).
+
+renamed_parent(P0, P) :- ( atom(P0) ; integer(P0) ), !, step_name(P0, P).
+renamed_parent(P0:Info, P:Info) :- !, renamed_parent(P0, P).
+renamed_parent(P0, P) :- renamed_source(P0, P).
 
 normalise(V, F) :- var(V), !, F = V.
 normalise('!'(S0, '='(T0)), F) :- !, F = ~(S = T), term(S0, S), term(T0, T).

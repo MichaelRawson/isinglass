@@ -33,6 +33,7 @@ With `--optimise`, the IR is optimised before it is emitted (`[optimise]`, see b
 - Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so every lookup is a fresh instance and instantiation is unification.
 - When a step is reconstructed, its conclusion is made rigid, so the IR is ground: a clause by numbering its variables `'$VAR'(N)` in binder order, a formula by naming its bound variables canonically.
 - In search contexts, `X-T` is an entry (`X : T`); `X : Sort` is always a quantifier or clause binder.
+- Names: TPTP names statements apart from symbols (as SMT-LIB names assertions), so a step may share its name with a symbol (or be an integer). So the name of each statement and each parent is read as `'$step:Name'`, and the name of an input (`file(_, Name)`) as `'$input:Name'` (`load.pl`), and the step that a front end or tactic adds for the definition of a symbol `P` is `'$def:P'` (`utils:named/3`). These are atoms, apart from symbols and built-ins (no `$`-word or SMT-LIB symbol has a `:`), and from each other. Each back end prints them apart in its own way, and warnings print them bare.
 
 ## IR (`ir.pl`, `db.pl`)
 - Proofs are λ-terms, Curry–Howard style, in minimal logic with an abstract `⊥`.
@@ -57,7 +58,7 @@ With `--optimise`, the IR is optimised before it is emitted (`[optimise]`, see b
 - Function definitions: `definition(F, Bs, T)` defines `F(Xs)`, for binders `Bs = Xs : Sorts`, as the term `T`. It is the prover's own step, whose conclusion is the unit clause `F(Xs) = T`, either way round: a conservative extension, so the step is an axiom. A defined function term unfolds to its term, by definition, as the back ends define the symbol.
 - Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. A defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms and function terms (`ir:expanded/2`), as the back ends define the symbols. A body cites only definitions before it, so unfolding terminates.
 - Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`, `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`). Provers Skolemise in negation normal form, so there is no choice for `~!`.
-  It is a step named `Sk_def`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
+  It is a step named `'$def:Sk'`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
 
 ## Classical Logic and Conjectures
 The IR does not pre-suppose classical logic, and large chunks of ATP proofs are intuitionistically valid, which may be surprising.
@@ -140,11 +141,11 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | definition_folding of function definitions, in a clause | `fold` |
 | definition_folding of predicate definitions, in a formula | `transform(fold)` |
 | function_definition, avatar_definition (introduced) | `definition` |
-| predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `~P(Xs)` among the disjuncts of `F` (introduced) | `transform(base)`, or `transform(definition)`, from `P_def` |
-| inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `P_def`, where `P(X)` is `X != T` |
+| predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `~P(Xs)` among the disjuncts of `F` (introduced) | `transform(base)`, or `transform(definition)`, from `'$def:P'` |
+| inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `'$def:P'`, where `P(X)` is `X != T` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
-| general_splitting_component_introduction: `![Xs] : (C <=> ~P(Xs))` (introduced) | `transform(nnf)` from `P_def`, where `P(Xs)` is `~` the type of the clause `C` |
+| general_splitting_component_introduction: `![Xs] : (C <=> ~P(Xs))` (introduced) | `transform(nnf)` from `'$def:P'`, where `P(Xs)` is `~` the type of the clause `C` |
 | general_splitting | `components` |
 | sat_conversion | `first([variant, avatar_split])` |
 | theory_tautology_sat_conflict (introduced) | `tautology` |
@@ -163,7 +164,7 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | cnf_transformation of a formula | `clausify` |
 
 The conjecture becomes `conjecture`, `negated_conjecture` (`conjecture_negation` in later versions) becomes `negated_conjecture`, and any other rule becomes `todo`.
-Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `P_def`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step after flipping states `P_flipped` for `P`, defined as `~P` (the step `P_flipped_def`, which each flipping step cites), with the type parameters of `P` if it is polymorphic. The flipped predicates are those whose signed literals differ between a flipping step and its parent, with variables numbered in order: counting signs is not enough, as a clause may flip one literal of each sign. A step is before flipping if it is an input, an ancestor of a flipping step, or derived only from steps before flipping (e.g. the preprocessing of a formula whose clauses need no flipping), but for a flipping step; other steps without parents, such as AVATAR definitions, are after it. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `P_def`, since the binders of a group commute.
+Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `'$def:P'`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step after flipping states `P_flipped` for `P`, defined as `~P` (the step `'$def:P_flipped'`, which each flipping step cites), with the type parameters of `P` if it is polymorphic. The flipped predicates are those whose signed literals differ between a flipping step and its parent, with variables numbered in order: counting signs is not enough, as a clause may flip one literal of each sign. A step is before flipping if it is an input, an ancestor of a flipping step, or derived only from steps before flipping (e.g. the preprocessing of a formula whose clauses need no flipping), but for a flipping step; other steps without parents, such as AVATAR definitions, are after it. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `'$def:P'`, since the binders of a group commute.
 For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
 A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause. Except: a Skolemised `(! [X] : C) | L` stays a formula, as the δ formula of its parent is under the disjunction too, and only formulas are paired part by part.
 
@@ -202,6 +203,7 @@ An independent-ish type checker of each ground, annotated term against the type 
 Uses the `Stdlib` encoding of first-order logic.:
 - Input symbols are printed `{|f¹|}`, or `{|f/n¹|}` for a name overloaded by arity.
 - Inputs are declared as `{|name²|}` with their original formula.
+- Steps are `{|name³|}` and definitions `{|P⁴|}`, apart from symbols, inputs, and the prelude.
 - A clause is stated as its IR type with framework-level `Π`/`→`; for `~A` that is `π (¬ ¬ A)`.
 - Proof terms are printed directly, with `'$sym'` and `'$refl'` as Stdlib's `eq_sym` and `eq_refl _`, whose arguments lambdapi infers, `'$dne'` as `¬¬ₑ F` with the formula `F` of its step, which lambdapi cannot infer from `π F` as `π` reduces, and `$rewrite(X:S, A, E, M)` as `rw (λ (x : τ S), A) E M` (`rewrite` is a lambdapi keyword), where `rw` is defined by `ind_eq`.
 - Sorts are terms of `Set` (`Stdlib.Set`): `'$i'` is `ι`, a type constructor is declared `Set → Set`, and a polymorphic symbol `Π (x0 : Set), ...`. `'$inhabited'(S)` is `el S`.
@@ -222,7 +224,9 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - We expect one conjecture, a ground atom (or none: then the term has any type). Inputs are clauses.
 - Sequent reading: the Agda term of an input clause is assumed to have type `∀ xs → A₁ → … → Aₙ → B₁ ⊎ … ⊎ Bₘ` (`⊥` if `m = 0`) for its negative literals `~Aᵢ` and positive literals `Bⱼ`, in order.
 - Input clauses are transformed to the usual clause type in continuation-passing style.
-- Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms. Only the prover's own symbols are renamed (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place).
+- Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms, whether its problem went to the prover as TPTP or SMT-LIB. Only the prover's own names are escaped to Agda identifiers, one to one: ASCII letters and digits are kept (but a leading digit), `_` between them is `-` (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place), and any other character is `·HH·`, its code in hex.
+- Steps are escaped bare names, apart from the hammer's (which names every input, and does not redefine `refl` and the like). A definition step of `P` is `Pᵈᵉᶠ`, which no escaped name has.
+- Our own names (variables `xN`, `hN`, …, `R`, the module `Proof`, steps and definitions) are in the scope of the names printed verbatim, so they are decorated, for the whole proof, by as few primes `′` as make none of them a name printed verbatim (`agda:decorate/0`): usually none, but a hammer's symbol `x0` would otherwise be captured by `λ x0`.
 - Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
 - A rewrite of an equation is a path of `trans` and `cong`; going back along a side inverts the rewrite's equation with `sym` pushed down to its hypotheses, as the optimiser does.
 - `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps and Skolem definitions are not printed.
@@ -230,7 +234,7 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
 - Everything is in `Set`: no universe levels, so no split definitions over type variables.
 - `agda_term` prints the same proof as one expression, `(λ {R : Set} (leaf : type) ... → let steps in refutation) bridge ...`, for a caller that can check an expression but not declare a module (Agda's reflection, `checkFromStringTC`). The steps are printed as in the module, whose indentation is also that of the `let` block.
-- `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with names mangled such that TPTP names are Agda identifiers.
+- `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with every name escaped (symbols marked `′`, inputs `″`), so that names from TPTP or SMT-LIB problems are distinct Agda identifiers.
 
 ### SMT-LIB (`smtlib.pl`)
 In the manner of "Ground Truth" (Voronkov et al), ground premises of each step in such a way that in combination with the negated conclusion it produces an unsatisfiable SMT instance.
@@ -244,6 +248,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 - Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
 - A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T` (or `P(ts)`, its defined predicate), is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 - `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
+- Steps are never SMT-LIB symbols, only text in an `echo`: a step by its bare name, a definition as `P (definition)`, with `"` doubled.
 - Neither are steps between formulas (`ir:formula_step/1`): a formula with `?` under `!` has no ground instance to assert. Asserting the parent and the negated conclusion with their quantifiers would check them, but not in the manner of "Ground Truth".
 
 ## Files (`src/`)
@@ -267,7 +272,7 @@ Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
 | `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |
-| `utils.pl` | Portable helpers: `each/2`, `warn/1`, `final/2`, `range/3`, `list//1` |
+| `utils.pl` | Portable helpers: `each/2`, `warn/1`, `named/3` (names of steps, definitions and inputs), `final/2`, `range/3`, `list//1` |
 
 ## Known Issues
 - Backend scaling: for some backends (lambdapi, Agda) some large (e.g. `HWV057`, `SWV424-1.200`) or otherwise-tricky proofs time out or run out of memory. Not our problem, will be reported upstream if relevant.

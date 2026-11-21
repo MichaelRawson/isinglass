@@ -107,7 +107,7 @@ check(_, skolem_def(_, _, _), _, _) --> [].
 check(_, definition(_, _, _), _, _) --> [].
 % a step between formulas has formulas for premises, which have no ground instances to assert
 check(_, proof(_), Name, _) --> { formula_step(Name) }, !,
-  "(echo \"warning: ", atom(Name), " (formula step) is not checked\")\n".
+  "(echo \"warning: ", name(Name), " (formula step) is not checked\")\n".
 check(Declared, proof(M), Name, clause(Bs, Ls)) -->
   { empty_assoc(Env),
     facts(Env, M, Fs, []),
@@ -120,7 +120,17 @@ check(_, negated_conjecture(_), _, _) --> [].
 check(_, conjecture(_, _, _), _, _) --> [].
 % unreconstructed: checking it with quantified premises is liable to time out
 check(_, todo(Record, _), Name, _) -->
-  "(echo \"warning: ", atom(Name), " (", rule(Record), ") is not checked\")\n".
+  "(echo \"warning: ", name(Name), " (", rule(Record), ") is not checked\")\n".
+
+% steps are never SMT-LIB symbols (|t.f|), only text in an echo: a step by its name, a definition by
+% its symbol, with " doubled as in an SMT-LIB string
+name(Name) --> { named(step, Bare, Name) }, !, quoted(Bare).
+name(Name) --> { named(definition, Symbol, Name) }, quoted(Symbol), " (definition)".
+
+quoted(A) --> { atom_codes(A, Cs) }, foldl(quoted_code, Cs).
+
+quoted_code(0'") --> !, "\"\"".
+quoted_code(C) --> [C].
 
 rule(esa(Rule, _)) --> !, atom(Rule).
 rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
@@ -135,7 +145,7 @@ scope(Declared, Name, Conclusion, Cs, Fs) -->
   constants(Cs),
   instances(Is),
   asserts(All),
-  "(echo \"", atom(Name), "\")\n(set-info :status unsat)\n(check-sat)\n(pop 1)\n".
+  "(echo \"", name(Name), "\")\n(set-info :status unsat)\n(check-sat)\n(pop 1)\n".
 
 % the negated conclusion, with free variables
 negated(clause(_, Ls), Ns) :- maplist(negation, Ls, Ns).
