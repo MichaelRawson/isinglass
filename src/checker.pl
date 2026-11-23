@@ -153,7 +153,9 @@ check(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
   check(Steps, Gamma1, M, T).
-check(Steps, Gamma, '$app'(F, Ts, Ms), T) :- !, application(Steps, Gamma, F, Ts, Ms, T).
+check(Steps, Gamma, M, T) :- M = '$app'(_, _), !, spine(M, F, As), application(Steps, Gamma, F, As, T).
+% a step or a built-in alone, whose parameters T may bind
+check(Steps, Gamma, F, T) :- atom(F), !, application(Steps, Gamma, F, [], T).
 check(Steps, Gamma, M, T) :-
   type(Steps, Gamma, M, T1),
   matches(T1, T).
@@ -230,72 +232,81 @@ type(Steps, Gamma, '$rewrite'(X:Sort, A, E, M), T) :- !,
   check(Steps, Gamma, M, '$proof'(AS)),
   substitute(X, U, A, AU),
   T = '$proof'(AU).
-type(Steps, Gamma, '$app'(F, Ts, Ms), T) :- !, application(Steps, Gamma, F, Ts, Ms, T).
-type(_, Gamma, X, T) :- hypothesis(Gamma, X, T).
+type(Steps, Gamma, M, T) :- M = '$app'(_, _), !, spine(M, F, As), application(Steps, Gamma, F, As, T).
+% a head alone: a hypothesis, a step or a built-in
+type(Steps, Gamma, F, T) :- application(Steps, Gamma, F, [], T).
 
-% F applied to Ts and Ms is of type T. The type of the head, instantiated by its terms, is
-% '$proof'(A_1 => ... => A_n => R) for the n arguments Ms: a built-in's is a fresh instance, whose parameters
-% (see ir.pl) are bound by unification, first of R with T (a variable if T is to be inferred), then of
-% each A_i with the type of its argument, in order. So the parameters of '$refl' and '$dne' come from
-% T, and those of '$sym' and the expansion rules from T or the first argument
-application(Steps, Gamma, F, Ts, Ms, T) :-
+% F applied to the arguments As is of type T. The type of the head is a '!' for each term of As, which
+% instantiates its binder, and an => for each proof, whose premise is the proof's type: it is
+% '$proof'(A_1 => ... => A_n => R) for the n proofs, under the '!'s of the terms between them. A
+% built-in's is a fresh instance, whose parameters (see ir.pl) are bound by unification, first of R
+% with T (a variable if T is to be inferred), then of each A_i with the type of its proof, in order.
+% So the parameters of '$refl' and '$dne' come from T, and those of '$sym' and the expansion rules
+% from T or the first proof
+application(Steps, Gamma, F, As, T) :-
   head(Steps, Gamma, F, T0),
-  instantiate(Gamma, Ts, T0, T1),
+  arguments(Gamma, As, T0, Ps0, R0),
   % a clause is ground by now, and has no bound variables; a quantified hypothesis instantiated by
   % fewer terms than it has binders is canonical again
-  ( ( ground(T1) ; atom(F), head_type(F, _) ) -> T2 = T1 ; canonical_type(T1, T2), ground(T2) ),
-  premises(Ms, T2, As, R),
+  (   ( ground(Ps0-R0) ; atom(F), head_type(F, _) )
+  ->  Ps = Ps0, R = R0
+  ;   maplist(canonical_premise, Ps0, Ps), canonical_type(R0, R), ground(Ps-R)
+  ),
   matches(R, T),
-  maplist(check(Steps, Gamma), Ms, As),
+  maplist(checked_premise(Steps, Gamma), Ps),
   ground(T).
 
-% the premises As of a proof type, for the arguments Ms, and its result R
-premises([], R, [], R).
-premises([_|Ms], '$proof'(F0), ['$proof'(A)|As], R) :-
+% the proofs of the arguments As of a head of type T0, each M-A for its premise A, and the type R of
+% the application; each term is of the sort of its binder, which depends on the terms before it
+arguments(_, [], R, [], R).
+arguments(Gamma, [U|As], '$proof'(F0), Ps0, R) :-
   nonvar(F0),
-  unfold(F0, (A => F)),
-  premises(Ms, '$proof'(F), As, R).
+  unfold(F0, F),
+  argument(Gamma, F, U, Ps0, Ps, T),
+  arguments(Gamma, As, T, Ps, R).
 
-% β-reduction by binding: the λs of a redex M0 take its arguments, terms first, and M is the rest of
-% its body, applied to any arguments left over, in Gamma with the hypotheses bound
-redex('$app'('$lam'(_, _, _), _, _)).
+argument(Gamma, '!'(X:S, F), U, Ps, Ps, '$proof'(F1)) :- !,
+  sorted(Gamma, U, S),
+  instantiated(X, U, F, F1).
+argument(_, (A => F), M, [M-'$proof'(A)|Ps], Ps, '$proof'(F)).
 
-reduced(Steps, Gamma0, '$app'('$lam'(X, S, B0), [U|Ts], Ms), Gamma, M) :-
-  fresh(Gamma0, X), !,
-  sorted(Gamma0, U, S),
-  substitute(X, U, B0, B),
-  applied(B, Ts, Ms, M1),
-  reduced(Steps, Gamma0, M1, Gamma, M).
-reduced(Steps, Gamma0, '$app'('$lam'(X, A0, B), [], [W|Ms]), Gamma, M) :-
-  fresh(Gamma0, X), !,
-  nonvar(A0),
+canonical_premise(M-A0, M-A) :- canonical_type(A0, A).
+
+checked_premise(Steps, Gamma, M-A) :- check(Steps, Gamma, M, A).
+
+% β-reduction by binding: the λs of a redex M0 take its arguments in order, and M is the rest of its
+% body, applied to any arguments left over, in Gamma with the hypotheses bound
+redex(M) :- M = '$app'(_, _), spine(M, L, _), nonvar(L), L = '$lam'(_, _, _).
+
+reduced(Steps, Gamma0, M0, Gamma, M) :-
+  spine(M0, L, [W|As]), nonvar(L), L = '$lam'(X, A, B0), !,
+  fresh(Gamma0, X),
+  bound(Steps, Gamma0, X, A, W, B0, Gamma1, B),
+  curried(B, As, M1),
+  reduced(Steps, Gamma1, M1, Gamma, M).
+reduced(_, Gamma, M, Gamma, M).
+
+% an eigenvariable X : S takes the term W, which is substituted into the body; a hypothesis X : A
+% takes the proof W, checked against A, which X then has
+bound(Steps, Gamma0, X, A0, W, B0, Gamma, B) :-
+  nonvar(A0), A0 = '$proof'(_), !,
   canonical_type(A0, A),
   check(Steps, Gamma0, W, A),
-  put_assoc(X, Gamma0, A, Gamma1),
-  applied(B, [], Ms, M1),
-  reduced(Steps, Gamma1, M1, Gamma, M).
-reduced(_, Gamma, M, Gamma, M) :- \+ redex(M).
-
-applied(M, [], [], M) :- !.
-applied(M, Ts, Ms, '$app'(M, Ts, Ms)).
+  put_assoc(X, Gamma0, A, Gamma),
+  B = B0.
+bound(_, Gamma, X, S, U, B0, Gamma, B) :-
+  sorted(Gamma, U, S),
+  substitute(X, U, B0, B).
 
 % the type of a head: steps and built-ins are fresh instances, and a term is typed as any other
 head(_, Gamma, X, T) :- variable(X), !, hypothesis(Gamma, X, T).
-head(Steps, Gamma, M, T) :- ( M = '$app'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !, type(Steps, Gamma, M, T).
+head(Steps, Gamma, M, T) :- M = '$rewrite'(_, _, _, _), !, type(Steps, Gamma, M, T).
 head(_, _, Name, T) :- atom(Name), head_type(Name, T), !.
 head(Steps, _, Name, T) :-
   atom(Name),
   get_assoc(Name, Steps, true),
   step(Name, Conclusion, _),
   step_type(Conclusion, T).
-
-% each term is of the sort of its binder, which depends on the terms before it
-instantiate(_, [], T, T) :- !.
-instantiate(Gamma, [U|Us], '$proof'(F0), T) :-
-  unfold(F0, '!'(X:S, F)),
-  sorted(Gamma, U, S),
-  instantiated(X, U, F, F1),
-  instantiate(Gamma, Us, '$proof'(F1), T).
 
 % '!'(X:_, F) with U for X: X is a variable in a fresh instance, where instantiation is
 % unification, or U itself, an eigenvariable named after the binder of its clause, or else it is

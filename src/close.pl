@@ -6,8 +6,8 @@ Closing a proof term after search, so that it is ground (see ir.pl):
   - binders still Prolog variables (those of hypotheses, during search) are variables '$VAR'(N),
     numbered in binder order after those already numbered (eigenvariables, rigid during search).
 
-Every variable comes from the binders of some instance '$app'(F, Ts, _), of a step, a split definition
-or a built-in, so its sort is that of its binder. Type variables are closed first, so that the sorts
+Every variable is an argument of a step, a split definition, a built-in or a quantified hypothesis,
+for a binder of its type, so its sort is that of its binder. Type variables are closed first, so that the sorts
 of the others are then ground.
 
 The term is the first of: an eigenvariable in scope, a constant of the signature, or a function of
@@ -38,9 +38,15 @@ number_binders(M) :-
 
 % the number after those of the variables of M
 first_unnumbered(M, N) :-
-  findall(I, ( subterm(M, '$VAR'(I)), integer(I) ), Is),
-  max_list([-1|Is], Max),
+  numbered_max(M, -1, Max),
   N is Max + 1.
+
+% the greatest number of a variable '$VAR'(I) of T, folded over T (not by subterm/2, which backtracks
+% through every level of a curried application)
+numbered_max(T, N, N) :- var(T), !.
+numbered_max('$VAR'(I), N0, N) :- integer(I), !, N is max(N0, I).
+numbered_max(T, N0, N) :- compound(T), !, T =.. [_|As], foldl(numbered_max, As, N0, N).
+numbered_max(_, N, N).
 
 close_type(hole(Env, X, S)) :- S == '$tType', var(X), !, inhabitant(Env, S, X).
 close_type(_).
@@ -79,89 +85,101 @@ argument(Depth, Env, S, U) :- small_term(Depth, Env, S, U), !.
 % binder annotated '$inferred' takes its type from it
 instances(_, _, V) --> { var(V) }, !.
 instances(Env, T, '$lam'(X, A, M)) --> !, { abstraction(T, X, A, A1, T1) }, instances([X-A1|Env], T1, M).
-% a redex: each λ takes an argument, of the type of its binder (a hypothesis at the head is a variable)
-instances(Env, T, '$app'(L, [], [M|Ms])) --> { nonvar(L), L = '$lam'(X, F, N) }, !,
-  instances(Env, F, M),
-  { ( Ms == [] -> N1 = N, T1 = T ; N1 = '$app'(N, [], Ms) ) },
-  instances([X-F|Env], T1, N1).
+instances(Env, T, M) --> { M = '$app'(_, _), spine(M, F, As) }, !, applied(Env, T, F, As).
 instances(Env, _, '$rewrite'(_, _, E, M)) --> !, instances(Env, _, E), instances(Env, _, M).
-instances(Env, _, '$app'(F, Ts, Ms)) --> !,
-  { instance_binders(Env, F, Ts, Bs), maplist(hole(Env), Bs, Holes), argument_types(Env, F, Ms, Types) },
-  list(Holes),
-  foldl(instances(Env), Types, Ms).
 instances(_, _, _) --> [].
 
-% λ X : A of type T has the binder X : A1, and the body of type T1
-abstraction(T, X, _, A1, T1) :- nonvar(T), T = '$proof'(F), nonvar(F), proof_abstraction(F, X, A1, T1), !.
+% F applied to As, of type T. A redex: the λ takes the first argument, of the type of its binder (a
+% hypothesis at the head is a variable); otherwise each argument is of the type the head's says
+applied(Env, T, L, [A|As]) --> { nonvar(L), L = '$lam'(X, F, N) }, !,
+  instances(Env, F, A),
+  { curried(N, As, N1), ( As == [] -> T1 = T ; true ) },
+  instances([X-F|Env], T1, N1).
+applied(Env, _, F, As) -->
+  { head_of(Env, F, As, T) },
+  arguments(Env, T, As),
+  ( { compound(F) } -> instances(Env, _, F) ; [] ).
+
+% abstraction(T, X, A, A1, T1): λ X : A of type T has the binder X : A1, as annotated, or else as T
+% says, and the body of type T1
+abstraction(T, X, A, A1, T1) :-
+  nonvar(T), T = '$proof'(F), nonvar(F), proof_abstraction(F, X, A0, T1), !,
+  ( A == '$inferred' -> A1 = A0 ; A1 = A ).
 abstraction(_, _, A, A, _).
 
 proof_abstraction('!'(Y:S, B), X, S, '$proof'(B1)) :- substitute(Y, X, B, B1).
 proof_abstraction((A => B), _, '$proof'(A), '$proof'(B)).
 proof_abstraction(~A, _, '$proof'(A), '$proof'('$false')).
 
-% the types of the arguments Ms of F, where known: those of an expansion rule follow from the type of
-% its first argument, a hypothesis, and those of a hypothesis that is not quantified from its type
-argument_types(Env, F, Ms, Types) :-
-  same_length(Ms, Types),
-  ( known_types(Env, F, Ms, Types) -> true ; true ).
-
-known_types(Env, Rule, [M|Ms], ['$proof'(F0)|Ts]) :-
+% the type of a head, where known: a hypothesis, a step, or a built-in, whose parameters, if those of
+% an expansion rule, follow from the type of its first argument, a hypothesis
+head_of(Env, F, _, T) :- \+ atom(F), !, ( typed(Env, F, T) -> true ; true ).
+head_of(Env, Rule, As, T) :-
   atom(Rule),
-  inferred_premise(Rule), !,
-  var(M),
-  typed(Env, M, '$proof'(F0)),
-  head_type(Rule, '$proof'((F0 => F1))),
-  premises(Ms, F1, Ts).
-known_types(Env, X, Ms, Ts) :-
-  var(X),
-  typed(Env, X, '$proof'(F)),
-  F \= '!'(_, _),
-  premises(Ms, F, Ts).
+  head_type(Rule, T), !,
+  (   inferred_premise(Rule), As = [A|_], var(A), typed(Env, A, '$proof'(F0)),
+      T = '$proof'((F1 => _)), F1 = F0
+  ->  true
+  ;   true
+  ).
+head_of(_, F, _, T) :- atom(F), step(F, Conclusion, _), !, step_type(Conclusion, T).
+head_of(_, _, _, _).
 
 typed(Env, X, T) :- member(Y-T, Env), Y == X, !, nonvar(T), T = '$proof'(F), nonvar(F).
 
-% the proof types of the arguments Ms of a proof of formula F, where known
-premises([], _, []).
-premises([_|Ms], (A => B), ['$proof'(A)|Ts]) :- !, premises(Ms, B, Ts).
-premises([_|Ms], ~A, ['$proof'(A)|Ts]) :- !, premises(Ms, '$false', Ts).
-premises([_|Ms], _, [_|Ts]) :- premises(Ms, '$false', Ts).
+% each argument of a head of type T: a term for a binder X : S, a hole to close, whose term the sorts
+% and types after it may depend on, or a proof of a premise; a split symbol is its clause type. The
+% terms are substituted only where they are needed, at once, in a premise of a proof to look into,
+% and a type in the sort of a binder (which mentions no other term): substituting each term into the
+% rest of a wide clause's type would be quadratic
+arguments(Env, T, As) --> arguments(Env, T, []-[], As).
 
-hole(Env, X:S, hole(Env, X, S)).
+arguments(_, _, _, []) --> !.
+arguments(Env, T, Sub, [A|As]) --> { nonvar(T), T = '$proof'(F0), nonvar(F0), unfolded(F0, F) }, !,
+  argument(Env, F, Sub, A, T1, Sub1),
+  arguments(Env, T1, Sub1, As).
+arguments(Env, _, _, [A|As]) --> instances(Env, _, A), arguments(Env, _, []-[], As).
 
-% a ground instance has nothing to close (as a choice axiom's, see transform.pl)
-instance_binders(_, _, Ts, []) :- ground(Ts), !.
-instance_binders(Env, F, Ts, Bs) :-
-  member(X-T, Env),
-  X == F,
-  nonvar(T),
-  T = '$proof'(G),
-  length(Ts, N),
-  quantifier_prefix('!', N, G, Bs0, _), !,
-  instantiated(Bs0, Ts, Bs).
-instance_binders(Env, F, Ts, Bs) :- head_binders(Env, F, Bs), !, binder_variables(Bs, Ts).
-instance_binders(_, F, Ts, _) :-
-  warn(['error: no binders for the instance ', Ts, ' of ', F]),
-  fail.
+% Sub is Types-Terms, the substitutions of the binders so far, of types and of all
+argument(Env, '!'(X:S0, B), Types-Terms, A, '$proof'(B), Types1-[X-A|Terms]) --> !,
+  { substituted(Types, S0, S), ( S == '$tType' -> Types1 = [X-A|Types] ; Types1 = Types ) },
+  ( { var(A) } -> [hole(Env, A, S)] ; [] ).
+argument(Env, (P => Q), Sub, A, '$proof'(Q), Sub) --> !, premise(Env, Sub, P, A).
+argument(Env, ~P, Sub, A, '$proof'('$false'), Sub) --> !, premise(Env, Sub, P, A).
+argument(Env, _, _, A, _, []-[]) --> instances(Env, _, A).
 
-% the binders of a quantified hypothesis, instantiated by Ts: the sort of each may depend on the
-% terms before it
-instantiated([], [], []).
-instantiated([X:S|Bs0], [T|Ts], [T:S|Bs]) :- substitute(X, T, Bs0, Bs1), instantiated(Bs1, Ts, Bs).
+% the type of a proof is needed only for a binder '$inferred' of its λs (a hypothesis has nothing to
+% close, and an application is typed by its head)
+premise(_, _, _, A) --> { var(A) }, !.
+premise(Env, _-Terms, P0, A) --> { inferred_binder(A) }, !, { substituted(Terms, P0, P) }, instances(Env, '$proof'(P), A).
+premise(Env, _, _, A) --> instances(Env, _, A).
 
-% a step, a built-in, or a hypothesis whose type is a split symbol
-head_binders(_, F, Bs) :- atom(F), step(F, clause(Bs, _), _), !.
-head_binders(_, F, Bs) :- atom(F), head_type(F, '$proof'(T)), quantifier_prefix('!', T, Bs, _), Bs = [_|_], !.
-head_binders(Env, F, Bs) :- member(X-T, Env), X == F, !, T = '$proof'(A), atom(A), split(A, clause(Bs, _)).
+inferred_binder(M) :- nonvar(M), M = '$lam'(_, A, B), ( A == '$inferred' -> true ; inferred_binder(B) ).
+
+% each binder X of Sub, as X-A, replaced by A, in one pass: a binder is a variable (of a fresh
+% instance), '$VAR'(N) or '$BOUND'(H)
+substituted([], F, F) :- !.
+substituted(Sub, T, A) :- binder(T), !, ( member(X-A0, Sub), X == T -> A = A0 ; A = T ).
+substituted(_, T, T) :- \+ compound(T), !.
+substituted(Sub, T0, T) :- T0 =.. [F|As0], maplist(substituted(Sub), As0, As), T =.. [F|As].
+
+binder(T) :- ( var(T) ; T = '$VAR'(_) ; T = '$BOUND'(_) ), !.
+
+unfolded(F, T) :- atom(F), split(F, Clause), !, clause_type(Clause, T).
+unfolded(F, F).
 
 % a hypothesis is a variable until named, so the clauses below would bind it: hence the guard
 name_binders(V, N, N) :- var(V), !.
 name_binders('$lam'(X, _, M), N0, N) :- !, bind(X, N0, N1), name_binders(M, N1, N).
-name_binders('$app'(L, _, Ms), N0, N) :- nonvar(L), L = '$lam'(X, _, B), !,
-  bind(X, N0, N1), foldl(name_binders, Ms, N1, N2), name_binders(B, N2, N).
-name_binders('$app'(F, _, Ms), N0, N) :- !, foldl(name_binders, Ms, N0, N1), name_binders(F, N1, N).
+name_binders(M, N0, N) :- M = '$app'(_, _), !, spine(M, F, As), name_applied(F, As, N0, N).
 name_binders('$rewrite'(X:_, _, E, M), N0, N) :- !,
   bind(X, N0, N1), name_binders(E, N1, N2), name_binders(M, N2, N).
 name_binders(_, N, N).
+
+% the binder of a redex is named before its arguments, and its body after them
+name_applied(L, As, N0, N) :- nonvar(L), L = '$lam'(X, _, B), !,
+  bind(X, N0, N1), foldl(name_binders, As, N1, N2), name_binders(B, N2, N).
+name_applied(F, As, N0, N) :- foldl(name_binders, As, N0, N1), name_binders(F, N1, N).
 
 % binders already numbered keep their names
 bind(X, N0, N) :- var(X), !, X = '$VAR'(N0), N is N0 + 1.

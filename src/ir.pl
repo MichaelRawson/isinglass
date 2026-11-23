@@ -42,7 +42,9 @@ The bound variables of a formula are named canonically, '$BOUND'(H) (see logic.p
 Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is fixed, and ⊥ ('$false') is abstract.
 
   M ::= X
-      | '$app'(F, Ts, Ms)       F applied to first-order terms Ts, then to proofs Ms
+      | F
+      | '$app'(M, N)            M applied to N: a first-order term, if M is of type
+                                '$proof'('!'(X:S, F)), or a proof, if M is of type '$proof'(A => B)
       | '$lam'(X, T, M)         X : T is a variable '$VAR'(N), a hypothesis of type '$proof'(F), or
                                 an eigenvariable of a sort; T is '$inferred' for a hypothesis of an
                                 expansion rule, whose type follows from the type of the rule's first
@@ -52,8 +54,7 @@ Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is
                                 E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
                                 '$VAR'(N) of sort S bound only in the motive A, and E's type is
                                 inferred (not a λ)
-  F ::= M                       any term: a hypothesis, or
-      | Name                    a step: a clause or a formula, named apart from symbols
+  F ::= Name                    a step: a clause or a formula, named apart from symbols
                                 ('$step:f12' or '$def:P', utils:named/3), or
       | Builtin                 a built-in, typed by head_type/2
 
@@ -62,7 +63,10 @@ with a problem's symbols.
 
 The λ of a redex states the types of its hypotheses, so none are '$inferred'.
 
-A head of type '$proof'('!'(X:S, F)) is applied to a term of sort S for X.
+Application is curried, and its argument is a term or a proof as the type of its function says,
+so terms and proofs may come in any order. A term of type '$proof'('!'(X:S, F)) is applied to a term
+of sort S for X. In ground IR the two kinds of argument are also told apart by their syntax
+(proof_argument/1), but for a variable '$VAR'(N), which the annotation of its λ settles.
 A built-in (presently) takes no terms: its type variables are inferred by unification.
 Builtins '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so steps that use them are classical.
 
@@ -76,13 +80,14 @@ Sorts are terms of sort '$tType' (signature.pl), and type variables are binders 
 
 First-order terms Ts are built from the signature, variables '$VAR'(N), and '$inhabited'(S), which asserts that `S` is inhabited.
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, rule_branches/3, formula_step/1, choice_axiom/4, proof_annotation/1,
+:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, curried/3, spine/3, proof_argument/1, rule_branches/3, formula_step/1, choice_axiom/4, proof_annotation/1,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
 :- use_module(db).
 :- use_module(logic).
+:- use_module(utils).
 
 % the formula of a clause, whose proofs are of type '$proof' of it (step_type/2):
 % ~L_0 => ... => ~L_n-1 => '$false', under a '!' for each binder
@@ -216,9 +221,27 @@ cited_steps(Cited) :-
   sort(Pairs0, Pairs),
   list_to_assoc(Pairs, Cited).
 
-% a step at the head of an application in a proof term
-head('$lam'(_, _, M), Name) :- head(M, Name).
-head('$rewrite'(_, _, E, M), Name) :- ( head(E, Name) ; head(M, Name) ).
-head('$app'(F, _, _), F) :- atom(F), \+ head_type(F, _).
-head('$app'(F, _, _), Name) :- compound(F), head(F, Name).
-head('$app'(_, _, Ms), Name) :- member(M, Ms), head(M, Name).
+% a step in a proof term: a first-order term has none, as steps are named apart from symbols
+head(M, _) :- var(M), !, fail.
+head('$lam'(_, _, M), Name) :- !, head(M, Name).
+head('$rewrite'(_, _, E, M), Name) :- !, ( head(E, Name) ; head(M, Name) ).
+head('$app'(M, N), Name) :- !, ( head(M, Name) ; head(N, Name) ).
+head(Name, Name) :- named_step(Name).
+
+% a step or a definition, by its name (utils:named/3)
+named_step(Name) :- atom(Name), named(Kind, _, Name), Kind \== input, !.
+
+% M is F applied to the arguments As, in order (a proper list)
+curried(F, As, M) :- foldl(app, As, F, M).
+
+app(A, F, '$app'(F, A)).
+
+% M is the head F applied to the arguments As: F is not an application, or a variable
+spine(M, F, As) :- spine(M, F, [], As).
+
+spine(M, F, As0, As) :- nonvar(M), M = '$app'(G, A), !, spine(G, F, [A|As0], As).
+spine(F, F, As, As).
+
+% an argument of ground IR that is a proof, rather than a first-order term: a variable may be either
+proof_argument(M) :- compound(M), ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
+proof_argument(M) :- atom(M), ( named_step(M) ; head_type(M, _) ), !.

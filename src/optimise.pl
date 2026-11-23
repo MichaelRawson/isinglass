@@ -25,7 +25,7 @@ its single use, which keeps the pass linear. Then
   - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
     its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
     cheap (a hypothesis or constant, applied to terms only) or used once (anywhere, as any term
-    may be a head), else it stays a redex;
+    may be a head, where its arguments come before those of the application), else it stays a redex;
   - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
   - sym (sym E) → E, sym refl → refl, and sym of a rewrite of an equation L = R is the rewrite of
     sym of its proof, by R = L, so that sym is pushed down to the hypotheses;
@@ -176,20 +176,21 @@ count_use(Name-Use, Uses0, Uses) :-
 % a citation is good if it is a full application in the term of a clausal step
 citation(Host, Conclusion, proof(_), Name, Use) :- !,
   step_term(Host, Conclusion, M),
-  cited(M, Name, Ts, Ms),
-  ( clausal(Host, Conclusion), full(Name, Ts, Ms) -> Use = good ; Use = bad ).
+  cited(M, Name, As),
+  ( clausal(Host, Conclusion), full(Name, As) -> Use = good ; Use = bad ).
 citation(_, _, Justification, Name, bad) :- reference(Justification, Name).
 
 clausal(Name, clause(_, _)) :- \+ formula_step(Name).
 
-full(Name, Ts, Ms) :- ir_step(Name, clause(Bs, Ls), _), same_length(Bs, Ts), same_length(Ls, Ms).
+full(Name, As) :- ir_step(Name, clause(Bs, Ls), _), length(Bs, M), length(Ls, N), length(As, K), K =:= M + N.
 
-% the steps cited in a proof term, with their arguments
-cited('$lam'(_, _, M), Name, Ts, Ms) :- !, cited(M, Name, Ts, Ms).
-cited('$rewrite'(_, _, E, M), Name, Ts, Ms) :- !, ( cited(E, Name, Ts, Ms) ; cited(M, Name, Ts, Ms) ).
-cited('$app'(F, Ts0, Ms0), Name, Ts, Ms) :- !,
-  ( step_name(F), Name = F, Ts = Ts0, Ms = Ms0 ; compound(F), cited(F, Name, Ts, Ms) ; member(M, Ms0), cited(M, Name, Ts, Ms) ).
-cited(F, F, [], []) :- step_name(F).
+% the steps cited in a proof term, with their arguments (a first-order term cites none)
+cited('$lam'(_, _, M), Name, As) :- !, cited(M, Name, As).
+cited('$rewrite'(_, _, E, M), Name, As) :- !, ( cited(E, Name, As) ; cited(M, Name, As) ).
+cited(M, Name, As) :- M = '$app'(_, _), !,
+  spine(M, F, As0),
+  ( step_name(F), Name = F, As = As0 ; compound(F), cited(F, Name, As) ; member(A, As0), cited(A, Name, As) ).
+cited(F, F, []) :- step_name(F).
 
 step_name(F) :- atom(F), ir_step(F, _, _), !.
 
@@ -221,15 +222,23 @@ skeleton_size(Name, clause(Bs, Ls), M, Size) :-
   spine_binders(M, Ys),
   spine_body(M, B),
   \+ ( member(Y, Ys), occurrences(B, Y, K), K > 1 ), !,
-  findall('$VAR'(I), nth0(I, Ls, _), Hs),
-  term_size('$app'(Name, Xs, Hs), Size).
+  length(Xs, K),
+  findall('$VAR'(I), ( nth0(J, Ls, _), I is K + J ), Hs),
+  append(Xs, Hs, As),
+  curried(Name, As, Citation),
+  term_size(Citation, Size).
 skeleton_size(_, _, _, 0).
 
 % the binders of the λs around a step's term
 spine_binders('$lam'(X, _, M), [X|Xs]) :- !, spine_binders(M, Xs).
 spine_binders(_, []).
 
-occurrences(T, X, N) :- findall(x, ( subterm(T, U), U == X ), Us), length(Us, N).
+occurrences(T, X, N) :- counted(X, T, 0, N).
+
+% folded over T, not by subterm/2, which backtracks through every level of a curried application
+counted(X, T, N0, N) :- T == X, !, N is N0 + 1.
+counted(X, T, N0, N) :- compound(T), !, T =.. [_|As], foldl(counted(X), As, N0, N).
+counted(_, _, N, N).
 
 % the term of a step: its proof, or refl for an equation whose sides are the same once defined terms
 % are unfolded, under the λs of its binders
@@ -241,7 +250,7 @@ reflexivity(clause(_, [L])) :- terms_unfolded(L, '$='(_, S, T)), S == T.
 
 reflexive_term(clause(Bs, [L]), M) :-
   length(Bs, N),
-  lams(Bs, '$lam'('$VAR'(N), '$proof'(~L), '$app'('$VAR'(N), [], ['$app'('$refl', [], [])])), M).
+  lams(Bs, '$lam'('$VAR'(N), '$proof'(~L), '$app'('$VAR'(N), '$refl')), M).
 
 lams([], M, M).
 lams([X:S|Bs], M0, '$lam'(X, S, M)) :- lams(Bs, M0, M).
@@ -251,7 +260,7 @@ lams([X:S|Bs], M0, '$lam'(X, S, M)) :- lams(Bs, M0, M).
 inlined_size(Inlined, M, Size) :-
   spine_body(M, B),
   term_size(B, Size0),
-  findall(K, ( cited(M, P, _, _), get_assoc(P, Inlined, K) ), Ks),
+  findall(K, ( cited(M, P, _), get_assoc(P, Inlined, K) ), Ks),
   sum_list(Ks, Size1),
   Size is Size0 + Size1.
 
@@ -279,13 +288,13 @@ optimised(_, _, _, Justification, Justification).
 host(Inlined, M0, M) :-
   hypothesis_uses(M0, Uses),
   empty_assoc(Empty),
-  spine(env(Inlined, Empty, Uses), M0, M).
+  own_lams(env(Inlined, Empty, Uses), M0, M).
 
-spine(Env, '$lam'(X, A, M0), '$lam'(X, A1, M)) :- !,
+own_lams(Env, '$lam'(X, A, M0), '$lam'(X, A1, M)) :- !,
   substituted(Env, A, A1),
   bind(Env, X, v(X), Env1),
-  spine(Env1, M0, M).
-spine(Env, M0, M) :- normal(Env, M0, M).
+  own_lams(Env1, M0, M).
+own_lams(Env, M0, M) :- normal(Env, M0, M).
 
 % Env is env(Inlined, Bindings, Uses), with Uses those of the term being normalised. A variable is
 % bound to v(V), a normal value: a binder's new name, or the term of an eigenvariable; or to
@@ -312,86 +321,85 @@ normal(Env, '$rewrite'(X:S0, A0, E0, M0), M) :- !,
   substituted(Env1, A0, A),
   normal(Env, E0, E),
   normal(Env, M0, M1),
-  ( ( \+ occurs(Y, A) ; nonvar(E), E = '$app'('$refl', _, _) ) -> M = M1 ; M = '$rewrite'(Y:S, A, E, M1) ).
-normal(Env, '$app'(F, Ts0, Ms), M) :- !,
-  maplist(substituted(Env), Ts0, Ts),
-  closures(Env, Ms, Cs),
-  applied(Env, F, Ts, Cs, M).
-normal(Env, F, M) :- applied(Env, F, [], [], M).
+  ( ( \+ occurs(Y, A) ; E == '$refl' ) -> M = M1 ; M = '$rewrite'(Y:S, A, E, M1) ).
+normal(Env, M0, M) :- M0 = '$app'(_, _), !,
+  spine(M0, F, As),
+  arguments(Env, As, Cs),
+  applied(Env, F, Cs, M).
+normal(Env, F, M) :- applied(Env, F, [], M).
 
-% not by findall, which would copy the binders of Env
-closures(Env, Ms, Cs) :- maplist(closure(Env), Ms, Cs).
+% the arguments As in Env: a proof is a closure c(M, Env), and a first-order term is normal, v(T),
+% with its eigenvariables replaced; a variable is its value (a free one is kept, by name). Not by
+% findall, which would copy the binders of Env
+arguments(Env, As, Cs) :- maplist(argument(Env), As, Cs).
 
-closure(Env, M, c(M, Env)).
+argument(Env, X, C) :- X = '$VAR'(_), !, ( binding(Env, X, C) -> true ; C = v(X) ).
+argument(Env, M, c(M, Env)) :- proof_argument(M), !.
+argument(Env, T0, v(T)) :- substituted(Env, T0, T).
 
 forced(c(M0, Env), M) :- normal(Env, M0, M).
+forced(v(T), T).
 
-% F, in Env, applied to the terms Ts (normal) and the proofs Cs (closures)
-applied(Env, F, Ts, Cs, M) :-
+% F, in Env, applied to the arguments Cs (closures or normal values)
+applied(Env, F, Cs, M) :-
   F = '$VAR'(_), !,
   binding(Env, F, V),
   (   V = v(Y)
-  ->  maplist(forced, Cs, Ms), application(Y, Ts, Ms, M)
-  ;   V = c(M0, Env0), applied_term(Env0, M0, Ts, Cs, M)
+  ->  maplist(forced, Cs, Ms), curried(Y, Ms, M)
+  ;   V = c(M0, Env0), applied_term(Env0, M0, Cs, M)
   ).
-applied(Env, F, Ts, Cs, M) :-
+applied(Env, F, Cs, M) :-
   Env = env(Inlined, _, _),
   get_assoc(F, Inlined, _), !,
   step_term(F, _, M0),
   hypothesis_uses(M0, Uses),
   empty_assoc(Empty),
-  reduced(env(Inlined, Empty, Uses), M0, Ts, Cs, M).
-applied(Env, F, Ts, Cs, M) :- compound(F), !, applied_term(Env, F, Ts, Cs, M).
-applied(_, F, Ts, Cs, M) :-
+  reduced(env(Inlined, Empty, Uses), M0, Cs, M).
+applied(Env, F, Cs, M) :- compound(F), !, applied_term(Env, F, Cs, M).
+applied(_, F, Cs, M) :-
   atom(F),
   maplist(forced, Cs, Ms),
-  built(F, Ts, Ms, M).
-
-% a hypothesis alone is bare, but a step or a built-in is applied
-application(Y, [], [], Y) :- hypothesis(Y), !.
-application(Y, Ts, Ms, '$app'(Y, Ts, Ms)).
+  built(F, Ms, M).
 
 % normal terms may be hypotheses, which are variables, so they are matched with care
-built('$sym', [], [E0], E) :- nonvar(E0), E0 = '$app'('$sym', [], [E]), !.
-built('$sym', [], [E], E) :- nonvar(E), E = '$app'('$refl', [], []), !.
-built('$sym', [], [E0], '$rewrite'(X, '$='(A, R, L), E, M)) :-
+built('$sym', [E0], E) :- nonvar(E0), E0 = '$app'(Sym, E), Sym == '$sym', !.
+built('$sym', [E], E) :- E == '$refl', !.
+built('$sym', [E0], '$rewrite'(X, '$='(A, R, L), E, M)) :-
   nonvar(E0), E0 = '$rewrite'(X, '$='(A, L, R), E, M0), !,
-  built('$sym', [], [M0], M).
-built(F, Ts, Ms, '$app'(F, Ts, Ms)).
+  built('$sym', [M0], M).
+built(F, Ms, M) :- curried(F, Ms, M).
 
-% the term M0 of a substituted hypothesis, at the head of an application
-applied_term(Env, M0, [], [], M) :- !, normal(Env, M0, M).
-applied_term(Env, '$app'(G, Ts0, Ms0), Ts, Cs, M) :- ( Ms0 == [] ; Ts == [] ), !,
-  maplist(substituted(Env), Ts0, Ts1),
-  closures(Env, Ms0, Cs0),
-  (   Ms0 == []
-  ->  append(Ts1, Ts, Ts2), applied(Env, G, Ts2, Cs, M)
-  ;   Ts == [],
-      append(Cs0, Cs, Cs1), applied(Env, G, Ts1, Cs1, M)
-  ).
-applied_term(Env, '$lam'(X, A, M0), Ts, Cs, M) :- !, reduced(Env, '$lam'(X, A, M0), Ts, Cs, M).
-% ...or else it stays at the head, as a proof applied to proofs is not merged with terms
-applied_term(Env, M0, Ts, Cs, '$app'(M, Ts, Ms)) :- ( M0 = '$app'(_, _, _) ; M0 = '$rewrite'(_, _, _, _) ), !,
-  normal(Env, M0, M),
-  maplist(forced, Cs, Ms).
-applied_term(Env, F, Ts, Cs, M) :- applied(Env, F, Ts, Cs, M).
+% the term M0 of a substituted hypothesis, at the head of an application, whose arguments, if it is
+% an application, come before Cs
+applied_term(Env, M0, [], M) :- !, normal(Env, M0, M).
+applied_term(Env, M0, Cs, M) :- M0 = '$app'(_, _), !,
+  spine(M0, G, As),
+  arguments(Env, As, Cs0),
+  append(Cs0, Cs, Cs1),
+  applied(Env, G, Cs1, M).
+applied_term(Env, '$lam'(X, A, M0), Cs, M) :- !, reduced(Env, '$lam'(X, A, M0), Cs, M).
+applied_term(Env, M0, Cs, M) :- M0 = '$rewrite'(_, _, _, _), !,
+  normal(Env, M0, M1),
+  maplist(forced, Cs, Ms),
+  curried(M1, Ms, M).
+applied_term(Env, F, Cs, M) :- applied(Env, F, Cs, M).
 
-% β-reduction: the binders of the λs take the arguments, terms first
-reduced(Env, '$lam'(X, _, M0), [T|Ts], Cs, M) :- !,
+% β-reduction: the binders of the λs take the arguments, in order
+reduced(Env, '$lam'(X, A, M0), [C|Cs], M) :- \+ proof_annotation(A), !,
+  forced(C, T),
   bind(Env, X, v(T), Env1),
-  reduced(Env1, M0, Ts, Cs, M).
-reduced(Env, '$lam'(X, A, M0), [], [C|Cs], M) :- !,
+  reduced(Env1, M0, Cs, M).
+reduced(Env, '$lam'(X, A, M0), [C|Cs], M) :- !,
   use(Env, X, Use),
-  C = c(V0, Env0),
-  (   ( Use == 0 ; A == '$inferred' ; substitutable(Env0, V0, Use) )
-  ->  bind(Env, X, C, Env1), reduced(Env1, M0, [], Cs, M)
+  (   ( Use == 0 ; A == '$inferred' ; C = v(_) ; C = c(V0, Env0), substitutable(Env0, V0, Use) )
+  ->  bind(Env, X, C, Env1), reduced(Env1, M0, Cs, M)
   ;   substituted(Env, A, A1),
       forced(C, V),
       bind(Env, X, v(Y), Env1),
-      reduced(Env1, M0, [], Cs, N),
-      M = '$app'('$lam'(Y, A1, N), [], [V])
+      reduced(Env1, M0, Cs, N),
+      M = '$app'('$lam'(Y, A1, N), V)
   ).
-reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
+reduced(Env, M0, Cs, M) :- applied_term(Env, M0, Cs, M).
 
 % a value may replace a hypothesis used Uses times if it is cheap or used once, as any term may be a
 % head, even where the checker infers its type: the binder's type may unfold the value's, but only
@@ -399,21 +407,28 @@ reduced(Env, M0, Ts, Cs, M) :- applied_term(Env, M0, Ts, Cs, M).
 substitutable(Env, V, _) :- cheap(Env, V), !.
 substitutable(_, _, 1).
 
-% a hypothesis or a constant (not an inlined step), applied to terms only, so copying it is cheap
+% a hypothesis or a constant (not an inlined step), applied to terms only (or to variables that are
+% not closures), so copying it is cheap
 cheap(Env, F) :- F = '$VAR'(_), !, binding(Env, F, V), ( V = c(V0, Env0) -> cheap(Env0, V0) ; true ).
-cheap(Env, '$app'(F, _, [])) :- !, cheap(Env, F).
+cheap(Env, M) :- M = '$app'(_, _), !,
+  spine(M, F, As),
+  maplist(cheap_argument(Env), As),
+  cheap(Env, F).
 cheap(env(Inlined, _, _), F) :- atom(F), \+ get_assoc(F, Inlined, _).
+
+cheap_argument(Env, X) :- X = '$VAR'(_), !, \+ binding(Env, X, c(_, _)).
+cheap_argument(_, T) :- \+ proof_argument(T).
 
 % η: λ h, F ... h is F ..., if h does not occur in F ...; but for a rule or built-in, whose type
 % depends on its arguments
 eta(Y, _, M0, M) :-
   nonvar(M0),
-  M0 = '$app'(F, Ts, Ms),
-  ( hypothesis(F) ; atom(F), \+ head_type(F, _) ),
-  append(Ms1, [X], Ms),
+  M0 = '$app'(G, X),
   X == Y,
-  \+ occurs(Y, F-Ts-Ms1), !,
-  application(F, Ts, Ms1, M).
+  spine(G, F, _),
+  ( hypothesis(F) ; atom(F), \+ head_type(F, _) ),
+  \+ occurs(Y, G), !,
+  M = G.
 eta(Y, A, M, '$lam'(Y, A, M)).
 
 % a hypothesis of a normal term: a fresh binder, or one of the step's own, which keeps its name
@@ -429,7 +444,7 @@ hypothesis_uses(M, Uses) :-
 
 uses('$lam'(_, _, M)) --> !, uses(M).
 uses('$rewrite'(_, _, E, M)) --> !, uses(E), uses(M).
-uses('$app'(F, _, Ms)) --> !, uses(F), foldl(uses, Ms).
+uses('$app'(M, N)) --> !, uses(M), uses(N).
 uses(F) --> ( { F = '$VAR'(_) } -> [F] ; [] ).
 
 add_use(X, Uses0, Uses) :-

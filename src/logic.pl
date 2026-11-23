@@ -28,7 +28,7 @@
 quantifier(F, Q, B, G) :- nonvar(F), F =.. [Q, B, G], ( Q == '!' ; Q == '?' ).
 
 % G is F under a quantifier Q for each of the binders Bs, outermost first
-quantify(_, [], F, F).
+quantify(_, [], F, F) :- !.
 quantify(Q, [B|Bs], F, G) :- quantify(Q, Bs, F, G1), G =.. [Q, B, G1].
 
 % ...and back again: the binders Bs of the outermost quantifiers Q of G, around F

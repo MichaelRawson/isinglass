@@ -102,7 +102,7 @@ refutation(clause(Bs, Ls), Hs, Body, M) :-
   hypotheses(Ls, Hs),
   binders(Bs, Hs, Binders),
   lambdas(Binders, Body, M).
-refutation(formula(F), [H-(~F)], Body, '$app'('$dne', [], ['$lam'(H, '$proof'(~F), Body)])).
+refutation(formula(F), [H-(~F)], Body, '$app'('$dne', '$lam'(H, '$proof'(~F), Body))).
 
 % a definition cites no steps, so those of the function symbols in T come first, by name
 definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).
@@ -148,22 +148,26 @@ hypothesis_binder(X-F, X-'$proof'(F)).
 % a fresh instance of a premise clause, with variables Ts
 premise(Name, Ts, Ls) :- step(Name, clause(Bs, Ls), _), binder_variables(Bs, Ts).
 
+% M is the instance of a premise (or a hypothesis) P for the terms Ts, applied to the proofs Ms
+instance(P, Ts, Ms, M) :- append(Ts, Ms, As), curried(P, As, M).
+
 /********************************************************************************
  * search procedures: tactic(Fresh, Hypotheses, Parents, M)
  * Fresh is the next available '$VAR' index, for eigenvariables
  ********************************************************************************/
 
 % the conclusion is an instance of the premise, modulo symmetry, factoring and duplicates
-variant(_, Hs, [Premise], '$app'(Premise, Ts, Ms)) :-
+variant(_, Hs, [Premise], M) :-
   premise(Premise, Ts, Ls),
-  first_fail(matches(Hs), matches_count(Hs), Ls, Ms).
+  first_fail(matches(Hs), matches_count(Hs), Ls, Ms),
+  instance(Premise, Ts, Ms, M).
 
 % the conclusion ~A denies the negated conjecture ~A, a hypothesis, modulo symmetry
-deny(_, [H-(~(~A))], [Negated], '$app'(H, [], [M])) :-
+deny(_, [H-(~(~A))], [Negated], '$app'(H, M)) :-
   step(Negated, formula(~G), _),
   denied(G, Negated, A, M).
 
-denied(G, Negated, A, '$app'(Negated, [], [])) :- unify_with_occurs_check(G, A).
+denied(G, Negated, A, Negated) :- unify_with_occurs_check(G, A).
 denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A, Negated, M).
 
 % resolution: literals of the major premise are either in the conclusion, or refuted by (an instance
@@ -172,17 +176,19 @@ denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A
 % positive, and either premise may be the major, so this is complete, and avoids an exponential search
 % on wide negative clauses; with several minors, negative literals are refuted by units (but for split
 % literals)
-resolve(_, Hs, Premises, '$app'(Major, Ts, Ms)) :-
+resolve(_, Hs, Premises, M) :-
   select(Major, Premises, Minors),
   premise(Major, Ts, Ks),
-  first_fail(resolve_literal(Hs, Minors), resolve_count(Hs, Minors), Ks, Ms).
+  first_fail(resolve_literal(Hs, Minors), resolve_count(Hs, Minors), Ks, Ms),
+  instance(Major, Ts, Ms, M).
 
 resolve_literal(Hs, _, K, M) :- matches(Hs, K, M).
-resolve_literal(Hs, Minors, K, '$lam'(X, '$proof'(K), '$app'(Minor, Ts, Ms))) :-
+resolve_literal(Hs, Minors, K, '$lam'(X, '$proof'(K), M)) :-
   member(Minor, Minors),
   premise(Minor, Ts, Ls),
   ( K \= ~_ ; Minors = [_, _|_], unit(Ls) ),
-  first_fail(matches([X-K|Hs]), matches_count([X-K|Hs]), Ls, Ms).
+  first_fail(matches([X-K|Hs]), matches_count([X-K|Hs]), Ls, Ms),
+  instance(Minor, Ts, Ms, M).
 
 % the candidates for a literal K of the major: the hypotheses that refute it, and the minors with a
 % literal that it refutes
@@ -261,12 +267,12 @@ unfolded_hypothesis(Ps, X-(~L), H, M, M1) :-
   ->  H = Y-(~C),
       triple_negation(X, C, Y, M, M1)
   ;   H = Y-(~L1),
-      M = '$app'('$lam'(Y, '$proof'(~L1), M1), [], [X])
+      M = '$app'('$lam'(Y, '$proof'(~L1), M1), X)
   ).
 unfolded_hypothesis(_, H, H, M, M).
 
 % X : ~~~C is Y : ~C, by two redexes
-triple_negation(X, C, Y, '$app'('$lam'(Z, '$proof'(~(~(~C))), '$app'('$lam'(Y, '$proof'(~C), M), [], ['$lam'(W, '$proof'(C), '$app'(Z, [], ['$lam'(N, '$proof'(~C), '$app'(N, [], [W]))]))])), [], [X]), M).
+triple_negation(X, C, Y, '$app'('$lam'(Z, '$proof'(~(~(~C))), '$app'('$lam'(Y, '$proof'(~C), M), '$lam'(W, '$proof'(C), '$app'(Z, '$lam'(N, '$proof'(~C), '$app'(N, W)))))), X), M).
 
 % general splitting: a hypothesis ~~P(ts), where P is the symbol of the cited definition, defined as the
 % negation of the type of a component clause, is refuted by proving the component, with hypotheses for
@@ -282,7 +288,7 @@ component_hypotheses([X-(~(~A))|Hs0], P, Fresh0, Hs, M, M1) :-
   functor(A, P, _),
   defined_atom(A, ~T),
   typed_clause(T, Clause), !,
-  triple_negation(X, T, Y, M, '$app'(Y, [], [Intro])),
+  triple_negation(X, T, Y, M, '$app'(Y, Intro)),
   clause_intro(Clause, Fresh0, Fresh, Hs1, Hs, M0, Intro),
   component_hypotheses(Hs0, P, Fresh, Hs1, M0, M1).
 component_hypotheses([H|Hs0], P, Fresh, [H|Hs], M, M1) :- component_hypotheses(Hs0, P, Fresh, Hs, M, M1).
@@ -310,11 +316,11 @@ tautology(Fresh, Hs, _, M) :-
 
 fact_hypothesis(_-(~(~A))) :- \+ connective(A, _).
 
-fact(X-(~(~A)), E-A, '$app'(X, [], ['$lam'(E, '$proof'(A), M)]), M).
+fact(X-(~(~A)), E-A, '$app'(X, '$lam'(E, '$proof'(A), M)), M).
 
 equation_fact(_-'$='(_, _, _)).
 
-closed(Ns, _, '$app'(N, [], ['$app'('$refl', [], [])])) :- member(N-(~'$='(_, T, U)), Ns), T == U.
+closed(Ns, _, '$app'(N, '$refl')) :- member(N-(~'$='(_, T, U)), Ns), T == U.
 closed(Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
 
 % ground completion: each equation E : S = T, in normal form, is a rule from the greater side to the
@@ -332,7 +338,7 @@ completed(Fresh, [Equation0|Equations], Rules0, Rules, M, M1) :-
   ).
 
 oriented(E, S, A, B, E-'$='(S, A, B)) :- smaller(B, A), !.
-oriented(E, S, A, B, '$app'('$sym', [], [E])-'$='(S, B, A)).
+oriented(E, S, A, B, '$app'('$sym', E)-'$='(S, B, A)).
 
 % terms are ordered by size, then in the standard order: a total order, closed under contexts
 smaller(T, U) :- size(T, N), size(U, K), N-T @< K-U.
@@ -355,19 +361,20 @@ normalised(Fresh, Rules, X-T, H, M, M1) :-
   occurs(L, T), !,
   substitute(L, '$VAR'(Fresh), T, Motive),
   substitute(L, R, T, T0),
-  M = '$app'('$lam'(Y, '$proof'(T0), M0), [], ['$rewrite'('$VAR'(Fresh):S, Motive, E, X)]),
+  M = '$app'('$lam'(Y, '$proof'(T0), M0), '$rewrite'('$VAR'(Fresh):S, Motive, E, X)),
   normalised(Fresh, Rules, Y-T0, H, M0, M1).
 normalised(_, _, H, H, M, M).
 
 % paramodulation: literals of the Into premise are either in the conclusion, or rewritten by an
 % equation of (an instance of) the From premise, the rest of which is in the conclusion
-paramodulate(Fresh, Hs, Premises, '$app'(Into, Ts, Ms)) :-
+paramodulate(Fresh, Hs, Premises, M) :-
   select(Into, Premises, [From]),
   premise(Into, Ts, Ks),
-  first_fail(paramodulate_literal(Fresh, Hs, From), rewrite_count(Hs), Ks, Ms).
+  first_fail(paramodulate_literal(Fresh, Hs, From), rewrite_count(Hs), Ks, Ms),
+  instance(Into, Ts, Ms, M).
 
 paramodulate_literal(_, Hs, _, K, M) :- matches(Hs, K, M).
-paramodulate_literal(Fresh, Hs, From, K, '$lam'(Y, '$proof'(K), '$app'(From, Ts, Ms))) :-
+paramodulate_literal(Fresh, Hs, From, K, '$lam'(Y, '$proof'(K), M)) :-
   premise(From, Ts, Ls),
   append(Before, [Eq|After], Ls),
   Eq = '$='(_, _, _),
@@ -377,19 +384,21 @@ paramodulate_literal(Fresh, Hs, From, K, '$lam'(Y, '$proof'(K), '$app'(From, Ts,
   length(Before, N),
   length(Ms0, N),
   append(Ms0, Ms1, Ms2),
-  append(Ms0, ['$lam'(E, '$proof'(Eq), Body)|Ms1], Ms).
+  append(Ms0, ['$lam'(E, '$proof'(Eq), Body)|Ms1], Ms),
+  instance(From, Ts, Ms, M).
 
 % the candidates for a literal that may be rewritten: its hypotheses, and the rewrite, which is not
 % counted, so a literal that can only be rewritten comes first
 rewrite_count(Hs, K, N) :- matches_count(Hs, K, N0), N is N0 + 1.
 
 % equality factoring: as paramodulation, but the equation is a hypothesis for a literal A != B
-equality_factor(Fresh, Hs, [Premise], '$app'(Premise, Ts, Ms)) :-
+equality_factor(Fresh, Hs, [Premise], M) :-
   premise(Premise, Ts, Ks),
-  first_fail(factor_literal(Fresh, Hs), rewrite_count(Hs), Ks, Ms).
+  first_fail(factor_literal(Fresh, Hs), rewrite_count(Hs), Ks, Ms),
+  instance(Premise, Ts, Ms, M).
 
 factor_literal(_, Hs, K, M) :- matches(Hs, K, M).
-factor_literal(Fresh, Hs, K, '$lam'(Y, '$proof'(K), '$app'(H, [], ['$lam'(E, '$proof'(Eq), Body)]))) :-
+factor_literal(Fresh, Hs, K, '$lam'(Y, '$proof'(K), '$app'(H, '$lam'(E, '$proof'(Eq), Body)))) :-
   member(H-(~(~Eq)), Hs),
   Eq = '$='(_, _, _),
   rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body).
@@ -404,7 +413,7 @@ rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
   applied(M, '$rewrite'('$VAR'(Fresh):Sort, Motive, Equation, Y), Body).
 
 orientation('$='(S, A, B), E, S, A, B, E).
-orientation('$='(S, A, B), E, S, B, A, '$app'('$sym', [], [E])).
+orientation('$='(S, A, B), E, S, B, A, '$app'('$sym', E)).
 
 % literal K becomes K1 by rewriting L to R, of sort S, at some occurrences, which are Z in Motive;
 % rewrites are only where the sort is S (a variable side would otherwise unify with any term), which
@@ -450,7 +459,8 @@ unfold(Fresh, Hs, [Clause|Definitions], M) :-
   maplist(definiendum, Ds, Defs),
   premise(Clause, Ts, Ks),
   foldl(unfold_literal(ctx('$VAR'(Fresh), Defs), Hs), Ks, Ms, [], Instances),
-  foldl(opened, Instances, '$app'(Clause, Ts, Ms), M).
+  instance(Clause, Ts, Ms, M0),
+  foldl(opened, Instances, M0, M).
 
 % a unit definition f(X_1, ..., X_n) = body, or body = f(X_1, ..., X_n), defines f/n
 definiendum(D, def(D, F/N, Side)) :-
@@ -462,11 +472,12 @@ definiendum(D, def(D, F/N, Side)) :-
 % definition folding replaces each instance of the body of a function definition by the defined term:
 % the conclusion is a variant of the premise once their defined function terms are unfolded, which the
 % IR does by definition (ir:expanded/2), so the hypotheses of the conclusion refute the premise as they are
-fold(_, Hs, [Clause|_], '$app'(Clause, Ts, Ms)) :-
+fold(_, Hs, [Clause|_], M) :-
   maplist(unfolded_hypothesis_terms, Hs, Us),
   premise(Clause, Ts, Ks0),
   maplist(terms_unfolded, Ks0, Ks),
-  maplist(matches(Us), Ks, Ms).
+  maplist(matches(Us), Ks, Ms),
+  instance(Clause, Ts, Ms, M).
 
 unfolded_hypothesis_terms(X-T0, X-T) :- terms_unfolded(T0, T).
 
@@ -478,7 +489,7 @@ pattern(T) :-
   sort(Xs, Ys),
   same_length(Xs, Ys).
 
-opened(instance(D, Us, Equation, E), M, '$app'(D, Us, ['$lam'(E, '$proof'(Equation), M)])).
+opened(instance(D, Us, Equation, E), M, N) :- instance(D, Us, ['$lam'(E, '$proof'(Equation), M)], N).
 
 % literal K is unfolded by a chain of rewrites, from Y : K, and refuted by a hypothesis
 unfold_literal(Ctx, Hs, K, M, Is0, Is) :-
@@ -542,7 +553,7 @@ unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Sort, Motive, Equ
   opening(D, Us, Eq, E, Is0, Is).
 
 oriented(left, '$='(_, A, B), E, A, B, E).
-oriented(right, '$='(_, A, B), E, B, A, '$app'('$sym', [], [E])).
+oriented(right, '$='(_, A, B), E, B, A, '$app'('$sym', E)).
 
 % an instance of definition D is opened once
 opening(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.
@@ -563,16 +574,17 @@ rup(_, Hs, Premises, M) :-
   rup(Hs, Clauses, M).
 
 % AVATAR component clause: C | ~split, where split is defined as C
-avatar_component(_, Hs, [_], '$app'(H, [], ['$lam'(D, '$proof'(Split), '$app'(D, Ts, Ms))])) :-
+avatar_component(_, Hs, [_], '$app'(H, '$lam'(D, '$proof'(Split), M))) :-
   select(H-(~(~Split)), Hs, Others),
   split(Split, clause(Bs, Ls)),
   binder_variables(Bs, Ts),
-  maplist(matches(Others), Ls, Ms).
+  maplist(matches(Others), Ls, Ms),
+  instance(D, Ts, Ms, M).
 % ...or ~L | split, where split is defined as L: the definition is proved from two hypotheses,
 % Y : ~T and X : T
-avatar_component(Fresh, Hs, [_], '$app'(H, [], [Intro])) :-
+avatar_component(Fresh, Hs, [_], '$app'(H, Intro)) :-
   select(H-(~Split), Hs, Others),
-  intro(Split, Fresh, _, Others, All, '$app'(Y, [], [X]), Intro),
+  intro(Split, Fresh, _, Others, All, '$app'(Y, X), Intro),
   member(Y-(~T), All),
   member(X-U, All),
   U == T.
@@ -595,19 +607,20 @@ clause_intro(clause(Bs, Ls), Fresh0, Fresh, Hs, Hs1, M, Intro) :-
 avatar_split(Fresh, Hs, [Premise|_], M) :-
   splits(Hs, Fresh, Hs, [], Premise, M).
 
-splits([], _, Hs, Ds, Premise, '$app'(Premise, Ts, Ms)) :-
+splits([], _, Hs, Ds, Premise, M) :-
   premise(Premise, Ts, Ls),
-  first_fail(split_literal(Hs, Ds), split_count(Hs, Ds), Ls, Ms).
+  first_fail(split_literal(Hs, Ds), split_count(Hs, Ds), Ls, Ms),
+  instance(Premise, Ts, Ms, M).
 splits([H-(~(~Split))|Rest], Fresh, Hs, Ds, Premise, M) :-
   split(Split, Clause),
   splits(Rest, Fresh, Hs, [H-Split-Clause|Ds], Premise, M).
-splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, '$app'(H, [], [Intro])) :-
+splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, '$app'(H, Intro)) :-
   intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro),
   splits(Rest, Fresh, Hs1, Ds, Premise, M).
 
 % a premise literal is refuted by a hypothesis, or by a ground unit definition, from H : ~~split
 split_literal(Hs, _, L, M) :- matches(Hs, L, M).
-split_literal(_, Ds, L, '$lam'(X, '$proof'(L), '$app'(H, [], ['$lam'(D, '$proof'(Split), '$app'(D, [], [M]))]))) :-
+split_literal(_, Ds, L, '$lam'(X, '$proof'(L), '$app'(H, '$lam'(D, '$proof'(Split), '$app'(D, M))))) :-
   member(H-Split-clause([], [K]), Ds),
   matches([X-L], K, M).
 

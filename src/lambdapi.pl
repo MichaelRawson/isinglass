@@ -191,7 +191,7 @@ conclusion(formula(F)) --> "π ", formula(F).
 
 % '$dne' proves a formula step, whose formula it takes explicitly, as lambdapi cannot unify π p with a
 % formula that π reduces
-proved(formula(F), '$app'('$dne', [], [M])) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
+proved(formula(F), '$app'('$dne', M)) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
 proved(_, M) --> proof(M).
 
 % step statements use framework-level Π and →, rather than `∀ and ⇒ which must be rewritten
@@ -248,15 +248,16 @@ name(Name) --> { named(definition, Symbol, Name) }, "{|", atom(Symbol), "⁴|}".
 % and are parenthesised by operand//1 where they are arguments
 proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
-proof('$app'('$lam'(X, '$proof'(F), N), [], [M])) --> !,
+proof('$app'('$lam'(X, '$proof'(F), N), M)) --> !,
   "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % rw, as rewrite is a lambdapi keyword
 proof('$rewrite'(X:S, A, E, M)) --> !,
   "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
 % the eigenvariable of a δ rule may be a type
-proof('$app'(Rule, [], [M, '$lam'(X, S, K)])) --> { S == '$tType', type_rule(Rule, Codes) }, !,
-  codes(Codes), " ", operand(M), " ", operand('$lam'(X, S, K)).
-proof('$app'(F, Ts, Ms)) --> !, head(F), variables(Ts), operands(Ms).
+proof('$app'('$app'(Rule, M), L)) --> { nonvar(L), L = '$lam'(_, S, _), S == '$tType', type_rule(Rule, Codes) }, !,
+  codes(Codes), " ", operand(M), " ", operand(L).
+% an argument is a proof or a first-order term
+proof(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, head(F), arguments(As).
 proof(X) --> head(X).
 
 % consecutive λs are merged
@@ -301,17 +302,19 @@ type_rule('$nall', "nall_t").
 
 variable(X) --> term(X).
 
-operands([]) --> [].
-operands([M|Ms]) --> " ", operand(M), operands(Ms).
+arguments([]) --> [].
+arguments([A|As]) --> " ", argument(A), arguments(As).
 
-operand('$app'(F, [], [])) --> !, head(F).
+argument(M) --> { proof_argument(M) }, !, operand(M).
+argument(T) --> term(T).
+
 operand(M) --> { compound_term(M) }, !, "(", proof(M), ")".
 operand(X) --> head(X).
 
 % the hypotheses of an input's bridge, by the index of their literals
 hypothesis(I) --> "h", number(I).
 
-compound_term(M) :- ( M = '$app'(_, _, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
+compound_term(M) :- ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
 
 /********************************************************************************
  * formulas and terms
