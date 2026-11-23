@@ -1,17 +1,25 @@
 #!/bin/sh
 
 usage() {
-  echo "usage: $0 [--trace] [--optimise] FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
+  echo "usage: $0 [--trace] [--optimise] [--implicits=KINDS] FRONTEND BACKEND < proof.p (e.g. $0 vampire lambdapi)" >&2
   exit 2
 }
 
 # --trace prints the name and tactic of each step as its reconstruction starts;
-# --optimise inlines and simplifies the proof before it is emitted.
+# --optimise inlines and simplifies the proof before it is emitted;
+# --implicits=eq,letp gives Agda further type arguments that it would otherwise solve (see src/agda.pl).
 options=
 while [ $# -gt 2 ]; do
   case $1 in
     --trace) options=${options:+$options,}trace ;;
     --optimise) options=${options:+$options,}optimise ;;
+    --implicits=*)
+      kinds=${1#--implicits=}
+      case $kinds in ''|,*|*,|*,,*) usage ;; esac
+      for kind in $(echo "$kinds" | tr , ' '); do
+        case $kind in eq|letp) ;; *) usage ;; esac
+      done
+      options=${options:+$options,}"implicits([$kinds])" ;;
     *) usage ;;
   esac
   shift

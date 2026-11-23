@@ -6,9 +6,10 @@ Reconstruction is backtracking _search_ over the possible instances of an infere
 
 Overall: TSTP → front end (e.g. `vampire`) → ATP-agnostic proof → reconstruction → IR → back end (e.g. `lambdapi`)
 
-Usage: `./ising [--trace] [--optimise] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda`, `agda_term`, `agda_file` or `checker`.
+Usage: `./ising [--trace] [--optimise] [--implicits=Kinds] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda`, `agda_term`, `agda_file` or `checker`.
 The script runs `main(Frontend, Backend, Options)` in `src/main.pl` with SWI.
 `--trace` prints each step and its tactic to stderr as its search starts, so a slow step is the last one printed; `--optimise` optimises the IR before it is emitted.
+`--implicits=eq,letp` (either) makes the Agda back ends give further type arguments: `eq`, the sort of `_≡_` in types; `letp`, the result `R` of `letp` (`agda_term`).
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
@@ -156,9 +157,10 @@ For a hammer: a term to fill a hole, constructive by the A-translation.
 - Output is `Proof.refutation bridge ... bridge where module Proof {R : Set} (leaf : type) ...`, one definition per clausal step. `R` is the IR's `⊥`, which Agda infers to be the goal; `~F` is `F → R`. The negated conjecture `G → R` is the identity.
 - We expect one conjecture, a ground atom (or none), and input clauses. An input's Agda term is assumed to have type `∀ xs → A₁ → … → Aₙ → B₁ ⊎ … ⊎ Bₘ` for its negative literals `~Aᵢ` and positive `Bⱼ`, bridged in continuation-passing style.
 - Names from the hammer are printed verbatim; the prover's own are escaped one to one (`spl0_1` is `spl0-1`, other characters `·HH·`), a definition of `P` is `Pᵈᵉᶠ`, and our own names are decorated with as few primes as avoid capture (`agda:decorate/0`).
-- Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong`, `subst`, `⊥-elim`, `[_,_]′`. A rewrite of an equation is a path of `trans` and `cong`.
+- Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong`, `subst`, `⊥-elim`, `[_,_]′`. A rewrite of an equation is a path of `trans` and `cong`, whose sorts are given (`{A = …}`, `{B = …}`), as solving them by metas makes large proofs slower to check.
+- No λ is printed at a head, where the types of its binders would be metas that every check in the body waits on: a hypothesis λ given a proof or a path is a `let` that states its type, and a rewrite of a negated equation applied to a proof lengthens the path from that proof.
 - Holes `{! !}`: `'$inhabited'(S)`, `todo` steps, steps between formulas (some are classical), and predicate bodies Agda cannot state. Everything is in `Set`.
-- `agda_term` prints the same proof as one expression, for Agda's reflection (`checkFromStringTC`); `agda_file` postulates the signature and inputs, with every name escaped, for testing.
+- `agda_term` prints the same proof as one expression, for Agda's reflection (`checkFromStringTC`): the definitions of symbols are a `let`, and the steps are bound by `letp {type} (proof) λ step → …`, where `letp a k = k a` is assumed in scope; Agda substitutes a `let`, which would check a step once per citation, but does not unfold a definition. `agda_file` postulates the signature and inputs, with every name escaped, for testing.
 
 ### SMT-LIB (`smtlib.pl`)
 In the manner of "Ground Truth" (Voronkov et al.): each step's ground premise instances and its negated conclusion, read off the proof term, form an unsatisfiable instance, one `push`/`check-sat`/`pop` per step, each with `(set-info :status unsat)`. Propositional and theory reasoning is left to the solver.

@@ -23,19 +23,31 @@ In scope are assumed _≡_, refl, sym, trans, cong and subst, and for the bridge
 the standard library.
 
 emit_agda_term prints the same proof as one expression, for a caller that can check an expression
-but not declare a module (Agda's reflection: checkFromStringTC), the parameters bound by λ and the
-steps by let:
+but not declare a module (Agda's reflection: checkFromStringTC), the parameters bound by λ, the
+definitions of symbols by let, and the other steps by
+
+  letp : {A B : Set} → A → (A → B) → B
+  letp a k = k a
+
+which the caller must have in scope:
 
   (λ {R : Set}
         (leaf : type)
         ... →
     let
-      step : type
-      step = proof term
+      symbol : type
+      symbol = term
       ...
-    in refutation)
+    in
+    letp {type} (proof term) λ step →
+    ...
+    refutation)
       bridge
       ...
+
+Agda substitutes a let, so a step cited n times would be checked n times, and the term grows
+exponentially with the depth of the proof; letp is a definition, which Agda does not unfold, so each
+step is checked once and stays a variable. The definitions of symbols are cheap and must unfold.
 
 emit_agda_file wraps the term in a module that postulates the signature and the inputs, for testing
 on proofs whose names were not chosen for Agda: there, every name is mangled.
@@ -105,13 +117,21 @@ fragment -->
   "    where\n",
   proof_steps(Steps).
 
-% the steps are printed with the indentation of the module's, which is also that of a let block
+% the definitions of symbols, which must unfold, are a let block, with the indentation of the module's;
+% the other steps are bound by letp
 expression -->
-  { proof_parts(Leaves, Refutation, Steps) },
+  { proof_parts(Leaves, Refutation, Steps), definitions(Steps, Definitions, Others) },
   "(λ {", result, " : Set}", foldl(parameter, Leaves), " →\n",
-  "  let\n",
-  proof_steps(Steps),
-  "  in ", name(Refutation), ")", foldl(bridge, Leaves), "\n".
+  symbol_definitions(Definitions),
+  foldl(bound, Others),
+  "  ", name(Refutation), ")", foldl(bridge, Leaves), "\n".
+
+definitions([], [], []).
+definitions([S|Ss], [S|Ds], Os) :- S = step(_, _, definition(_, _, _)), !, definitions(Ss, Ds, Os).
+definitions([S|Ss], Ds, [S|Os]) :- definitions(Ss, Ds, Os).
+
+symbol_definitions([]) --> !.
+symbol_definitions(Definitions) --> "  let\n", proof_steps(Definitions), "  in\n".
 
 proof_parts(Leaves, Refutation, Steps) :-
   leaves(Leaves),
@@ -193,13 +213,21 @@ emitted(_, step(_, formula(_), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined_predicate(Xs, Body)).
 % a step between formulas is classical, so it is left as a hole
-emitted(_, step(Name, clause(Bs, Ls), proof(_))) --> { formula_step(Name) }, !,
-  definition(name(Name), conclusion(clause(Bs, Ls)), todo(formula_step)).
-emitted(_, step(Name, clause(Bs, Ls), proof(M))) --> !,
-  definition(name(Name), conclusion(clause(Bs, Ls)), proof(M)).
-emitted(_, step(Name, clause(Bs, Ls), todo(Record, _))) --> !,
-  definition(name(Name), conclusion(clause(Bs, Ls)), todo(Record)).
+emitted(_, Step) --> { proved(Step, Name, Type, Body) }, !, definition(Name, Type, Body).
 emitted(_, _) --> [].
+
+% the name, type and body of a step of the proof; a step between formulas is classical, so it is left
+% as a hole
+proved(step(Name, clause(Bs, Ls), proof(_)), name(Name), conclusion(clause(Bs, Ls)), todo(formula_step)) :-
+  formula_step(Name), !.
+proved(step(Name, clause(Bs, Ls), proof(M)), name(Name), conclusion(clause(Bs, Ls)), proof(M)).
+proved(step(Name, clause(Bs, Ls), todo(Record, _)), name(Name), conclusion(clause(Bs, Ls)), todo(Record)).
+
+% in an expression, a step is bound by letp, the application of a definition that Agda does not unfold
+bound(Step) --> { proved(Step, Name, Type, Body) }, !,
+  "  letp {", call(Type), "}", ( { implicits(letp) } -> " {", result, "}" ; [] ),
+  " (", call(Body), ") λ ", call(Name), " →\n".
+bound(_) --> [].
 
 definition(Name, Type, Body) -->
   "    ", call(Name), " : ", call(Type), "\n",
@@ -242,6 +270,9 @@ proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
 proof('$lam'(X, '$proof'(F), N) @ M) --> !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
+% a rewrite of a negated equation applied to a proof of the equation refutes it by a path from that
+% proof, not by a redex of λ e
+proof(R @ P) --> { rewrite(R, _, ~'$='(A, _, _), _, _) }, !, refutation(A, R, [proof(P)]).
 proof(R) --> { rewrite(R, X, A, E, M) }, !, rewritten(A, X, E, M).
 % a rewrite applied to more arguments is a head
 proof(M) --> { M = _ @ _, spine(M, F, As), F == '$rewrite', length(Rw, 3), append(Rw, [_|_], As) }, !,
@@ -288,26 +319,29 @@ applied to the path the other way, from e : s[r] ≡ t[r]. Any other literal is 
 The steps of a path are e, proof(M), eq(E) and cong(X, S, P), for P along the side S[X];
 none is no step, where X does not occur in the side.
 */
-rewritten('$='(A, S, T), X, E, M) --> !, { rewrite(R, X, '$='(A, S, T), E, M) }, path([proof(R)]).
+rewritten('$='(A, S, T), X, E, M) --> !, { rewrite(R, X, '$='(A, S, T), E, M) }, path(A, [proof(R)]).
 rewritten(~'$='(A, S, T), X, E, M) --> !,
   { rewrite(R, X, ~'$='(A, S, T), E, M) },
-  "λ e", decorated, " → ", refutation(R, [e]).
-rewritten(A, X, E, M) -->
+  "λ e", decorated, " → ", refutation(A, R, [e]).
+rewritten(A, X:_, E, M) -->
   "subst (λ ", variable(X), " → ", type(A), ") ", operand(E), " ", operand(M).
 
-% R is the rewrite of M by E, with the motive A of the variable X: taken apart, or else built
-rewrite(R, X, A, E, M) :- nonvar(R), !, rewrite_parts(R, Motive, E, M), nonvar(Motive), Motive = '$abs'(X:_, A).
-rewrite(R, X, A, E, M) :- curried('$rewrite', ['$abs'(X:_, A), E, M], R).
+% R is the rewrite of M by E, with the motive A of the binder X:S: taken apart, or else built
+rewrite(R, X, A, E, M) :- nonvar(R), !, rewrite_parts(R, Motive, E, M), nonvar(Motive), Motive = '$abs'(X, A).
+rewrite(R, X, A, E, M) :- curried('$rewrite', ['$abs'(X, A), E, M], R).
 
-% M refutes the equation of the path Ps; a rewrite of M lengthens the path instead
-refutation(R, Ps) --> { rewrite(R, X, ~'$='(_, S, T), E, M) }, !,
+% M refutes the equation, of sort A, of the path Ps; a rewrite of M lengthens the path instead
+refutation(A, R, Ps) --> { rewrite(R, X, ~'$='(_, S, T), E, M) }, !,
   { side(X, S, E, P), side(X, T, E, Q), inverse(Q, Q1), append([P|Ps], [Q1], Ps1) },
-  refutation(M, Ps1).
-refutation(M, Ps) --> operand(M), " ", { present(Ps, Qs) }, path_operand(Qs).
+  refutation(A, M, Ps1).
+% a hypothesis given the path is a let, as for any redex of a hypothesis
+refutation(A, '$lam'(X, '$proof'(F), N), Ps) --> !,
+  "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", path(A, Ps), " in ", proof(N).
+refutation(A, M, Ps) --> operand(M), " ", { present(Ps, Qs) }, path_operand(A, Qs).
 
-% the step along the side S: E itself at the top, and cong below it
-side(X, S, E, eq(E)) :- S == X, !.
-side(X, S, E, cong(X, S, eq(E))) :- \+ substitute(X, [], S, S), !.
+% the step along the side S: E itself at the top, and cong below it; X:Ty marks the rewritten term
+side(X:_, S, E, eq(E)) :- S == X, !.
+side(X:Ty, S, E, cong(X:Ty, S, eq(E))) :- \+ substitute(X, [], S, S), !.
 side(_, _, _, none).
 
 inverse(none, none).
@@ -337,20 +371,40 @@ equation_path('$sym' @ E, Ps) :-
   inverted(E, E1),
   equation_path(E1, Ps).
 
-path(Ps) --> { present(Ps, Qs) }, steps(Qs).
+% a path along equations of sort A
+path(A, Ps) --> { present(Ps, Qs) }, steps(A, Qs).
 
-steps([P]) --> !, path_step(P).
-steps([P|Ps]) --> "trans ", path_operand([P]), " ", path_operand(Ps).
+steps(A, [P]) --> !, path_step(A, P).
+steps(A, [P|Ps]) --> "trans", implicit("A", A), " ", path_operand(A, [P]), " ", path_operand(A, Ps).
 
-path_operand([e]) --> !, "e", decorated.
-path_operand([proof(M)]) --> !, operand(M).
-path_operand([eq(E)]) --> !, operand(E).
-path_operand(Ps) --> "(", steps(Ps), ")".
+path_operand(_, [e]) --> !, "e", decorated.
+path_operand(A, [proof(M)]) --> !, equation_operand(A, M).
+path_operand(A, [eq(E)]) --> !, equation_operand(A, E).
+path_operand(A, Ps) --> "(", steps(A, Ps), ")".
 
-path_step(e) --> "e", decorated.
-path_step(proof(M)) --> proof(M).
-path_step(eq(E)) --> proof(E).
-path_step(cong(X, S, P)) --> "cong (λ ", variable(X), " → ", term(S), ") ", path_operand([P]).
+path_step(_, e) --> "e", decorated.
+path_step(A, proof(M)) --> equation(A, M).
+path_step(A, eq(E)) --> equation(A, E).
+path_step(A, cong(X:Ty, S, P)) -->
+  "cong", implicit("A", Ty), implicit("B", A), " (λ ", variable(X), " → ", term(S), ") ",
+  path_operand(Ty, [P]).
+
+% a proof of an equation of sort A, where sym is given A: Agda would solve the sorts of trans, sym and
+% cong by metas, and solving them makes large proofs slower to check
+equation(A, '$sym' @ E) --> !, "sym", implicit("A", A), " ", operand(E).
+equation(_, M) --> proof(M).
+
+equation_operand(A, M) --> { nonvar(M), M = '$sym' @ _ }, !, "(", equation(A, M), ")".
+equation_operand(_, M) --> operand(M).
+
+/*
+Further type arguments, by the kinds of the option implicits(Kinds) (ising --implicits=eq,...): eq,
+the sort of _≡_ in types; letp, the result R of letp. Neither made checking measurably faster.
+*/
+implicits(Kind) :- option(implicits(Kinds)), memberchk(Kind, Kinds).
+
+implicit(Name, Sort) --> { nonvar(Sort) }, !, " {", Name, " = ", sort(Sort), "}".
+implicit(_, _) --> [].
 
 /********************************************************************************
  * types and terms
@@ -361,6 +415,7 @@ type('!'(B, F)) --> !, pi(B), type(F).
 type((F => G)) --> !, domain(F), " → ", type(G).
 type(~F) --> !, domain(F), " → ", result.
 type('$false') --> !, result.
+type('$='(A, S, T)) --> { nonvar(A), implicits(eq) }, !, "_≡_ {A = ", sort(A), "}", argument(S), argument(T).
 type('$='(_, S, T)) --> !, term(S), " ≡ ", term(T).
 type(A) --> term(A).
 
