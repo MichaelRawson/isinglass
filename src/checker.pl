@@ -4,7 +4,7 @@ conclusion, in order, citing only steps already checked. Output is nothing; a st
 to check is reported, and is a bug in the search.
 
 First-order terms are checked against the signature (signature.pl): instances are well sorted, and
-so are the sorts of eigenvariables and the motives of rewrites. The types of steps are taken to be
+so are the sorts of eigenvariables and the motives of rewrites (of arrow sorts, see ir.pl). The types of steps are taken to be
 well sorted, as the prover gives them.
 
 Terms and their types are ground. The only Prolog variables bound in checking are those of fresh
@@ -221,17 +221,6 @@ type(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
   type(Steps, Gamma1, M, T).
-% E : S = U and M : A[X:=S] give A[X:=U], where X : Sort is bound in the motive A only
-type(Steps, Gamma, '$rewrite'(X:Sort, A, E, M), T) :- !,
-  fresh(Gamma, X),
-  check(Steps, Gamma, E, '$proof'('$='(Sort, S, U))),
-  ground(Sort-S-U),
-  put_assoc(X, Gamma, Sort, Gamma1),
-  well_sorted(Gamma1, A),
-  substitute(X, S, A, AS),
-  check(Steps, Gamma, M, '$proof'(AS)),
-  substitute(X, U, A, AU),
-  T = '$proof'(AU).
 type(Steps, Gamma, M, T) :- M = '$app'(_, _), !, spine(M, F, As), application(Steps, Gamma, F, As, T).
 % a head alone: a hypothesis, a step or a built-in
 type(Steps, Gamma, F, T) :- application(Steps, Gamma, F, [], T).
@@ -240,7 +229,8 @@ type(Steps, Gamma, F, T) :- application(Steps, Gamma, F, [], T).
 % instantiates its binder, and an => for each proof, whose premise is the proof's type: it is
 % '$proof'(A_1 => ... => A_n => R) for the n proofs, under the '!'s of the terms between them. A
 % built-in's is a fresh instance, whose parameters (see ir.pl) are bound by unification, first of R
-% with T (a variable if T is to be inferred), then of each A_i with the type of its proof, in order.
+% with T (a variable if T is to be inferred), then of each A_i with the type of its proof, in order
+% (but for a built-in with a motive, whose premises come first, see motive_head/1).
 % So the parameters of '$refl' and '$dne' come from T, and those of '$sym' and the expansion rules
 % from T or the first proof
 application(Steps, Gamma, F, As, T) :-
@@ -252,9 +242,17 @@ application(Steps, Gamma, F, As, T) :-
   ->  Ps = Ps0, R = R0
   ;   maplist(canonical_premise, Ps0, Ps), canonical_type(R0, R), ground(Ps-R)
   ),
-  matches(R, T),
-  maplist(checked_premise(Steps, Gamma), Ps),
+  (   motive_head(F)
+  ->  maplist(checked_premise(Steps, Gamma), Ps),
+      matches(R, T)
+  ;   matches(R, T),
+      maplist(checked_premise(Steps, Gamma), Ps)
+  ),
   ground(T).
+
+% a built-in with a motive, '$rewrite': its result, A[X:=U], is a substitution, which unification
+% cannot match up to unfolding, so its premises infer U first, and the result is then ground
+motive_head(F) :- atom(F), head_type(F, '$proof'('!'(_:S, _))), arrow_sort(S).
 
 % the proofs of the arguments As of a head of type T0, each M-A for its premise A, and the type R of
 % the application; each term is of the sort of its binder, which depends on the terms before it
@@ -267,7 +265,8 @@ arguments(Gamma, [U|As], '$proof'(F0), Ps0, R) :-
 
 argument(Gamma, '!'(X:S, F), U, Ps, Ps, '$proof'(F1)) :- !,
   sorted(Gamma, U, S),
-  instantiated(X, U, F, F1).
+  instantiated(X, U, F, F0),
+  ( arrow_sort(S) -> applied_motives(F0, F1) ; F1 = F0 ).
 argument(_, (A => F), M, [M-'$proof'(A)|Ps], Ps, '$proof'(F)).
 
 canonical_premise(M-A0, M-A) :- canonical_type(A0, A).
@@ -300,7 +299,6 @@ bound(_, Gamma, X, S, U, B0, Gamma, B) :-
 
 % the type of a head: steps and built-ins are fresh instances, and a term is typed as any other
 head(_, Gamma, X, T) :- variable(X), !, hypothesis(Gamma, X, T).
-head(Steps, Gamma, M, T) :- M = '$rewrite'(_, _, _, _), !, type(Steps, Gamma, M, T).
 head(_, _, Name, T) :- atom(Name), head_type(Name, T), !.
 head(Steps, _, Name, T) :-
   atom(Name),
@@ -316,7 +314,18 @@ instantiated(X, U, F, F) :- var(X), !, X = U.
 instantiated(X, U, F, F) :- X == U, !.
 instantiated('$BOUND'(H), U, F0, F) :- substitute('$BOUND'(H), U, F0, F).
 
-% first-order term T is of sort S, which is ground; every variable is an eigenvariable of Gamma
+% first-order term T is of sort S, which is ground; every variable is an eigenvariable of Gamma. A
+% motive, the one term that is not first-order, is of an arrow sort S > '$o', which its binder X : S
+% gives, if a parameter of '$rewrite' left it open, and its body is a well-sorted formula with X : S
+sorted(Gamma, '$abs'(X:S, A), Arrow) :- !,
+  Arrow = '$>'(S0, '$o'),
+  S0 = S,
+  fresh(Gamma, X),
+  valid_sort(Gamma, S),
+  put_assoc(X, Gamma, S, Gamma1),
+  canonical(A, A1),
+  A1 == A,
+  well_sorted(Gamma1, A).
 sorted(Gamma, '$VAR'(N), S) :- !, get_assoc('$VAR'(N), Gamma, S0), S0 == S.
 sorted(Gamma, '$BOUND'(H), S) :- !, get_assoc('$BOUND'(H), Gamma, S0), S0 == S.
 sorted(Gamma, F0, S) :- S == '$o', connective(F0, _), !, canonical(F0, F), well_sorted(Gamma, F).

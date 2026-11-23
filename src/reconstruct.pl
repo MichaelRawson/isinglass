@@ -361,7 +361,8 @@ normalised(Fresh, Rules, X-T, H, M, M1) :-
   occurs(L, T), !,
   substitute(L, '$VAR'(Fresh), T, Motive),
   substitute(L, R, T, T0),
-  M = '$app'('$lam'(Y, '$proof'(T0), M0), '$rewrite'('$VAR'(Fresh):S, Motive, E, X)),
+  curried('$rewrite', ['$abs'('$VAR'(Fresh):S, Motive), E, X], Rw),
+  M = '$app'('$lam'(Y, '$proof'(T0), M0), Rw),
   normalised(Fresh, Rules, Y-T0, H, M0, M1).
 normalised(_, _, H, H, M, M).
 
@@ -410,7 +411,8 @@ rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
   ( Target = K1 ; flip(K1, Target) ),
   rewritten(K, Target, rw(Sort, L, R), '$VAR'(Fresh), Motive),
   refutes(~K1, X, Target, M),
-  applied(M, '$rewrite'('$VAR'(Fresh):Sort, Motive, Equation, Y), Body).
+  curried('$rewrite', ['$abs'('$VAR'(Fresh):Sort, Motive), Equation, Y], Rw),
+  applied(M, Rw, Body).
 
 orientation('$='(S, A, B), E, S, A, B, E).
 orientation('$='(S, A, B), E, S, B, A, '$app'('$sym', E)).
@@ -508,8 +510,9 @@ unfold_literal(Ctx, Hs, K, M, Is0, Is) :-
 
 % the rewrites, most recent first, applied to Y
 chain([], _, Y, Y).
-chain([step(Sort, Motive, Equation)|Steps], Z, Y, '$rewrite'(Z:Sort, Motive, Equation, W)) :-
-  chain(Steps, Z, Y, W).
+chain([step(Sort, Motive, Equation)|Steps], Z, Y, R) :-
+  chain(Steps, Z, Y, W),
+  curried('$rewrite', ['$abs'(Z:Sort, Motive), Equation, W], R).
 
 % the arguments of the atom are unfolded; frames(F, Done, Rest) record the context of the subterm
 % being unfolded, from the inside out, with its unfolded left siblings Done (reversed) and the rest;

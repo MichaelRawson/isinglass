@@ -50,10 +50,6 @@ Proofs are terms M, Curry-Howard style, in minimal logic: no particular logic is
                                 expansion rule, whose type follows from the type of the rule's first
                                 argument. Its annotation tells the two apart, and the variables of a
                                 term are numbered apart
-      | '$rewrite'(X:S, A, E, M)
-                                E : S = T and M : A[X:=S] give A[X:=T], where X is an eigenvariable
-                                '$VAR'(N) of sort S bound only in the motive A, and E's type is
-                                inferred (not a λ)
   F ::= Name                    a step: a clause or a formula, named apart from symbols
                                 ('$step:f12' or '$def:P', utils:named/3), or
       | Builtin                 a built-in, typed by head_type/2
@@ -67,7 +63,17 @@ Application is curried, and its argument is a term or a proof as the type of its
 so terms and proofs may come in any order. A term of type '$proof'('!'(X:S, F)) is applied to a term
 of sort S for X. In ground IR the two kinds of argument are also told apart by their syntax
 (proof_argument/1), but for a variable '$VAR'(N), which the annotation of its λ settles.
-A built-in (presently) takes no terms: its type variables are inferred by unification.
+A built-in's type variables are inferred by unification. Only '$rewrite' takes a term, its motive,
+which unification could not infer (it would be higher-order):
+
+  '$rewrite' : Π (P : S > '$o'). S = T → P S → P T
+
+so '$app'('$app'('$app'('$rewrite', '$abs'(X:S, A)), E), M), for E : S = T and M : A[X:=S], is a
+proof of A[X:=T]. E's type is inferred (it is not a λ). The motive '$abs'(X:S, A) is a term of the
+arrow sort '$>'(S, '$o') (THF's ^[X:S] : A, of sort S > $o), where X is an eigenvariable '$VAR'(N)
+bound only in A, and '$at'(P, T) is its application (THF's @), a formula, β-reduced as soon as P
+is a motive (applied_motives/2). Arrow sorts and '$at' occur only in head_type/2, never in a step's
+formula, so the logic stays first-order: a motive is a formula with a hole, not a predicate variable.
 Builtins '$nimp', '$niff', '$nall' and '$dne' are not valid in minimal logic, so steps that use them are classical.
 
 The outermost ~ of the negated conjecture is the refutation's ⊥. A classical back end proves the
@@ -79,8 +85,9 @@ Equations are typed, as '$='(A, S, T) with A the sort of S and T.
 Sorts are terms of sort '$tType' (signature.pl), and type variables are binders X : '$tType', as in TF1.
 
 First-order terms Ts are built from the signature, variables '$VAR'(N), and '$inhabited'(S), which asserts that `S` is inhabited.
+The one term that is not first-order is the motive of a rewrite, '$abs'(X:S, A), above.
 */
-:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, curried/3, spine/3, proof_argument/1, rule_branches/3, formula_step/1, choice_axiom/4, proof_annotation/1,
+:- module(ir, [clause_type/2, step_type/2, reference/2, cited_steps/1, head_type/2, inferred_premise/1, curried/3, rewrite_parts/4, applied_motives/2, arrow_sort/1, spine/3, proof_argument/1, rule_branches/3, formula_step/1, choice_axiom/4, proof_annotation/1,
   defined_atom/2, defined_term/2, expanded/2, terms_unfolded/2, typed_clause/2]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
@@ -140,9 +147,25 @@ head_type('$nall', '$proof'((~'!'(B, F) => ('!'(B, (~F => '$false')) => '$false'
 head_type('$nex', '$proof'((~'?'(B, F) => (('!'(B, ~F) => '$false') => '$false')))).
 head_type('$nex_t', '$proof'((~'?'(X:'$tType', F) => (('!'(X:'$tType', ~F) => '$false') => '$false')))).
 
+% rewriting, with an explicit motive P (see above), a term of an arrow sort
+head_type('$rewrite', '$proof'('!'(P:'$>'(A, '$o'), ('$='(A, S, T) => ('$at'(P, S) => '$at'(P, T)))))).
+
 % a built-in whose first premise has parameters, which the type of its first argument may bind:
 % '$sym', '$dne', and the expansion rules
 inferred_premise(Name) :- head_type(Name, '$proof'((A => _))), \+ ground(A).
+
+% the sort of a motive (see above)
+arrow_sort(S) :- nonvar(S), S = '$>'(_, _).
+
+% the formula F0 with each application of a motive '$at'('$abs'(X:_, A), T) β-reduced to A[X:=T];
+% F0 may have parameters still to infer, and T may be one
+applied_motives(F, F) :- var(F), !.
+applied_motives('$at'(P, T), F) :- nonvar(P), P = '$abs'(X:_, A), !, substitute(X, T, A, F).
+applied_motives(F0, F) :- compound(F0), !, F0 =.. [C|As0], maplist(applied_motives, As0, As), F =.. [C|As].
+applied_motives(F, F).
+
+% a rewrite R, '$rewrite' applied to its motive, equation and proof
+rewrite_parts(R, Motive, E, M) :- nonvar(R), spine(R, F, [Motive, E, M]), F == '$rewrite'.
 
 % the Branches of the expansion Rule applied to a proof of the formula F, each the formulas that it
 % binds, as read off its type: a refutation of each branch, H_1 => ... => '$false', and then
@@ -224,7 +247,6 @@ cited_steps(Cited) :-
 % a step in a proof term: a first-order term has none, as steps are named apart from symbols
 head(M, _) :- var(M), !, fail.
 head('$lam'(_, _, M), Name) :- !, head(M, Name).
-head('$rewrite'(_, _, E, M), Name) :- !, ( head(E, Name) ; head(M, Name) ).
 head('$app'(M, N), Name) :- !, ( head(M, Name) ; head(N, Name) ).
 head(Name, Name) :- named_step(Name).
 
@@ -243,5 +265,5 @@ spine(M, F, As0, As) :- nonvar(M), M = '$app'(G, A), !, spine(G, F, [A|As0], As)
 spine(F, F, As, As).
 
 % an argument of ground IR that is a proof, rather than a first-order term: a variable may be either
-proof_argument(M) :- compound(M), ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
+proof_argument(M) :- compound(M), ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ), !.
 proof_argument(M) :- atom(M), ( named_step(M) ; head_type(M, _) ), !.

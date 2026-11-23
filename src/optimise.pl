@@ -186,7 +186,6 @@ full(Name, As) :- ir_step(Name, clause(Bs, Ls), _), length(Bs, M), length(Ls, N)
 
 % the steps cited in a proof term, with their arguments (a first-order term cites none)
 cited('$lam'(_, _, M), Name, As) :- !, cited(M, Name, As).
-cited('$rewrite'(_, _, E, M), Name, As) :- !, ( cited(E, Name, As) ; cited(M, Name, As) ).
 cited(M, Name, As) :- M = '$app'(_, _), !,
   spine(M, F, As0),
   ( step_name(F), Name = F, As = As0 ; compound(F), cited(F, Name, As) ; member(A, As0), cited(A, Name, As) ).
@@ -307,6 +306,11 @@ use(env(_, _, U), X, Use) :- ( get_assoc(X, U, Use) -> true ; Use = 0 ).
 
 % the term with its eigenvariables replaced by their values (free ones are kept, by name)
 substituted(Env, '$VAR'(N), T) :- integer(N), !, ( binding(Env, '$VAR'(N), v(T)) -> true ; T = '$VAR'(N) ).
+% the motive of a rewrite binds a fresh variable
+substituted(Env, '$abs'(X:S0, A0), '$abs'(Y:S, A)) :- !,
+  substituted(Env, S0, S),
+  bind(Env, X, v(Y), Env1),
+  substituted(Env1, A0, A).
 substituted(Env, T0, T) :- compound(T0), !, T0 =.. [F|As0], maplist(substituted(Env), As0, As), T =.. [F|As].
 substituted(_, T, T).
 
@@ -315,13 +319,6 @@ normal(Env, '$lam'(X, A, M0), M) :- !,
   bind(Env, X, v(Y), Env1),
   normal(Env1, M0, M1),
   ( proof_annotation(A) -> eta(Y, A1, M1, M) ; M = '$lam'(Y, A1, M1) ).
-normal(Env, '$rewrite'(X:S0, A0, E0, M0), M) :- !,
-  substituted(Env, S0, S),
-  bind(Env, X, v(Y), Env1),
-  substituted(Env1, A0, A),
-  normal(Env, E0, E),
-  normal(Env, M0, M1),
-  ( ( \+ occurs(Y, A) ; E == '$refl' ) -> M = M1 ; M = '$rewrite'(Y:S, A, E, M1) ).
 normal(Env, M0, M) :- M0 = '$app'(_, _), !,
   spine(M0, F, As),
   arguments(Env, As, Cs),
@@ -364,9 +361,12 @@ applied(_, F, Cs, M) :-
 % normal terms may be hypotheses, which are variables, so they are matched with care
 built('$sym', [E0], E) :- nonvar(E0), E0 = '$app'(Sym, E), Sym == '$sym', !.
 built('$sym', [E], E) :- E == '$refl', !.
-built('$sym', [E0], '$rewrite'(X, '$='(A, R, L), E, M)) :-
-  nonvar(E0), E0 = '$rewrite'(X, '$='(A, L, R), E, M0), !,
-  built('$sym', [M0], M).
+built('$sym', [E0], M) :-
+  rewrite_parts(E0, Motive0, E, M0), nonvar(Motive0), Motive0 = '$abs'(X, '$='(A, L, R)), !,
+  built('$sym', [M0], M1),
+  curried('$rewrite', ['$abs'(X, '$='(A, R, L)), E, M1], M).
+% a rewrite whose motive does not mention its variable, or by refl, is its proof
+built('$rewrite', ['$abs'(Y:_, A), E, M0|Ms], M) :- ( \+ occurs(Y, A) ; E == '$refl' ), !, curried(M0, Ms, M).
 built(F, Ms, M) :- curried(F, Ms, M).
 
 % the term M0 of a substituted hypothesis, at the head of an application, whose arguments, if it is
@@ -378,10 +378,6 @@ applied_term(Env, M0, Cs, M) :- M0 = '$app'(_, _), !,
   append(Cs0, Cs, Cs1),
   applied(Env, G, Cs1, M).
 applied_term(Env, '$lam'(X, A, M0), Cs, M) :- !, reduced(Env, '$lam'(X, A, M0), Cs, M).
-applied_term(Env, M0, Cs, M) :- M0 = '$rewrite'(_, _, _, _), !,
-  normal(Env, M0, M1),
-  maplist(forced, Cs, Ms),
-  curried(M1, Ms, M).
 applied_term(Env, F, Cs, M) :- applied(Env, F, Cs, M).
 
 % β-reduction: the binders of the λs take the arguments, in order
@@ -443,7 +439,6 @@ hypothesis_uses(M, Uses) :-
   foldl(add_use, Sorted, Empty, Uses).
 
 uses('$lam'(_, _, M)) --> !, uses(M).
-uses('$rewrite'(_, _, E, M)) --> !, uses(E), uses(M).
 uses('$app'(M, N)) --> !, uses(M), uses(N).
 uses(F) --> ( { F = '$VAR'(_) } -> [F] ; [] ).
 

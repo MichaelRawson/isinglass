@@ -86,7 +86,6 @@ argument(Depth, Env, S, U) :- small_term(Depth, Env, S, U), !.
 instances(_, _, V) --> { var(V) }, !.
 instances(Env, T, '$lam'(X, A, M)) --> !, { abstraction(T, X, A, A1, T1) }, instances([X-A1|Env], T1, M).
 instances(Env, T, M) --> { M = '$app'(_, _), spine(M, F, As) }, !, applied(Env, T, F, As).
-instances(Env, _, '$rewrite'(_, _, E, M)) --> !, instances(Env, _, E), instances(Env, _, M).
 instances(_, _, _) --> [].
 
 % F applied to As, of type T. A redex: the λ takes the first argument, of the type of its binder (a
@@ -140,7 +139,10 @@ arguments(Env, T, Sub, [A|As]) --> { nonvar(T), T = '$proof'(F0), nonvar(F0), un
   arguments(Env, T1, Sub1, As).
 arguments(Env, _, _, [A|As]) --> instances(Env, _, A), arguments(Env, _, []-[], As).
 
-% Sub is Types-Terms, the substitutions of the binders so far, of types and of all
+% Sub is Types-Terms, the substitutions of the binders so far, of types and of all; a motive (of an
+% arrow sort, see ir.pl) is substituted at once, as the type after it is small
+argument(_, '!'(X:S, B0), Sub, A, '$proof'(B), Sub) --> { arrow_sort(S), nonvar(A) }, !,
+  { substitute(X, A, B0, B1), applied_motives(B1, B) }.
 argument(Env, '!'(X:S0, B), Types-Terms, A, '$proof'(B), Types1-[X-A|Terms]) --> !,
   { substituted(Types, S0, S), ( S == '$tType' -> Types1 = [X-A|Types] ; Types1 = Types ) },
   ( { var(A) } -> [hole(Env, A, S)] ; [] ).
@@ -172,8 +174,7 @@ unfolded(F, F).
 name_binders(V, N, N) :- var(V), !.
 name_binders('$lam'(X, _, M), N0, N) :- !, bind(X, N0, N1), name_binders(M, N1, N).
 name_binders(M, N0, N) :- M = '$app'(_, _), !, spine(M, F, As), name_applied(F, As, N0, N).
-name_binders('$rewrite'(X:_, _, E, M), N0, N) :- !,
-  bind(X, N0, N1), name_binders(E, N1, N2), name_binders(M, N2, N).
+name_binders('$abs'(X:_, _), N0, N) :- !, bind(X, N0, N).
 name_binders(_, N, N).
 
 % the binder of a redex is named before its arguments, and its body after them

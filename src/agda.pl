@@ -243,7 +243,11 @@ proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
 proof('$app'('$lam'(X, '$proof'(F), N), M)) --> !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
-proof('$rewrite'(X:_, A, E, M)) --> !, rewritten(A, X, E, M).
+proof(R) --> { rewrite(R, X, A, E, M) }, !, rewritten(A, X, E, M).
+% a rewrite applied to more arguments is a head
+proof(M) --> { M = '$app'(_, _), spine(M, F, As), F == '$rewrite', length(Rw, 3), append(Rw, [_|_], As) }, !,
+  { append(Rw, Rest, As), curried(F, Rw, R) },
+  "(", proof(R), ")", foldl(spaced_argument, Rest).
 % an argument is a proof or a first-order term
 proof(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, head(F), foldl(spaced_argument, As).
 proof(X) --> head(X).
@@ -285,14 +289,19 @@ applied to the path the other way, from e : s[r] ≡ t[r]. Any other literal is 
 The steps of a path are e, proof(M), eq(E) and cong(X, S, P), for P along the side S[X];
 none is no step, where X does not occur in the side.
 */
-rewritten('$='(A, S, T), X, E, M) --> !, path([proof('$rewrite'(X:_, '$='(A, S, T), E, M))]).
+rewritten('$='(A, S, T), X, E, M) --> !, { rewrite(R, X, '$='(A, S, T), E, M) }, path([proof(R)]).
 rewritten(~'$='(A, S, T), X, E, M) --> !,
-  "λ e", decorated, " → ", refutation('$rewrite'(X:_, ~'$='(A, S, T), E, M), [e]).
+  { rewrite(R, X, ~'$='(A, S, T), E, M) },
+  "λ e", decorated, " → ", refutation(R, [e]).
 rewritten(A, X, E, M) -->
   "subst (λ ", variable(X), " → ", type(A), ") ", operand(E), " ", operand(M).
 
+% R is the rewrite of M by E, with the motive A of the variable X: taken apart, or else built
+rewrite(R, X, A, E, M) :- nonvar(R), !, rewrite_parts(R, Motive, E, M), nonvar(Motive), Motive = '$abs'(X:_, A).
+rewrite(R, X, A, E, M) :- curried('$rewrite', ['$abs'(X:_, A), E, M], R).
+
 % M refutes the equation of the path Ps; a rewrite of M lengthens the path instead
-refutation('$rewrite'(X:_, ~'$='(_, S, T), E, M), Ps) --> !,
+refutation(R, Ps) --> { rewrite(R, X, ~'$='(_, S, T), E, M) }, !,
   { side(X, S, E, P), side(X, T, E, Q), inverse(Q, Q1), append([P|Ps], [Q1], Ps1) },
   refutation(M, Ps1).
 refutation(M, Ps) --> operand(M), " ", { present(Ps, Qs) }, path_operand(Qs).
@@ -309,7 +318,7 @@ inverse(cong(X, S, P), cong(X, S, Q)) :- inverse(P, Q).
 % sym E, with sym pushed down to the hypotheses: through a rewrite of an equation L = R, which is a
 % rewrite of sym of its proof by R = L, to cancel against sym
 inverted('$app'('$sym', E), E) :- !.
-inverted('$rewrite'(X, '$='(A, L, R), E, M0), '$rewrite'(X, '$='(A, R, L), E, M)) :- !, inverted(M0, M).
+inverted(Rw0, Rw) :- rewrite(Rw0, X, '$='(A, L, R), E, M0), !, inverted(M0, M), rewrite(Rw, X, '$='(A, R, L), E, M).
 inverted(E, '$app'('$sym', E)).
 
 % the steps of a path, flat: a step whose proof is a rewrite of an equation is its own path
@@ -321,10 +330,11 @@ present([P|Ps], [P|Qs]) :- present(Ps, Qs).
 step_path(proof(M), Ps) :- equation_path(M, Ps).
 step_path(eq(E), Ps) :- equation_path(E, Ps).
 
-equation_path('$rewrite'(X:_, '$='(_, S, T), E, M), [P1, proof(M), Q]) :-
+equation_path(R, [P1, proof(M), Q]) :-
+  rewrite(R, X, '$='(_, S, T), E, M),
   side(X, S, E, P), side(X, T, E, Q), inverse(P, P1).
 equation_path('$app'('$sym', E), Ps) :-
-  E = '$rewrite'(_, '$='(_, _, _), _, _),
+  rewrite(E, _, '$='(_, _, _), _, _),
   inverted(E, E1),
   equation_path(E1, Ps).
 

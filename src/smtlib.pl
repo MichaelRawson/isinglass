@@ -235,7 +235,6 @@ Both are bound by the λs of the proof term, with their sorts.
 skolem_constants('$lam'(X, S, M)) --> { \+ proof_annotation(S) }, !, [X:S], skolem_constants(M).
 skolem_constants('$lam'(_, _, M)) --> !, skolem_constants(M).
 skolem_constants(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, foldl(skolem_constants, As), skolem_constants(F).
-skolem_constants('$rewrite'(_, _, E, M)) --> !, skolem_constants(E), skolem_constants(M).
 skolem_constants(_) --> [].
 
 asserts([]) --> [].
@@ -245,10 +244,9 @@ asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 facts(Env, '$lam'(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
 facts(Env, M) --> { ( M = '$app'(_, _) ; atom(M) ), spine(M, F, As) }, !,
   fact(Env, F, As), foldl(facts(Env), As), head_facts(Env, F).
-facts(Env, '$rewrite'(_, _, E, M)) --> !, facts(Env, E), facts(Env, M).
 facts(_, _) --> [].
 
-% a head that is a term in its own right, a λ or a rewrite
+% a head that is a term in its own right, a λ or an application
 head_facts(Env, F) --> { compound(F), F \= '$VAR'(_) }, !, facts(Env, F).
 head_facts(_, _) --> [].
 

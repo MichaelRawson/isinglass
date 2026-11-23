@@ -250,9 +250,6 @@ proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
 proof('$app'('$lam'(X, '$proof'(F), N), M)) --> !,
   "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
-% rw, as rewrite is a lambdapi keyword
-proof('$rewrite'(X:S, A, E, M)) --> !,
-  "rw (λ (", term(X), " : ", sort(S), "), ", formula(0, A), ") ", operand(E), " ", operand(M).
 % the eigenvariable of a δ rule may be a type
 proof('$app'('$app'(Rule, M), L)) --> { nonvar(L), L = '$lam'(_, S, _), S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(L).
@@ -278,6 +275,8 @@ annotation(S) --> sort(S).
 head(M) --> { compound_term(M) }, !, "(", proof(M), ")".
 head('$sym') --> !, "eq_sym".
 head('$refl') --> !, "(eq_refl _)".
+% rw, as rewrite is a lambdapi keyword
+head('$rewrite') --> !, "rw".
 head('$trivial') --> !, "⊤ᵢ".
 head(Rule) --> { rule_symbol(Rule, Codes) }, !, codes(Codes).
 head('$VAR'(N)) --> !, term('$VAR'(N)).
@@ -306,6 +305,8 @@ arguments([]) --> [].
 arguments([A|As]) --> " ", argument(A), arguments(As).
 
 argument(M) --> { proof_argument(M) }, !, operand(M).
+% the motive of a rewrite
+argument('$abs'(X:S, A)) --> !, "(λ (", term(X), " : ", sort(S), "), ", formula(0, A), ")".
 argument(T) --> term(T).
 
 operand(M) --> { compound_term(M) }, !, "(", proof(M), ")".
@@ -314,7 +315,7 @@ operand(X) --> head(X).
 % the hypotheses of an input's bridge, by the index of their literals
 hypothesis(I) --> "h", number(I).
 
-compound_term(M) :- ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ; M = '$rewrite'(_, _, _, _) ), !.
+compound_term(M) :- ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ), !.
 
 /********************************************************************************
  * formulas and terms
