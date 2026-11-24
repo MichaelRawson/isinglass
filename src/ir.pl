@@ -33,6 +33,7 @@ and '$at'(P, T) its application (applied_motives/2); both occur only in head_typ
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(db).
 :- use_module(logic).
 :- use_module(utils).

@@ -12,6 +12,7 @@ use of Stdlib.Classic.
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -31,11 +32,14 @@ emit_lambdapi :-
   retractall(cone(_)),
   retractall(cited(_)),
   cited_steps(Cited),
-  each(gen_assoc(Name, Cited, _), assertz(cited(Name))),
+  each(gen_assoc(Name, Cited, _), record_cited(Name)),
   each(ir_step(Name, _, Justification), mark(Name, Justification)),
   out(prelude),
   out(signature),
   each(ir_step(Name, Conclusion, Justification), out(proof_step(Justification, Name, Conclusion))).
+
+% asserted here, not in the goal of each/2: Trealla would assert a fact of utils
+record_cited(Name) :- assertz(cited(Name)).
 
 % steps are in dependency order, so the cone is found in one pass
 mark(Name, negated_conjecture(_)) :- !, ir_step(Name, formula(~G), _), assertz(negated(Name, G)).

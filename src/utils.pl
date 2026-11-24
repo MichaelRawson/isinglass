@@ -2,7 +2,7 @@
 Portable helpers that Prolog systems provide differently, or not at all. Names avoid clashing with
 built-in and library predicates, since a module cannot choose a definition per system (no :- if).
 */
-:- module(utils, [each/2, warn/1, final/2, range/3, named/3, step_name/2, definition_name/2]).
+:- module(utils, [each/2, warn/1, final/2, range/3, included_excluded/4, bag_sort/2, named/3, step_name/2, definition_name/2]).
 
 % forall/2, which is built in to SWI and Trealla, but in library(iso_ext) in Scryer
 :- meta_predicate(each(0, 0)).
@@ -34,6 +34,24 @@ definition_name(Symbol, Name) :- named(definition, Symbol, Name).
 % the last element of a list (last/2, which Scryer's library(lists) lacks)
 final([X], X) :- !.
 final([_|Xs], X) :- final(Xs, X).
+
+% the elements of a list that satisfy Condition, and those that do not, in order (partition/4, which
+% Scryer and Trealla lack)
+:- meta_predicate(included_excluded(1, ?, ?, ?)).
+included_excluded(_, [], [], []).
+included_excluded(Condition, [X|Xs], Included, Excluded) :-
+  (   call(Condition, X)
+  ->  Included = [X|Included1], Excluded = Excluded1
+  ;   Included = Included1, Excluded = [X|Excluded1]
+  ),
+  included_excluded(Condition, Xs, Included1, Excluded1).
+
+% a list sorted in the standard order, keeping duplicates (msort/2, which Scryer lacks), as keysort/2
+% is stable
+bag_sort(Xs, Sorted) :- keyed(Xs, Pairs), keysort(Pairs, SortedPairs), keyed(Sorted, SortedPairs).
+
+keyed([], []).
+keyed([X|Xs], [X-x|Pairs]) :- keyed(Xs, Pairs).
 
 % the integers Low, Low + 1, ..., High - 1 (empty if Low >= High)
 range(Low, High, []) :- Low >= High, !.

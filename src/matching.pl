@@ -5,6 +5,7 @@ tactics of reconstruct.pl and transform.pl. Hypotheses Hs are a list of X-T pair
 :- module(matching, [matches/3, refutes/4, flipped/3, applied/3, lambdas/3]).
 :- use_module(library(lists)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 
 % a hypothesis refutes premise literal L, as M : ~L, or L is a trivial inequality S != S

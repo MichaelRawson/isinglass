@@ -31,6 +31,7 @@ minimal; premises with redundant units would give unused lemmas.
 :- use_module(ir).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 
 rup(Hs, Clauses, M) :-

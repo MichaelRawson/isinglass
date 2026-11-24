@@ -11,6 +11,7 @@ variables until closing (close.pl). The tactics for steps between formulas are i
 :- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(db).
 :- use_module(signature).
@@ -224,7 +225,7 @@ most_constrained([Q|Qs], Count, N0-P0, Seen, Best, Rest) :-
   ).
 
 % a unit clause, but for AVATAR's split literals, which are in the conclusion
-unit(Ls) :- exclude(avatar_literal, Ls, [_]).
+unit(Ls) :- included_excluded(avatar_literal, Ls, _, [_]).
 
 avatar_literal(L) :- atom_of(L, A), atom(A), split(A, _), !.
 
@@ -293,9 +294,9 @@ component_hypotheses([H|Hs0], P, Fresh, [H|Hs], M, M1) :- component_hypotheses(H
 % facts A, whose equations are completed into rewrite rules (rigid variables are constants); then, with
 % every literal in normal form, a fact is refuted by a hypothesis, or a positive literal is reflexive
 tautology(Fresh, Hs, _, M) :-
-  partition(fact_hypothesis, Hs, Gs, Ns0),
+  included_excluded(fact_hypothesis, Hs, Gs, Ns0),
   foldl(fact, Gs, Facts0, M, M0),
-  partition(equation_fact, Facts0, Equations, Facts1),
+  included_excluded(equation_fact, Facts0, Equations, Facts1),
   completed(Fresh, Equations, [], Rules, M0, M1),
   normalised_all(Fresh, Rules, Facts1, Facts, M1, M2),
   normalised_all(Fresh, Rules, Ns0, Ns, M2, M3),
@@ -319,7 +320,7 @@ completed(Fresh, [Equation0|Equations], Rules0, Rules, M, M1) :-
   ->  completed(Fresh, Equations, Rules0, Rules, M0, M1)
   ;   rule(E, S, A, B, Rule),
       Rule = _-'$='(_, L, _),
-      partition(reducible(L), Rules0, Reducible, Irreducible),
+      included_excluded(reducible(L), Rules0, Reducible, Irreducible),
       append(Reducible, Equations, Equations1),
       completed(Fresh, Equations1, [Rule|Irreducible], Rules, M0, M1)
   ).

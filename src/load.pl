@@ -25,6 +25,7 @@ inference, and of the input of a file are renamed with reserved prefixes, '$step
 :- module(load, [read_tstp/1]).
 :- use_module(library(lists)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(utils).
 
@@ -79,8 +80,15 @@ word_prefix_op(T, N) :-
   C =< 0'z.
 
 read_statements(Statements) :-
-  read(Term),
+  catch(read(Term), Error, read_after_error(Error, Term)),
   read_statement(Term, Statements).
+
+% Scryer raises a syntax error at the end of a stream that ends in a comment, as Vampire's output does:
+% it is the end if the next read is
+read_after_error(Error, end_of_file) :-
+  Error = error(syntax_error(incomplete_reduction), _),
+  catch(read(end_of_file), _, fail), !.
+read_after_error(Error, _) :- throw(Error).
 
 read_statement(end_of_file, []) :- !.
 read_statement(Term, [Statement|Rest]) :-
@@ -146,10 +154,10 @@ kept(_, V, V).
 binder(B, X:S) :- nonvar(B), B = (X : T), !, term(T, S).
 binder(X, X:'$i').
 
-% a term (or sort), with $-words as symbols: '$'(f(X)) is '$f'(X); a symbol '@'/2 would be read as
+% a term (or sort), with $-words as symbols: '$'(f(X)) is '$f'(X); a symbol @/2 would be read as
 % the application of a proof (ops.pl), so it is refused
 term(V, T) :- var(V), !, T = V.
-term(_ @ _, _) :- !, throw(reserved_symbol('@'/2)).
+term(_ @ _, _) :- !, throw(reserved_symbol((@)/2)).
 term('$'(T0), T) :- !, T0 =.. [F0|As0], atom_concat('$', F0, F), terms(As0, As), T =.. [F|As].
 term(T0, T) :- T0 =.. [F|As0], terms(As0, As), T =.. [F|As].
 

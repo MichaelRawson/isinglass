@@ -21,6 +21,7 @@ as |t.f[Types]|, and so is each '$inhabited'(S). Type variables are Skolem sorts
 :- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(db).
 :- use_module(ir).
@@ -247,13 +248,14 @@ head_facts(_, _) --> [].
 
 % a premise instance, by the terms As begin with
 fact(_, F, As) -->
-  { atom(F), step(F, clause(Bs, Ls), _), instance(Bs, As) }, !,
+  { atom(F), step(F, clause(Bs, Ls), _), binders_instantiated(Bs, As) }, !,
   { disjunction(Ls, D) }, [D].
 % the negated conjecture
 fact(_, F, _) --> { atom(F), step(F, formula(G), negated_conjecture(_)) }, !, [G].
 % the definition of Split is used, from F : Split
 fact(Env, F, As) -->
-  { get_assoc(F, Env, '$proof'(Split)), atom(Split), split(Split, clause(Bs, Ls)), instance(Bs, As) }, !,
+  { get_assoc(F, Env, '$proof'(Split)), atom(Split), split(Split, clause(Bs, Ls)),
+    binders_instantiated(Bs, As) }, !,
   { disjunction(Ls, D) }, [(Split => D)].
 % the definition of Split holds for eigenvariables Xs, refuting F : ~Split, so Split holds: sound by
 % Skolemisation of ~Split => ? [X] : ~C, as the eigenvariables are fresh (which search guarantees,
@@ -271,7 +273,7 @@ fact(Env, F, [M]) -->
 fact(_, _, _) --> [].
 
 % the binders Bs instantiated by the terms that the arguments As begin with
-instance(Bs, As) :- binder_variables(Bs, Ts), append(Ts, _, As), !.
+binders_instantiated(Bs, As) :- binder_variables(Bs, Ts), append(Ts, _, As), !.
 
 component_type(~T, T) :- !.
 component_type(A, T) :- defined_atom(A, ~T).

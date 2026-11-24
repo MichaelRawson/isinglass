@@ -195,7 +195,7 @@ In the manner of "Ground Truth" (Voronkov et al.): each step's ground premise in
 - SYN986+1.004 blows the stack in `read/1` with its deep `succ` terms, but checks with `ulimit -s unlimited`.
 - Some slowness during reconstruction, e.g. `PUZ135_1`'s self-superposition.
 - cvc5 exits 0 on `unknown`, so `scripts/checksmt` would not notice a timeout.
-- Scryer and Trealla no longer run isinglass (last ported in 979736d).
+- Trealla corrupts some stored terms when `--optimise` inlines function definitions (`$drop_barrier` appears in them, e.g. SET103-6, GRP006-1); a Trealla bug, as yet without a small reproduction.
 
 ## Testing
 Produce a corpus of TSTP proofs in `solutions/` if not already there.

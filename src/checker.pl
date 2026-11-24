@@ -13,6 +13,7 @@ checked. Every binder is fresh.
 :- use_module(utils).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -72,7 +73,7 @@ justified(skolem_def(Sk, Bs, F), formula(A), Steps) :- !,
 % unit clause of its definition, either way round
 justified(definition(Symbol, Bs, Body), clause(Cs, [Eq]), Steps) :- !,
   defined_once(Symbol, Bs, Body, Steps, Sort, Gamma, Term),
-  msort(Bs, Sorted), msort(Cs, Sorted),
+  bag_sort(Bs, Sorted), bag_sort(Cs, Sorted),
   sorted(Gamma, Body, Sort),
   ( Eq == '$='(Sort, Term, Body) ; Eq == '$='(Sort, Body, Term) ), !.
 % ...and a predicate, by a well-sorted formula, and its step is ![Bs] : (Symbol(Xs) <=> Body)

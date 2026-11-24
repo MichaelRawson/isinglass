@@ -2,6 +2,8 @@
 % quantifiers are written '!'(B, F) and '?'(B, F), with a binder B of the form X : Sort (a prefix '!'
 % operator would break cuts in Scryer); ':' has the priority of SWI's, not TPTP's, so that
 % module-qualified goals parse as usual; M @ N is the application of a proof term (ir.pl)
+% Trealla ignores the export of @, which is a prefix operator there, so each module that writes
+% M @ N declares it again
 :- module(ops, [
   op(200, xfy, :),
   op(200, yfx, @),

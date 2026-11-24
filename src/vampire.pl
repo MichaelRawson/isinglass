@@ -258,7 +258,8 @@ before_source(inference(Rule, _, [P|Ps]), Before) :-
 % flipping changes the sign of each, and a clause has no literal with its complement. Counting the signs
 % is not enough, as when one literal of each sign is flipped
 flipped_predicate(F0, F, P/N) :-
-  setof(P/N, S^A^( predicate_atom(F0, S, A), functor(A, P, N) ), Ps),
+  findall(P/N, ( predicate_atom(F0, _, A), functor(A, P, N) ), Ps0),
+  sort(Ps0, Ps),
   member(P/N, Ps),
   signed_literals(F0, P/N, Ls0),
   signed_literals(F, P/N, Ls),
@@ -269,7 +270,7 @@ signed_literals(F0, P/N, Ls) :-
   term_variables(F, Vs),
   number_vars(Vs, 0, _),
   findall(S-A, ( predicate_atom(F, S, A), functor(A, P, N) ), Ls1),
-  msort(Ls1, Ls).
+  bag_sort(Ls1, Ls).
 
 % a predicate atom A of a formula (not an equation, which is not yet typed), and its sign S
 predicate_atom(F, S, A) :- signed_atom(F, pos, A, S), A \= (_ = _).

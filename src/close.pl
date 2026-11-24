@@ -12,6 +12,7 @@ it is first instantiated, so the tactics instantiate premises under all of their
 :- use_module(library(lists)).
 :- use_module(utils).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).

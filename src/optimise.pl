@@ -20,6 +20,7 @@ binders keep their names, as its type mentions them.
 :- use_module(library(assoc)).
 :- use_module(utils).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -51,7 +52,7 @@ optimise_steps :-
 live(Names, Steps, Live) :-
   findall(Name, ( member(Name, Names), ir_step(Name, clause([], []), _) ), Refutations),
   findall(Name, ( member(Name, Names), ir_step(Name, _, conjecture(_, _, _)) ), Conjectures),
-  ( last(Refutations, R) -> Roots = [R|Conjectures] ; Roots = Conjectures ),
+  ( final(Refutations, R) -> Roots = [R|Conjectures] ; Roots = Conjectures ),
   empty_assoc(Empty),
   foldl(reached(Steps), Roots, Empty, Live0),
   findall(Name, member(ir_step(Name, _, definition(_, _, _)), Steps), Ds),
@@ -401,10 +402,9 @@ hypothesis('$VAR'(_)).
 
 % the number of uses of each hypothesis of a term
 hypothesis_uses(M, Uses) :-
-  phrase(uses(M), Occurrences),
-  msort(Occurrences, Sorted),
+  uses(M, Occurrences, []),
   empty_assoc(Empty),
-  foldl(add_use, Sorted, Empty, Uses).
+  foldl(add_use, Occurrences, Empty, Uses).
 
 uses('$lam'(_, _, M)) --> !, uses(M).
 uses(M @ N) --> !, uses(M), uses(N).

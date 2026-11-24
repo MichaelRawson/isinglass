@@ -17,6 +17,7 @@ of each disjunction; the only search is the choice of part.
 :- use_module(library(pairs)).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -209,7 +210,7 @@ existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, Rule @ X @ '$lam'(E, S,
 existentials(Mode, Fresh0-Fresh, Limit, X-F, Es, H, M, M1) :-
   alpha_like(F),
   expansion(F, X, Parts, M, M0),
-  partition(unit(Mode), Parts, _, [Part]), !,
+  included_excluded(unit(Mode), Parts, _, [Part]), !,
   existentials(Mode, Fresh0-Fresh, Limit, Part, Es, H, M0, M1).
 existentials(_, Fresh-Fresh, _, H, [], H, M, M).
 
@@ -315,7 +316,7 @@ taken_apart(Ctx, Branch, Pool, M) :-
 % the part of the pool where F is looked up: for a disjunction, only δ formulas, if any
 lookup_pool(Mode, F, Pool, Pool1) :-
   disjunctive(Mode, F), !,
-  partition(delta_entry, Pool, Pool1, _),
+  included_excluded(delta_entry, Pool, Pool1, _),
   Pool1 = [_|_].
 lookup_pool(_, _, Pool, Pool).
 

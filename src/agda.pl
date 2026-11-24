@@ -44,6 +44,7 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
+:- op(200, yfx, @). % as exported by ops, which Trealla ignores
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
