@@ -24,7 +24,7 @@ variables until closing (close.pl). The tactics for steps between formulas are i
 % reconstruct everything required for the last refutation, and then the conjecture, if any
 reconstruct :-
   findall(Name, step(Name, clause([], []), _), Refutations),
-  final(Refutations, Refutation),
+  ( final(Refutations, Refutation) -> true ; throw(no_refutation) ),
   prove(Refutation),
   findall(Name-Source, step(Name, _, conjecture(Source)), Conjectures),
   conjecture(Conjectures, Refutation).

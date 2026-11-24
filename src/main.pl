@@ -43,10 +43,22 @@ main(Frontend, Backend) :- main(Frontend, Backend, []).
 % with holes (agda.pl)
 main(Frontend, Backend, Options) :-
   recorded_options(Options),
-  (   catch(run(Frontend, Backend), Error, ( warn(['error: ', Error]), fail ))
+  (   catch(run(Frontend, Backend), Error, ( error_message(Error, Message), warn(['error: '|Message]), fail ))
   ->  halt(0)
   ;   halt(1)
   ).
+
+% errors that malformed input may raise, explained: Vampire, for one, prints TSTP only given -p tptp
+error_message(not_tstp(Term), Message) :- !,
+  Message = ['input is not TSTP: read ', Term, ' for an annotated formula such as fof(Name, Role, Formula, Source)', Hint],
+  tstp_hint(Hint).
+error_message(error(syntax_error(Error), _), ['syntax error in input (', Error, '): is it TSTP?', Hint]) :- !,
+  tstp_hint(Hint).
+error_message(no_refutation, ['the input has no refutation ($false): is it a proof?', Hint]) :- !,
+  tstp_hint(Hint).
+error_message(Error, [Error]).
+
+tstp_hint(' (Vampire prints its proofs in TSTP given -p tptp)').
 
 % both names are looked up before anything is read, so a typo is reported at once
 run(Frontend, Backend) :-

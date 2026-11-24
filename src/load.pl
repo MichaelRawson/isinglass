@@ -92,7 +92,7 @@ read_after_error(Error, _) :- throw(Error).
 
 read_statement(end_of_file, []) :- !.
 read_statement(Term, [Statement|Rest]) :-
-  statement(Term, Statement),
+  ( statement(Term, Statement) -> true ; throw(not_tstp(Term)) ),
   read_statements(Rest).
 
 statement(Term, annotated(Language, Name, Role, Formula, Source)) :-
