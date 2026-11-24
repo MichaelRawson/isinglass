@@ -90,6 +90,12 @@ how(_, inference(Rule, _, [Parent]), ~A, How) :-
   \+ connective(A, _),
   denied(Parent, Negated), !,
   How = tactic(deny, [Negated]).
+how(_, inference(Rule, _, [Parent]), F, tactic(resolve, [Parent, Lemma])) :-
+  injectivity(Rule, Polarity),
+  step(Parent, clause(_, Ls), _),
+  formula_clause(F, clause(_, Ks)),
+  constructor_literal(Polarity, Ls, Ks, Constructor, I),
+  lemma(Polarity, Constructor, I, Lemma), !.
 how(_, inference(Rule, _, Parents), _, How) :-
   tactic(Rule, Tactic), !,
   How = tactic(Tactic, Parents).
@@ -391,6 +397,68 @@ chosen([Y-T|Choices], X, D0, D) :-
 
 bound_in(Y, F) :- quantifier(F, _, Z:_, G), !, ( Z == Y -> true ; bound_in(Y, G) ).
 bound_in(Y, F) :- connective(F, Fs), member(G, Fs), bound_in(Y, G), !.
+
+/*
+Vampire's rules for term algebras (datatypes) are resolution with lemmas about a constructor C,
+inputs that the user of the proof provides, named after C:
+
+  C-injI : ∀ xs ys → C(xs) = C(ys) → xI = yI                 (injectivity in argument I, from 0)
+  C-cong : ∀ xs ys → x0 = y0 → ... → xn = yn → C(xs) = C(ys)  (congruence)
+
+Positive injectivity replaces C(as) = C(bs) by aI = bI, and negative injectivity replaces
+C(as) != C(bs) by a0 != b0 | ... | an != bn.
+*/
+injectivity(term_algebras_positive_injectivity_simplifying, positive).
+injectivity(term_algebras_injectivity_generating, positive).
+injectivity(term_algebras_negative_injectivity_simplifying, negative).
+
+% the constructor C of the literal of the premise Ls that the rule replaces, and for injectivity the
+% argument I whose equation is in the conclusion Ks
+constructor_literal(positive, Ls, Ks, C, I) :-
+  member('$='(_, A, B), Ls),
+  constructor_terms(A, B, C, N),
+  N1 is N - 1, range(0, N1, Is0), append(Is0, [N1], Is), member(I, Is),
+  I1 is I + 1, arg(I1, A, X), arg(I1, B, Y),
+  \+ \+ ( member('$='(_, P, Q), Ks), ( P-Q = X-Y ; P-Q = Y-X ) ).
+constructor_literal(negative, Ls, _, C, 0) :-
+  member(~'$='(_, A, B), Ls),
+  constructor_terms(A, B, C, _).
+
+constructor_terms(A, B, C, N) :- nonvar(A), nonvar(B), functor(A, C, N), N > 0, functor(B, C, N).
+
+% the step of a lemma, recorded once, as an input clause
+lemma(Polarity, C, I, Step) :-
+  lemma_name(Polarity, C, I, Bare),
+  lemma_step_name(Polarity, C, I, StepBare),
+  named(step, StepBare, Step),
+  (   step(Step, _, _)
+  ->  true
+  ;   symbol(C, [], Sorts, Sort),
+      length(Sorts, N), length(Xs, N), length(Ys, N),
+      A =.. [C|Xs], B =.. [C|Ys],
+      pairs_binders(Xs, Sorts, BXs), pairs_binders(Ys, Sorts, BYs), append(BXs, BYs, Bs),
+      lemma_literals(Polarity, I, Sort, A, B, Xs, Ys, Sorts, Ls),
+      named(input, Bare, Input),
+      record(step(Step, clause(Bs, Ls), input(axiom, Input)))
+  ).
+
+lemma_name(positive, C, I, Bare) :- number_codes(I, Cs), atom_codes(IA, Cs), atomic_list_concat([C, '-inj', IA], Bare).
+lemma_name(negative, C, _, Bare) :- atomic_list_concat([C, '-cong'], Bare).
+
+% ...and its step, apart from the input (the Agda back end prints inj0_C as inj0-C)
+lemma_step_name(positive, C, I, Bare) :- number_codes(I, Cs), atom_codes(IA, Cs), atomic_list_concat([inj, IA, '_', C], Bare).
+lemma_step_name(negative, C, _, Bare) :- atomic_list_concat([cong_, C], Bare).
+
+pairs_binders([], [], []).
+pairs_binders([X|Xs], [S|Ss], [X:S|Bs]) :- pairs_binders(Xs, Ss, Bs).
+
+lemma_literals(positive, I, Sort, A, B, Xs, Ys, Sorts, [~'$='(Sort, A, B), '$='(S, X, Y)]) :-
+  nth0(I, Xs, X), nth0(I, Ys, Y), nth0(I, Sorts, S).
+lemma_literals(negative, _, Sort, A, B, Xs, Ys, Sorts, Ls) :-
+  maplist(negated_equation, Sorts, Xs, Ys, Ns),
+  append(Ns, ['$='(Sort, A, B)], Ls).
+
+negated_equation(S, X, Y, ~'$='(S, X, Y)).
 
 % Vampire inference rules and the generic tactics that reconstruct them
 tactic(resolution, resolve).
