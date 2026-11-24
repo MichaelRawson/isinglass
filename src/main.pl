@@ -69,6 +69,5 @@ backend(lambdapi, emit_lambdapi) :- !.
 backend(smtlib, emit_smtlib) :- !.
 backend(checker, emit_checker) :- !.
 backend(agda, emit_agda) :- !.
-backend(agda_term, emit_agda_term) :- !.
 backend(agda_file, emit_agda_file) :- !.
 backend(Backend, _) :- warn(['error: unknown backend ', Backend]), halt(1).

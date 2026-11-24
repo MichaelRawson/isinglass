@@ -1,5 +1,6 @@
 /*
-Agda back end, for a hammer: a term to fill a hole, constructive by the A-translation.
+Agda back end, for a hammer: a term to fill a hole, constructive by the A-translation. The proof is
+one expression (below); in its plainest form, as agda_file prints it,
 
   Proof.refutation bridge ... bridge
     where
@@ -22,7 +23,7 @@ Only the prover's own names, of symbols, steps and definitions, are escaped (see
 In scope are assumed _≡_, refl, sym, trans, cong and subst, and for the bridges ⊥-elim and [_,_]′, as in
 the standard library.
 
-emit_agda_term prints the same proof as one expression, for a caller that can check an expression
+emit_agda prints the proof as one expression, for a caller that can check an expression
 but not declare a module (Agda's reflection: checkFromStringTC), the parameters bound by λ, the
 definitions of symbols by let, and the other steps by
 
@@ -49,10 +50,10 @@ Agda substitutes a let, so a step cited n times would be checked n times, and th
 exponentially with the depth of the proof; letp is a definition, which Agda does not unfold, so each
 step is checked once and stays a variable. The definitions of symbols are cheap and must unfold.
 
-emit_agda_file wraps the term in a module that postulates the signature and the inputs, for testing
+emit_agda_file wraps the plain form in a module that postulates the signature and the inputs, for testing
 on proofs whose names were not chosen for Agda: there, every name is mangled.
 */
-:- module(agda, [emit_agda/0, emit_agda_term/0, emit_agda_file/0]).
+:- module(agda, [emit_agda/0, emit_agda_file/0]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(ops).
@@ -67,9 +68,7 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 % mangled: names are made Agda identifiers, apart from each other and from ours, for testing
 :- dynamic(mangled/0).
 
-emit_agda :- retractall(mangled), complete, decorate, out(fragment).
-
-emit_agda_term :- retractall(mangled), complete, decorate, out(expression).
+emit_agda :- retractall(mangled), complete, decorate, out(expression).
 
 emit_agda_file :- retractall(mangled), assertz(mangled), complete, decorate, out(file).
 
