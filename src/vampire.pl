@@ -102,6 +102,11 @@ how(_, inference(Rule, _, [Parent]), F, tactic(variant, [Parent])) :-
   tactic(Rule, transform(_)),
   step(Parent, clause(_, _), _),
   formula_clause(F, _), !.
+how(_, inference(term_algebras_distinctness, _, [Parent]), _, tactic(resolve, [Parent, Lemma])) :-
+  step(Parent, clause(_, Ls), _),
+  member('$='(_, A, B), Ls),
+  distinct_constructors(A, B, C, D),
+  distinctness_lemma(C, D, Lemma), !.
 how(_, inference(Rule, _, Parents), _, How) :-
   tactic(Rule, Tactic), !,
   How = tactic(Tactic, Parents).
@@ -406,14 +411,16 @@ bound_in(Y, F) :- quantifier(F, _, Z:_, G), !, ( Z == Y -> true ; bound_in(Y, G)
 bound_in(Y, F) :- connective(F, Fs), member(G, Fs), bound_in(Y, G), !.
 
 /*
-Vampire's rules for term algebras (datatypes) are resolution with lemmas about a constructor C,
-inputs that the user of the proof provides, named after C:
+Vampire's rules for term algebras (datatypes) are resolution with lemmas about a constructor C, or
+two constructors C and D, inputs that the user of the proof provides, named after them:
 
   C-injI : ∀ xs ys → C(xs) = C(ys) → xI = yI                 (injectivity in argument I, from 0)
   C-cong : ∀ xs ys → x0 = y0 → ... → xn = yn → C(xs) = C(ys)  (congruence)
+  C-D-dist : ∀ xs ys → C(xs) = D(ys) → ⊥                       (distinctness)
 
-Positive injectivity replaces C(as) = C(bs) by aI = bI, and negative injectivity replaces
-C(as) != C(bs) by a0 != b0 | ... | an != bn.
+Positive injectivity replaces C(as) = C(bs) by aI = bI, negative injectivity replaces
+C(as) != C(bs) by a0 != b0 | ... | an != bn, and distinctness removes C(as) = D(bs), for C and D in
+the order of the literal (so the user provides C-D-dist for both orders).
 */
 injectivity(term_algebras_positive_injectivity_simplifying, positive).
 injectivity(term_algebras_injectivity_generating, positive).
@@ -466,6 +473,25 @@ lemma_literals(negative, _, Sort, A, B, Xs, Ys, Sorts, Ls) :-
   append(Ns, ['$='(Sort, A, B)], Ls).
 
 negated_equation(S, X, Y, ~'$='(S, X, Y)).
+
+% the constructors C and D of the sides of an equation, distinct (the proof does not say which
+% symbols are constructors, but the rule names the step, and resolution checks the conclusion)
+distinct_constructors(A, B, C, D) :- nonvar(A), nonvar(B), functor(A, C, _), functor(B, D, _), C \== D.
+
+% the step of the lemma that C and D are distinct, recorded once, as an input clause
+distinctness_lemma(C, D, Step) :-
+  atomic_list_concat([dist_, C, '_', D], StepBare),
+  named(step, StepBare, Step),
+  (   step(Step, _, _)
+  ->  true
+  ;   symbol(C, [], CSorts, Sort), symbol(D, [], DSorts, _),
+      length(CSorts, M), length(Xs, M), length(DSorts, N), length(Ys, N),
+      A =.. [C|Xs], B =.. [D|Ys],
+      pairs_binders(Xs, CSorts, BXs), pairs_binders(Ys, DSorts, BYs), append(BXs, BYs, Bs),
+      atomic_list_concat([C, '-', D, '-dist'], Bare),
+      named(input, Bare, Input),
+      record(step(Step, clause(Bs, [~'$='(Sort, A, B)]), input(axiom, Input)))
+  ).
 
 % Vampire inference rules and the generic tactics that reconstruct them
 tactic(resolution, resolve).
