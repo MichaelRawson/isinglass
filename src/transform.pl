@@ -1,40 +1,16 @@
 /*
-The tactics for preprocessing steps and clausification, each specific to what the step does.
+The tactics for steps between formulas, with the interface of reconstruct.pl's; the parent is a
+hypothesis of its formula, or of the type of its clause.
 
-  transform(Mode, Fresh, Hs, Parents, M)
-  clausify(Fresh, Hs, Parents, M)
+transform(Mode): the parent and the conclusion have the same key for the Mode (normal.pl), and are
+taken apart in lockstep, the keys saying which parts go together. pair(Ctx, X-F, Y-G, M) refutes
+X : F and Y : G, where G's key is that of ~F: literals close, δ eigenvariables instantiate their γ
+counterparts, and otherwise a conjunction is expanded into a pool of parts, by key, in which each
+branch of the other side is looked up. Skolemisation (Mode skolem) opens a δ formula by the choice
+axiom of a Skolem term read off its counterpart, recording the definition as a step.
 
-As in reconstruct.pl, M : ⊥ is found from the hypotheses Hs, which refute the conclusion, and the
-parent, a hypothesis of its formula, or the type of its clause.
-
-transform: the parent and the conclusion have the same normal form for the Mode of the step
-(normal.pl), or else the step fails at once. The proof takes the two apart in lockstep, and the
-keys say which parts go together, so there is no search. pair(X-F, Y-G) refutes X : F and Y : G,
-where the key of G is that of ~F:
-
-  - a formula that closes by itself ($false, ~$true) closes the branch;
-  - two literals are complementary, modulo symmetry of equality (matching.pl);
-  - a δ formula (?, ~!) has eigenvariables, which instantiate its counterpart, a γ formula (!, ~?),
-    variable by variable, apart from vacuous ones;
-  - otherwise one is a conjunction (α, ~~), which is expanded into a pool of its parts, by key; the
-    other is split (β) into branches, and each part of a branch is looked up in the pool, or
-    expanded or split further. Where both are split (<=> against ~(<=>)), the branches of one are
-    the pool of the other.
-
-Some steps only weaken their parent: the pure predicates are those of the parent but not of the
-conclusion, and an unused definition F <=> G is weakened to F => G or G => F.
-
-Skolemisation is an entailment once each Skolem symbol is defined by choice: sK(xs) := ε Y. T, for
-a δ formula of the parent ?[Y] : T (the prover Skolemises in negation normal form, so not ~!). The
-Skolem symbols are those of the conclusion that are not in the parent; their keys forget them
-(normal.pl). A δ formula of the parent is opened by the choice axiom of a Skolem term in its counterpart (skolem_def, see ir.pl):
-the term is read off the conclusion, so no convention of the prover is assumed. The definitions
-that the proof uses are recorded as steps, before the step itself.
-
-clausify: the conclusion is a clause of the conjunctive normal form of the parent. The literals of the
-conclusion refute the parent: one part of a conjunction, every branch of a disjunction, and a literal
-by unification. The only search is the choice of part, of those that can be refuted by literals of
-the clause's predicates and signs.
+clausify: the clause's literals refute the parent, by one part of each conjunction and every branch
+of each disjunction; the only search is the choice of part.
 */
 :- module(transform, [transform/5, clausify/4]).
 :- use_module(library(lists)).
@@ -46,24 +22,22 @@ the clause's predicates and signs.
 :- use_module(db).
 :- use_module(matching).
 :- use_module(normal).
+:- use_module(signature).
 :- use_module(utils).
 
-% a clause conclusion whose variables are not those of the outermost universal quantifiers of the parent,
-% as in Vampire's AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
-% definition folding: the parent and the conclusion are the same once the defined predicates of both
-% are unfolded (see ir.pl), and these unfolded types are stated by redexes
+% the parent is a hypothesis X : F; in definition folding, both it and the conclusion are unfolded
+% (ir:expanded/2), types that redexes state
 transform(fold, Fresh, Hs0, [Parent|_], M) :- !,
-  expanded_hypotheses(Hs0, Hs, M, M0),
-  step(Parent, Conclusion, _),
-  step_type(Conclusion, '$proof'(F0)),
-  canonical(F0, F1),
-  expanded(F1, F),
-  M0 = '$app'('$lam'(X, '$proof'(F), M1), Parent),
+  expanded_hypotheses(Hs0, Hs, M, '$lam'(X, '$proof'(F), M1) @ Parent),
+  parent_formula(Parent, F0),
+  expanded(F0, F),
   transformed_from(base, Fresh, Hs, X-F, M1).
-transform(Mode, Fresh, Hs, [Parent], M) :-
-  parent(Parent, X, F, M, M1),
-  transformed_from(Mode, Fresh, Hs, X-F, M1).
+transform(Mode, Fresh, Hs, [Parent], '$lam'(X, '$proof'(F), M) @ Parent) :-
+  parent_formula(Parent, F),
+  transformed_from(Mode, Fresh, Hs, X-F, M).
 
+% a clause conclusion whose variables are not the parent's outermost universal ones, as in Vampire's
+% AVATAR shape (! [X] : C) | ~split, is refuted as in clausification
 transformed_from(Mode0, Fresh, Hs, X-F, M1) :-
   eigenvariables(Hs, Es),
   goal(Hs, G),
@@ -79,7 +53,7 @@ transformed_from(Mode0, Fresh, Hs, X-F, M1) :-
 expanded_hypotheses([], [], M, M).
 expanded_hypotheses([X-T|Hs0], [H|Hs], M, M1) :-
   expanded(T, T1),
-  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = '$app'('$lam'(Y, '$proof'(T1), M0), X) ),
+  ( T1 == T -> H = X-T, M = M0 ; H = Y-T1, M = '$lam'(Y, '$proof'(T1), M0) @ X ),
   expanded_hypotheses(Hs0, Hs, M0, M1).
 
 % Ctx is ctx(Mode, Fresh, Defs), with Defs the Skolem definitions so far, an open list; the Skolem
@@ -94,8 +68,8 @@ transformed(ctx(Mode0, Fresh, Defs), H, G, Hs, M) :-
   normal(Mode, F1, K), !,
   conclusion(ctx(Mode, Fresh, Defs), H, Hs, M).
 
-% the parent is the hypothesis X : F, its formula or the type of its clause
-parent(Parent, X, F, '$app'('$lam'(X, '$proof'(F), M), Parent), M) :-
+% the formula of the parent, or the type of its clause
+parent_formula(Parent, F) :-
   step(Parent, Conclusion, _),
   step_type(Conclusion, '$proof'(F0)),
   canonical(F0, F).
@@ -163,16 +137,6 @@ weaken_definition(F, F1) :-
   append(Before, [A1|After], As1),
   F1 =.. [C|As1].
 
-% an atom A of F, and its sign S, where F has the sign S0
-signed_atom(~F, S0, A, S) :- !, opposite(S0, S1), signed_atom(F, S1, A, S).
-signed_atom((F => G), S0, A, S) :- !, ( opposite(S0, S1), signed_atom(F, S1, A, S) ; signed_atom(G, S0, A, S) ).
-signed_atom((F <=> G), _, A, S) :- !, member(S1, [pos, neg]), ( signed_atom(F, S1, A, S) ; signed_atom(G, S1, A, S) ).
-signed_atom(F, S0, A, S) :- connective(F, Gs), !, member(G, Gs), signed_atom(G, S0, A, S).
-signed_atom(A, S, A, S).
-
-opposite(pos, neg).
-opposite(neg, pos).
-
 % a formula conclusion is refuted by one hypothesis, its counterpart; a clause by its literals
 conclusion(Ctx, H, [Y-G], M) :- !, pair(Ctx, H, Y-G, M).
 conclusion(Ctx, H, Hs, M) :- keyed(Ctx, Hs, Pool), close(Ctx, H, Pool, M).
@@ -185,8 +149,8 @@ pair(_, X-F, _, M) :- closes(F, X, M), !.
 pair(_, _, Y-G, M) :- closes(G, Y, M), !.
 % ...or the one is the negation of the other, as they are (canonical), before either is taken apart:
 % a chain of <=> splits into exponentially many branches
-pair(_, X-F, Y-G, '$app'(Y, X)) :- G == ~F, !.
-pair(_, X-F, Y-G, '$app'(X, Y)) :- F == ~G, !.
+pair(_, X-F, Y-G, Y @ X) :- G == ~F, !.
+pair(_, X-F, Y-G, X @ Y) :- F == ~G, !.
 pair(_, X-F, Y-G, M) :- literal(F), literal(G), !, refutes(G, Y, F, R), !, applied(R, X, M).
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, X-F, Y-G, M), !.
 pair(Ctx, X-F, Y-G, M) :- quantifiers(Ctx, Y-G, X-F, M), !.
@@ -235,7 +199,7 @@ limit(_, Vs, Vs).
 % variable, are Y : G; a conjunction of one part and units of the key (a pure atom, as $true) is that
 % part, so ?[X] : (p(X) & ?[Y] : q(X,Y)) opens as ?[X,Y] : q(X,Y), and so is ~~F, as ~! [X] : ~?[Y]
 % is opened as its γ counterpart ![X] : ~?[Y] is instantiated
-existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, '$app'('$app'(Rule, X), '$lam'(E, S, '$lam'(Y, '$inferred', M0))), M) :-
+existentials(Mode, Fresh0-Fresh, Limit0, X-F, [E|Es], H, Rule @ X @ '$lam'(E, S, '$lam'(Y, '$inferred', M0)), M) :-
   fewer(Limit0, Limit),
   delta(F, Rule, B:S, T0), !,
   E = '$VAR'(Fresh0),
@@ -255,13 +219,13 @@ fewer(unlimited, unlimited).
 fewer([_|Limit], Limit).
 
 % the γ formulas nested outermost in X : F, with fresh variables Vs, are Y : G
-universals(X-F0, Vs, H, '$app'('$lam'(Y, '$proof'(G), M0), N), M) :-
+universals(X-F0, Vs, H, '$lam'(Y, '$proof'(G), M0) @ N, M) :-
   quantifier_prefix('!', F0, Bs, F), Bs = [_|_], !,
-  instance(Bs, F, Us, G),
+  opened_body(Bs, F, Us, G),
   curried(X, Us, N),
   universals(Y-G, Ws, H, M0, M),
   append(Us, Ws, Vs).
-universals(X-(~'?'(B, F)), Vs, H, '$app'('$app'(Rule, X), '$lam'(Y, '$inferred', M0)), M) :- !,
+universals(X-(~'?'(B, F)), Vs, H, Rule @ X @ '$lam'(Y, '$inferred', M0), M) :- !,
   not_exists_rule(B, Rule),
   universals(Y-'!'(B, ~F), Vs, H, M0, M).
 universals(H, [], H, M, M).
@@ -271,10 +235,10 @@ not_exists_rule(_:S, '$nex_t') :- S == '$tType', !.
 not_exists_rule(_, '$nex').
 
 % the body F of a quantifier with its bound variables replaced by fresh variables Us
-instance([], F, [], F).
-instance([X:_|Bs0], F0, [U|Us], F) :-
+opened_body([], F, [], F).
+opened_body([X:_|Bs0], F0, [U|Us], F) :-
   substitute(X, U, Bs0-F0, Bs-F1),
-  instance(Bs, F1, Us, F).
+  opened_body(Bs, F1, Us, F).
 
 % the pool: the parts of conjunctions, each with the key of its complement (and in nnf, its own), and
 % whether it is a δ formula, as keys(K, K1, Kind)
@@ -379,7 +343,7 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
 skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
 
 % ...and Hinted is true if the term is the prover's choice
-skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$app'('$lam'(Y, '$proof'(T1), M), N), M) :-
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$lam'(Y, '$proof'(T1), M) @ N, M) :-
   delta(F, '$ex', B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
@@ -396,12 +360,10 @@ skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$app'('$lam'(Y, '$p
   append(As, [X], Args),
   curried(Name, Args, N).
 
-% the candidate Skolem terms Us for the δ formula F (? B : T), of the symbols Ss in the
-% formulas Gs. If the prover says which symbol is its choice (db.pl), only its terms, so that a δ formula
-% paired with the wrong counterpart fails at once, without a search through all of Gs: this saves the
-% search in a formula of many similar parts (LCL670+1.005: chains of r1(X, Y) under nested ?). Without
-% a hint, or for a vacuous B (whose term need not be in the conclusion), every term of Gs, Hinted is
-% false, and a term must be plausible. A term is still checked as any other
+% the candidate Skolem terms Us for the δ formula F, ? B : T, in the formulas Gs: if the prover hints
+% at its choice of symbol (db.pl), only its terms, so a wrong counterpart fails at once (LCL670+1.005:
+% chains of r1(X, Y) under nested ?); else, or for a vacuous B, each term of the symbols Ss, which must
+% then be plausible (Hinted is false)
 candidates(_, F, B, T, Gs, true, Us) :-
   occurs(B, T),
   findall(Sk, ( skolem_hint(Sk, D), D = F ), Hints),
@@ -434,7 +396,7 @@ blur(_, '$BOUND'(_), '$skolem') :- !.
 blur(_, '$VAR'(_), '$skolem') :- !.
 blur(Ss-Chosen, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), \+ memberchk(F, Chosen), !.
 blur(_, T, T) :- \+ compound(T), !.
-blur(Ss, T0, T) :- T0 =.. [F|As0], maplist(blur(Ss), As0, As), T =.. [F|As].
+blur(Ss, T0, T) :- map_arguments(blur(Ss), T0, T).
 
 distinct_eigenvariables([]).
 distinct_eigenvariables([A|As]) :- nonvar(A), A = '$VAR'(_), \+ memberchk(A, As), distinct_eigenvariables(As).
@@ -444,27 +406,18 @@ each_member([V|Vs], As) :- memberchk(V, As), each_member(Vs, As).
 
 % sK(As) is defined by F, as in Defs, or as a new definition at its end
 defined(Defs, Sk, As, F) :- var(Defs), !, Defs = [def(Sk, As, F)|_].
-defined([def(Sk1, As1, F1)|_], Sk, As, F) :- Sk1 == Sk, !, abstracted(As1, F1, Ws, G), abstracted(As, F, Ws, G).
+defined([def(Sk1, As1, F1)|_], Sk, As, F) :- Sk1 == Sk, !, substitute_all(As1, Ws, F1, G), substitute_all(As, Ws, F, G).
 defined([_|Defs], Sk, As, F) :- defined(Defs, Sk, As, F).
-
-% F with the eigenvariables As replaced by the variables Ws
-abstracted([], F, [], F).
-abstracted([A|As], F0, [W|Ws], F) :- substitute(A, W, F0, F1), abstracted(As, F1, Ws, F).
-
 
 % each definition is recorded as a step, whose conclusion is its choice axiom, with its eigenvariables
 % renumbered from 0, and of the sorts of the arguments of its symbol
 choices(Defs) :- var(Defs), !, Defs = [].
 choices([]).
 choices([def(Sk, As, F0)|Defs]) :-
-  abstracted(As, F0, Xs, F1),
+  substitute_all(As, Xs, F0, F1),
   number_vars(Xs, 0, _),
   canonical(F1, F),
-  symbol(Sk, Ps, Args, _),
-  append(Ps, _, Xs),
-  findall('$tType', member(_, Ps), Ts),
-  append(Ts, Args, Sorts),
-  binders(Xs, Sorts, Bs),
+  symbol_binders(Sk, Xs, Bs, _),
   choice_axiom(Sk, Bs, F, A0),
   canonical(A0, A),
   definition_name(Sk, Name),
@@ -472,16 +425,13 @@ choices([def(Sk, As, F0)|Defs]) :-
   record(ir_step(Name, formula(A), skolem_def(Sk, Bs, F))),
   choices(Defs).
 
-binders([], [], []).
-binders([X|Xs], [S|Ss], [X:S|Bs]) :- binders(Xs, Ss, Bs).
-
 /********************************************************************************
  * clausification
  ********************************************************************************/
 
-clausify(_, Hs, [Parent], M) :-
-  parent(Parent, X, F, M, M1),
-  refuted(X-F, Hs, M1).
+clausify(_, Hs, [Parent], '$lam'(X, '$proof'(F), M) @ Parent) :-
+  parent_formula(Parent, F),
+  refuted(X-F, Hs, M).
 
 refuted(H, Hs, M) :-
   findall(S-N/K, ( member(_-(~L), Hs), signed_atom(L, pos, A, S), functor(A, N, K) ), Sig0),
@@ -530,10 +480,7 @@ fits(F, Sig) :-
  ********************************************************************************/
 
 closes('$false', X, X).
-closes(~'$true', X, '$app'(X, '$trivial')).
-
-literal(~A) :- !, \+ connective(A, _).
-literal(A) :- \+ connective(A, _).
+closes(~'$true', X, X @ '$trivial').
 
 alpha_like(F) :- alpha(F, _, _), !.
 alpha_like(~(~_)).
@@ -542,11 +489,11 @@ alpha_like(~(~_)).
 disjunctive(Mode, F) :- Mode \== nnf, beta(F, Rule, _, _), Rule \== '$iff', Rule \== '$niff'.
 
 % X : F is expanded at once, to the hypotheses Es: M is M1 : ⊥ with these bound
-expansion(F, X, Es, '$app'('$app'(Rule, X), K), M) :-
+expansion(F, X, Es, Rule @ X @ K, M) :-
   alpha(F, Rule, Ts), !,
   entries(Ts, Es),
   inferred_lambdas(Es, M, K).
-expansion(~(~F), X, [Y-F], '$app'(X, '$lam'(Y, '$inferred', M)), M).
+expansion(~(~F), X, [Y-F], X @ '$lam'(Y, '$inferred', M), M).
 
 % in Skolemisation, the branches smallest first: a wrong counterpart, as Skolem keys allow, fails on
 % its smallest branch before the others are taken apart. Otherwise ~(C & p(sK1)) against
@@ -568,7 +515,7 @@ formula_size(F, N0, N) :- connective(F, Gs), !, N1 is N0 + 1, foldl(formula_size
 formula_size(_, N0, N) :- N is N0 + 1.
 
 % X : F is split into branches Es-M, each M : ⊥ with the hypotheses Es bound
-split(X-F, [Es1-M1, Es2-M2], '$app'('$app'('$app'(Rule, X), K1), K2)) :-
+split(X-F, [Es1-M1, Es2-M2], Rule @ X @ K1 @ K2) :-
   beta(F, Rule, Ts1, Ts2),
   entries(Ts1, Es1),
   entries(Ts2, Es2),

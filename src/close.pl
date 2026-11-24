@@ -1,26 +1,17 @@
 /*
-Closing a proof term after search, so that it is ground (see ir.pl):
-
-  - term and type variables left unconstrained by search become some term of their sort S (the
-    sort of types is '$tType'), or else '$inhabited'(S), an arbitrary individual of S;
-  - binders still Prolog variables (those of hypotheses, during search) are variables '$VAR'(N),
-    numbered in binder order after those already numbered (eigenvariables, rigid during search).
-
-Every variable is an argument of a step, a split definition, a built-in or a quantified hypothesis,
-for a binder of its type, so its sort is that of its binder. Type variables are closed first, so that the sorts
-of the others are then ground.
-
-The term is the first of: an eigenvariable in scope, a constant of the signature, or a function of
-the signature applied to these. A variable is closed where it is first instantiated, outermost
-first, so it must not also occur outside the scope of the eigenvariables there: the tactics only
-instantiate premises under all of their eigenvariables.
-
-'$inhabited' assumes that every sort is inhabited, as classical first-order logic (and TF1) does.
-Back ends decide what it stands for: a constructive back end (Agda, say) may not assume this.
+Closing a proof term after search, so that it is ground:
+  - a term or type variable left unconstrained is the smallest term of its sort that is found (an
+    eigenvariable in scope, or symbols applied to such), or else '$inhabited'(S);
+  - binders still Prolog variables (hypotheses) are numbered '$VAR'(N), in binder order, after the
+    variables already numbered.
+Each variable is an argument for a binder of the type of its head, which gives its sort; type
+variables are closed first, so that the sorts of the others are ground. A variable is closed where
+it is first instantiated, so the tactics instantiate premises under all of their eigenvariables.
 */
 :- module(close, [close_term/1, number_binders/1]).
 :- use_module(library(lists)).
 :- use_module(utils).
+:- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -85,7 +76,7 @@ argument(Depth, Env, S, U) :- small_term(Depth, Env, S, U), !.
 % binder annotated '$inferred' takes its type from it
 instances(_, _, V) --> { var(V) }, !.
 instances(Env, T, '$lam'(X, A, M)) --> !, { abstraction(T, X, A, A1, T1) }, instances([X-A1|Env], T1, M).
-instances(Env, T, M) --> { M = '$app'(_, _), spine(M, F, As) }, !, applied(Env, T, F, As).
+instances(Env, T, M) --> { M = _ @ _, spine(M, F, As) }, !, applied(Env, T, F, As).
 instances(_, _, _) --> [].
 
 % F applied to As, of type T. A redex: the λ takes the first argument, of the type of its binder (a
@@ -126,11 +117,9 @@ head_of(_, _, _, _).
 
 typed(Env, X, T) :- member(Y-T, Env), Y == X, !, nonvar(T), T = '$proof'(F), nonvar(F).
 
-% each argument of a head of type T: a term for a binder X : S, a hole to close, whose term the sorts
-% and types after it may depend on, or a proof of a premise; a split symbol is its clause type. The
-% terms are substituted only where they are needed, at once, in a premise of a proof to look into,
-% and a type in the sort of a binder (which mentions no other term): substituting each term into the
-% rest of a wide clause's type would be quadratic
+% each argument of a head of type T: a term for a binder, a hole to close, or a proof of a premise (a
+% split symbol is its clause type). Terms are substituted only where needed, into a premise to look
+% into or a binder's sort: into the rest of a wide clause's type, that would be quadratic
 arguments(Env, T, As) --> arguments(Env, T, []-[], As).
 
 arguments(_, _, _, []) --> !.
@@ -163,7 +152,7 @@ inferred_binder(M) :- nonvar(M), M = '$lam'(_, A, B), ( A == '$inferred' -> true
 substituted([], F, F) :- !.
 substituted(Sub, T, A) :- binder(T), !, ( member(X-A0, Sub), X == T -> A = A0 ; A = T ).
 substituted(_, T, T) :- \+ compound(T), !.
-substituted(Sub, T0, T) :- T0 =.. [F|As0], maplist(substituted(Sub), As0, As), T =.. [F|As].
+substituted(Sub, T0, T) :- map_arguments(substituted(Sub), T0, T).
 
 binder(T) :- ( var(T) ; T = '$VAR'(_) ; T = '$BOUND'(_) ), !.
 
@@ -173,7 +162,7 @@ unfolded(F, F).
 % a hypothesis is a variable until named, so the clauses below would bind it: hence the guard
 name_binders(V, N, N) :- var(V), !.
 name_binders('$lam'(X, _, M), N0, N) :- !, bind(X, N0, N1), name_binders(M, N1, N).
-name_binders(M, N0, N) :- M = '$app'(_, _), !, spine(M, F, As), name_applied(F, As, N0, N).
+name_binders(M, N0, N) :- M = _ @ _, !, spine(M, F, As), name_applied(F, As, N0, N).
 name_binders('$abs'(X:_, _), N0, N) :- !, bind(X, N0, N).
 name_binders(_, N, N).
 

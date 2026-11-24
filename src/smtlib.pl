@@ -119,8 +119,8 @@ check(Declared, proof(M), Name, clause(Bs, Ls)) -->
 check(_, negated_conjecture(_), _, _) --> [].
 check(_, conjecture(_, _, _), _, _) --> [].
 % unreconstructed: checking it with quantified premises is liable to time out
-check(_, todo(Record, _), Name, _) -->
-  "(echo \"warning: ", name(Name), " (", rule(Record), ") is not checked\")\n".
+check(_, todo(Record, _), Name, _) --> { todo_rule(Record, Rule) },
+  "(echo \"warning: ", name(Name), " (", atom(Rule), ") is not checked\")\n".
 
 % steps are never SMT-LIB symbols (|t.f|), only text in an echo: a step by its name, a definition by
 % its symbol, with " doubled as in an SMT-LIB string
@@ -131,9 +131,6 @@ quoted(A) --> { atom_codes(A, Cs) }, foldl(quoted_code, Cs).
 
 quoted_code(0'") --> !, "\"\"".
 quoted_code(C) --> [C].
-
-rule(esa(Rule, _)) --> !, atom(Rule).
-rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
 
 % the facts Fs and the negated conclusion, with Skolem constants Cs, and the instances not Declared in
 % the header
@@ -197,23 +194,21 @@ instance_definition(F/_-Types, Bs, Body) :-
   same_length(Types, Ts),
   append(Ts, Bs1, Bs0),
   binder_variables(Ts, Xs),
-  foldl(instantiated, Xs, Types, Bs1-Body0, Bs-Body).
-
-instantiated(X, Type, T0, T) :- substitute(X, Type, T0, T).
+  substitute_all(Xs, Types, Bs1-Body0, Bs-Body).
 
 instances(Is) --> foldl(instance_declaration, Is).
 
 % the declaration of an instance, whose sorts are those of the symbol with Types for its parameters;
 % an instance of a defined symbol is defined by its body
 instance_declaration(F/N-Types) -->
-  { instance_definition(F/N-Types, Bs, Body), !,
-    length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As],
-    instance(T, _, _, _, Sort) },
+  { instance_definition(F/N-Types, Bs, Body), !, instance_term(F/N-Types, T), instance(T, _, _, _, Sort) },
   "(define-fun ", instance_name(F/N, Types), " (", binders(Bs), ") ", sort(Sort), " ", defined_body(Sort, Body), ")\n".
 instance_declaration(F/N-Types) -->
-  { length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As],
-    instance(T, _, _, Ss, Sort) },
+  { instance_term(F/N-Types, T), instance(T, _, _, Ss, Sort) },
   "(declare-fun ", instance_name(F/N, Types), " (", sorts(Ss), ") ", sort(Sort), ")\n".
+
+% a term of the instance, with fresh term arguments
+instance_term(F/N-Types, T) :- length(Types, K), M is N - K, length(Us, M), append(Types, Us, As), T =.. [F|As].
 
 instance_name('$inhabited'/1, [S]) --> !, "|$inhabited[", type_name(S), "]|".
 instance_name(F/N, Types) --> "|t.", atom(F), arity(F, N), "[", type_names(Types), "]|".
@@ -234,7 +229,7 @@ Both are bound by the λs of the proof term, with their sorts.
 */
 skolem_constants('$lam'(X, S, M)) --> { \+ proof_annotation(S) }, !, [X:S], skolem_constants(M).
 skolem_constants('$lam'(_, _, M)) --> !, skolem_constants(M).
-skolem_constants(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, foldl(skolem_constants, As), skolem_constants(F).
+skolem_constants(M) --> { M = _ @ _, spine(M, F, As) }, !, foldl(skolem_constants, As), skolem_constants(F).
 skolem_constants(_) --> [].
 
 asserts([]) --> [].
@@ -242,7 +237,7 @@ asserts([F|Fs]) --> "(assert ", formula(F), ")\n", asserts(Fs).
 
 % the ground facts used in proof term M, in order; Env maps binders to their types
 facts(Env, '$lam'(X, T, M)) --> !, { put_assoc(X, Env, T, Env1) }, facts(Env1, M).
-facts(Env, M) --> { ( M = '$app'(_, _) ; atom(M) ), spine(M, F, As) }, !,
+facts(Env, M) --> { ( M = _ @ _ ; atom(M) ), spine(M, F, As) }, !,
   fact(Env, F, As), foldl(facts(Env), As), head_facts(Env, F).
 facts(_, _) --> [].
 

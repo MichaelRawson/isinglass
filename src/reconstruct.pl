@@ -1,15 +1,9 @@
 /*
-Reconstruct steps into ir_step/3 facts by searching for proof terms (see ir.pl for the IR).
-
-The search procedures below are given hypotheses Hs, a list of X-T pairs where X : T is a
-variable, and build a term of type ⊥, which is then abstracted over the conclusion (checker.pl
-type-checks it). Each λ is annotated with its binder's type when it is built (but for those of the
-expansion rules in transform.pl, '$inferred'). During search, binders are Prolog variables, and
-are numbered '$VAR'(N) afterwards, after the eigenvariables (close.pl).
-Clauses are stored with Prolog variables (db.pl), so retrieving a premise gives a fresh instance.
-The conclusion is made rigid by numbering its variables, and premise instances are found by
-unification with it, Prolog's backtracking performing the search.
-Steps between formulas are reconstructed by the tactics of transform.pl, which have the same interface.
+Reconstruct steps into ir_step/3 facts (ir.pl) by searching for proof terms. A tactic is given
+hypotheses Hs, X-T for X : T, that refute the conclusion, and builds a term of type ⊥, abstracted
+over them. The conclusion is made rigid by numbering its variables, and each premise is a fresh
+instance (db.pl), so unification with it and backtracking are the search. Binders are Prolog
+variables until closing (close.pl). The tactics for steps between formulas are in transform.pl.
 */
 :- module(reconstruct, [reconstruct/0]).
 :- use_module(library(lists)).
@@ -102,7 +96,7 @@ refutation(clause(Bs, Ls), Hs, Body, M) :-
   hypotheses(Ls, Hs),
   binders(Bs, Hs, Binders),
   lambdas(Binders, Body, M).
-refutation(formula(F), [H-(~F)], Body, '$app'('$dne', '$lam'(H, '$proof'(~F), Body))).
+refutation(formula(F), [H-(~F)], Body, '$dne' @ '$lam'(H, '$proof'(~F), Body)).
 
 % a definition cites no steps, so those of the function symbols in T come first, by name
 definitions_first(T) :- each(( subterm(T, U), functor(U, F, _), step(Name, _, define(F)) ), prove(Name)).
@@ -163,19 +157,17 @@ variant(_, Hs, [Premise], M) :-
   instance(Premise, Ts, Ms, M).
 
 % the conclusion ~A denies the negated conjecture ~A, a hypothesis, modulo symmetry
-deny(_, [H-(~(~A))], [Negated], '$app'(H, M)) :-
+deny(_, [H-(~(~A))], [Negated], H @ M) :-
   step(Negated, formula(~G), _),
   denied(G, Negated, A, M).
 
 denied(G, Negated, A, Negated) :- unify_with_occurs_check(G, A).
 denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A, Negated, M).
 
-% resolution: literals of the major premise are either in the conclusion, or refuted by (an instance
-% of) a minor premise; binary, or with unit minors (unit-resulting resolution)
-% in binary resolution, only positive literals are refuted by the minor: one resolved literal is
-% positive, and either premise may be the major, so this is complete, and avoids an exponential search
-% on wide negative clauses; with several minors, negative literals are refuted by units (but for split
-% literals)
+% resolution: literals of the major premise are in the conclusion, or refuted by an instance of a minor.
+% In binary resolution only positive literals are, which is complete, as either premise may be the
+% major, and avoids an exponential search on wide negative clauses; with several minors, they are
+% units (unit-resulting resolution, but for split literals)
 resolve(_, Hs, Premises, M) :-
   select(Major, Premises, Minors),
   premise(Major, Ts, Ks),
@@ -267,12 +259,17 @@ unfolded_hypothesis(Ps, X-(~L), H, M, M1) :-
   ->  H = Y-(~C),
       triple_negation(X, C, Y, M, M1)
   ;   H = Y-(~L1),
-      M = '$app'('$lam'(Y, '$proof'(~L1), M1), X)
+      M = '$lam'(Y, '$proof'(~L1), M1) @ X
   ).
 unfolded_hypothesis(_, H, H, M, M).
 
+unfolded_literal(Ps, ~A, ~B) :- !, unfolded_atom(Ps, A, B).
+unfolded_literal(Ps, A, B) :- unfolded_atom(Ps, A, B).
+
+unfolded_atom(Ps, A, B) :- functor(A, P, _), memberchk(P, Ps), defined_atom(A, B), literal(B).
+
 % X : ~~~C is Y : ~C, by two redexes
-triple_negation(X, C, Y, '$app'('$lam'(Z, '$proof'(~(~(~C))), '$app'('$lam'(Y, '$proof'(~C), M), '$lam'(W, '$proof'(C), '$app'(Z, '$lam'(N, '$proof'(~C), '$app'(N, W)))))), X), M).
+triple_negation(X, C, Y, '$lam'(Z, '$proof'(~(~(~C))), '$lam'(Y, '$proof'(~C), M) @ '$lam'(W, '$proof'(C), Z @ '$lam'(N, '$proof'(~C), N @ W))) @ X, M).
 
 % general splitting: a hypothesis ~~P(ts), where P is the symbol of the cited definition, defined as the
 % negation of the type of a component clause, is refuted by proving the component, with hypotheses for
@@ -288,19 +285,11 @@ component_hypotheses([X-(~(~A))|Hs0], P, Fresh0, Hs, M, M1) :-
   functor(A, P, _),
   defined_atom(A, ~T),
   typed_clause(T, Clause), !,
-  triple_negation(X, T, Y, M, '$app'(Y, Intro)),
+  triple_negation(X, T, Y, M, Y @ Intro),
   clause_intro(Clause, Fresh0, Fresh, Hs1, Hs, M0, Intro),
   component_hypotheses(Hs0, P, Fresh, Hs1, M0, M1).
 component_hypotheses([H|Hs0], P, Fresh, [H|Hs], M, M1) :- component_hypotheses(Hs0, P, Fresh, Hs, M, M1).
 
-
-unfolded_literal(Ps, ~A, ~B) :- !, unfolded_atom(Ps, A, B).
-unfolded_literal(Ps, A, B) :- unfolded_atom(Ps, A, B).
-
-unfolded_atom(Ps, A, B) :- functor(A, P, _), memberchk(P, Ps), defined_atom(A, B), literal(B).
-
-literal(~A) :- !, \+ connective(A, _).
-literal(A) :- \+ connective(A, _).
 
 % the conclusion is a ground tautology of equality: the hypotheses ~~A for its negative literals give
 % facts A, whose equations are completed into rewrite rules (rigid variables are constants); then, with
@@ -316,11 +305,11 @@ tautology(Fresh, Hs, _, M) :-
 
 fact_hypothesis(_-(~(~A))) :- \+ connective(A, _).
 
-fact(X-(~(~A)), E-A, '$app'(X, '$lam'(E, '$proof'(A), M)), M).
+fact(X-(~(~A)), E-A, X @ '$lam'(E, '$proof'(A), M), M).
 
 equation_fact(_-'$='(_, _, _)).
 
-closed(Ns, _, '$app'(N, '$refl')) :- member(N-(~'$='(_, T, U)), Ns), T == U.
+closed(Ns, _, N @ '$refl') :- member(N-(~'$='(_, T, U)), Ns), T == U.
 closed(Ns, Facts, M) :- member(E-A, Facts), matches(Ns, A, R), applied(R, E, M).
 
 % ground completion: each equation E : S = T, in normal form, is a rule from the greater side to the
@@ -330,23 +319,18 @@ completed(Fresh, [Equation0|Equations], Rules0, Rules, M, M1) :-
   normalised(Fresh, Rules0, Equation0, E-'$='(S, A, B), M, M0),
   (   A == B
   ->  completed(Fresh, Equations, Rules0, Rules, M0, M1)
-  ;   oriented(E, S, A, B, Rule),
+  ;   rule(E, S, A, B, Rule),
       Rule = _-'$='(_, L, _),
       partition(reducible(L), Rules0, Reducible, Irreducible),
       append(Reducible, Equations, Equations1),
       completed(Fresh, Equations1, [Rule|Irreducible], Rules, M0, M1)
   ).
 
-oriented(E, S, A, B, E-'$='(S, A, B)) :- smaller(B, A), !.
-oriented(E, S, A, B, '$app'('$sym', E)-'$='(S, B, A)).
+rule(E, S, A, B, E-'$='(S, A, B)) :- smaller(B, A), !.
+rule(E, S, A, B, '$sym' @ E-'$='(S, B, A)).
 
 % terms are ordered by size, then in the standard order: a total order, closed under contexts
-smaller(T, U) :- size(T, N), size(U, K), N-T @< K-U.
-
-size(T, N) :- compound(T), !, T =.. [_|Ts], foldl(add_size, Ts, 1, N).
-size(_, 1).
-
-add_size(T, N0, N) :- size(T, K), N is N0 + K.
+smaller(T, U) :- term_size(T, N), term_size(U, K), N-T @< K-U.
 
 reducible(L, _-'$='(_, A, B)) :- ( occurs(L, A) ; occurs(L, B) ), !.
 
@@ -362,7 +346,7 @@ normalised(Fresh, Rules, X-T, H, M, M1) :-
   substitute(L, '$VAR'(Fresh), T, Motive),
   substitute(L, R, T, T0),
   curried('$rewrite', ['$abs'('$VAR'(Fresh):S, Motive), E, X], Rw),
-  M = '$app'('$lam'(Y, '$proof'(T0), M0), Rw),
+  M = '$lam'(Y, '$proof'(T0), M0) @ Rw,
   normalised(Fresh, Rules, Y-T0, H, M0, M1).
 normalised(_, _, H, H, M, M).
 
@@ -399,7 +383,7 @@ equality_factor(Fresh, Hs, [Premise], M) :-
   instance(Premise, Ts, Ms, M).
 
 factor_literal(_, Hs, K, M) :- matches(Hs, K, M).
-factor_literal(Fresh, Hs, K, '$lam'(Y, '$proof'(K), '$app'(H, '$lam'(E, '$proof'(Eq), Body)))) :-
+factor_literal(Fresh, Hs, K, '$lam'(Y, '$proof'(K), H @ '$lam'(E, '$proof'(Eq), Body))) :-
   member(H-(~(~Eq)), Hs),
   Eq = '$='(_, _, _),
   rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body).
@@ -415,7 +399,7 @@ rewrite_literal(Fresh, Hs, K, Y, E, Eq, Body) :-
   applied(M, Rw, Body).
 
 orientation('$='(S, A, B), E, S, A, B, E).
-orientation('$='(S, A, B), E, S, B, A, '$app'('$sym', E)).
+orientation('$='(S, A, B), E, S, B, A, '$sym' @ E).
 
 % literal K becomes K1 by rewriting L to R, of sort S, at some occurrences, which are Z in Motive;
 % rewrites are only where the sort is S (a variable side would otherwise unify with any term), which
@@ -462,7 +446,7 @@ unfold(Fresh, Hs, [Clause|Definitions], M) :-
   premise(Clause, Ts, Ks),
   foldl(unfold_literal(ctx('$VAR'(Fresh), Defs), Hs), Ks, Ms, [], Instances),
   instance(Clause, Ts, Ms, M0),
-  foldl(opened, Instances, M0, M).
+  foldl(open_instance, Instances, M0, M).
 
 % a unit definition f(X_1, ..., X_n) = body, or body = f(X_1, ..., X_n), defines f/n
 definiendum(D, def(D, F/N, Side)) :-
@@ -491,7 +475,7 @@ pattern(T) :-
   sort(Xs, Ys),
   same_length(Xs, Ys).
 
-opened(instance(D, Us, Equation, E), M, N) :- instance(D, Us, ['$lam'(E, '$proof'(Equation), M)], N).
+open_instance(instance(D, Us, Equation, E), M, N) :- instance(D, Us, ['$lam'(E, '$proof'(Equation), M)], N).
 
 % literal K is unfolded by a chain of rewrites, from Y : K, and refuted by a hypothesis
 unfold_literal(Ctx, Hs, K, M, Is0, Is) :-
@@ -556,7 +540,7 @@ unfolded(D, Side, T, ctx(Z, _), Frames, Body, Steps-Is0, [step(Sort, Motive, Equ
   opening(D, Us, Eq, E, Is0, Is).
 
 oriented(left, '$='(_, A, B), E, A, B, E).
-oriented(right, '$='(_, A, B), E, B, A, '$app'('$sym', E)).
+oriented(right, '$='(_, A, B), E, B, A, '$sym' @ E).
 
 % an instance of definition D is opened once
 opening(D, Us, _, E, Is, Is) :- member(instance(D, Vs, _, E), Is), Vs == Us, !.
@@ -577,7 +561,7 @@ rup(_, Hs, Premises, M) :-
   rup(Hs, Clauses, M).
 
 % AVATAR component clause: C | ~split, where split is defined as C
-avatar_component(_, Hs, [_], '$app'(H, '$lam'(D, '$proof'(Split), M))) :-
+avatar_component(_, Hs, [_], H @ '$lam'(D, '$proof'(Split), M)) :-
   select(H-(~(~Split)), Hs, Others),
   split(Split, clause(Bs, Ls)),
   binder_variables(Bs, Ts),
@@ -585,9 +569,9 @@ avatar_component(_, Hs, [_], '$app'(H, '$lam'(D, '$proof'(Split), M))) :-
   instance(D, Ts, Ms, M).
 % ...or ~L | split, where split is defined as L: the definition is proved from two hypotheses,
 % Y : ~T and X : T
-avatar_component(Fresh, Hs, [_], '$app'(H, Intro)) :-
+avatar_component(Fresh, Hs, [_], H @ Intro) :-
   select(H-(~Split), Hs, Others),
-  intro(Split, Fresh, _, Others, All, '$app'(Y, X), Intro),
+  intro(Split, Fresh, _, Others, All, Y @ X, Intro),
   member(Y-(~T), All),
   member(X-U, All),
   U == T.
@@ -617,13 +601,13 @@ splits([], _, Hs, Ds, Premise, M) :-
 splits([H-(~(~Split))|Rest], Fresh, Hs, Ds, Premise, M) :-
   split(Split, Clause),
   splits(Rest, Fresh, Hs, [H-Split-Clause|Ds], Premise, M).
-splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, '$app'(H, Intro)) :-
+splits([H-(~Split)|Rest], Fresh0, Hs, Ds, Premise, H @ Intro) :-
   intro(Split, Fresh0, Fresh, Hs, Hs1, M, Intro),
   splits(Rest, Fresh, Hs1, Ds, Premise, M).
 
 % a premise literal is refuted by a hypothesis, or by a ground unit definition, from H : ~~split
 split_literal(Hs, _, L, M) :- matches(Hs, L, M).
-split_literal(_, Ds, L, '$lam'(X, '$proof'(L), '$app'(H, '$lam'(D, '$proof'(Split), '$app'(D, M))))) :-
+split_literal(_, Ds, L, '$lam'(X, '$proof'(L), H @ '$lam'(D, '$proof'(Split), D @ M))) :-
   member(H-Split-clause([], [K]), Ds),
   matches([X-L], K, M).
 

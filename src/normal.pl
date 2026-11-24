@@ -111,7 +111,7 @@ blurred(_, T, T) :- var(T), !.
 blurred(_, '$BOUND'(_), '$skolem') :- !.
 blurred(Ss, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), !.
 blurred(_, T, T) :- \+ compound(T), !.
-blurred(Ss, T0, T) :- T0 =.. [F|As0], maplist(blurred(Ss), As0, As), T =.. [F|As].
+blurred(Ss, T0, T) :- map_arguments(blurred(Ss), T0, T).
 
 
 % the key of a canonical formula

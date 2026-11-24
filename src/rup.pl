@@ -14,7 +14,7 @@ checks the clauses that contain it:
 
   - every literal false: a conflict, refuted by P applied to Ms, where Ms refute its literals;
   - all but one literal L false, and L not already true: a unit. L is made true, by making its
-    complement C false: the lemma '$app'('$lam'(G, ~C, M'), '$lam'(X, C, P Ms)) proves ~C from P,
+    complement C false: the lemma '$lam'(G, ~C, M') @ '$lam'(X, C, P Ms) proves ~C from P,
     with X : C refuting L (see assumption/3), and G-(~C) is added to False and queued;
   - otherwise, the clause is skipped: it is checked again only when one of its literals is made
     false.
@@ -77,7 +77,7 @@ new(L-_, False) :- complement(L, C), \+ get_assoc(C, False, _).
 
 % a conflict refutes the clause; a unit L makes its complement C false, as a lemma G : ~C
 checked(conflict, P, Ms, _, _, _, _, M) :- curried(P, Ms, M).
-checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, '$app'('$lam'(G, '$proof'(~C), M), '$lam'(X, '$proof'(C), N))) :-
+checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, '$lam'(G, '$proof'(~C), M) @ '$lam'(X, '$proof'(C), N)) :-
   curried(P, Ms, N),
   complement(L, C),
   assumption(C, X, A),
@@ -87,4 +87,4 @@ checked(L-A, P, Ms, Clauses, Occurrences, Queue, False, '$app'('$lam'(G, '$proof
 
 % X : C refutes the complement of C, as M: X itself if C is negative, ~~-introduction otherwise
 assumption(~_, X, X) :- !.
-assumption(C, X, '$lam'(K, '$proof'(~C), '$app'(K, X))).
+assumption(C, X, '$lam'(K, '$proof'(~C), K @ X)).

@@ -13,6 +13,7 @@ Untyped symbols get the default sorts, '$i' and '$o'.
   overloaded/1,
   instance/5,
   term_sort/3,
+  symbol_binders/4,
   typed/3,
   type_arity/2
 ]).
@@ -45,6 +46,17 @@ instance(T, Types, Us, Ss, Sort) :-
   append(Ps, Us, As),
   Types = Ps.
 
+% the binders Bs of the arguments Xs of the symbol F, of sort Sort: its type parameters, of sort
+% '$tType', and then its terms
+symbol_binders(F, Xs, Bs, Sort) :-
+  symbol(F, Ps, Args, Sort),
+  append(Ps, _, Xs),
+  findall('$tType', member(_, Ps), Ts),
+  append(Ts, Args, Sorts),
+  maplist(binder, Xs, Sorts, Bs).
+
+binder(X, S, X:S).
+
 % the number of type arguments of a term or atom
 type_arity(T, K) :- instance(T, Types, _, _, _), !, length(Types, K).
 type_arity(_, 0).
@@ -60,7 +72,7 @@ term_sort(_, _, '$i').
 typed(Bs, '!'(C, F0), F) :- !, F = '!'(C, F1), typed([C|Bs], F0, F1).
 typed(Bs, '?'(C, F0), F) :- !, F = '?'(C, F1), typed([C|Bs], F0, F1).
 typed(Bs, S = T, F) :- !, F = '$='(A, S, T), ( var(S) -> term_sort(Bs, T, A) ; term_sort(Bs, S, A) ).
-typed(Bs, F0, F) :- connective(F0, _), !, F0 =.. [C|Gs0], maplist(typed(Bs), Gs0, Gs), F =.. [C|Gs].
+typed(Bs, F0, F) :- connective(F0, _), !, map_arguments(typed(Bs), F0, F).
 typed(_, A, A).
 
 % untyped symbols get the default sorts

@@ -12,13 +12,17 @@
   flip/2,
   number_vars/3,
   substitute/4,
+  substitute_all/4,
+  literal/1,
+  signed_atom/4,
   occurs/2,
   subterm/2,
   canonical/2,
   opened/2,
   open_binder/4,
   renamed/3,
-  connective/2
+  connective/2,
+  map_arguments/3
 ]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
@@ -64,6 +68,19 @@ disjunction([L|Ls], (L | F)) :- disjunction(Ls, F).
 
 atomic_formula(A) :- nonvar(A), \+ connective(A, _).
 
+literal(~A) :- !, atomic_formula(A).
+literal(A) :- atomic_formula(A).
+
+% an atom A of F, and its sign S (pos or neg), where F has the sign S0; an atom under <=> has both
+signed_atom(~F, S0, A, S) :- !, opposite(S0, S1), signed_atom(F, S1, A, S).
+signed_atom((F => G), S0, A, S) :- !, ( opposite(S0, S1), signed_atom(F, S1, A, S) ; signed_atom(G, S0, A, S) ).
+signed_atom((F <=> G), _, A, S) :- !, member(S1, [pos, neg]), ( signed_atom(F, S1, A, S) ; signed_atom(G, S1, A, S) ).
+signed_atom(F, S0, A, S) :- connective(F, Gs), !, member(G, Gs), signed_atom(G, S0, A, S).
+signed_atom(A, S, A, S).
+
+opposite(pos, neg).
+opposite(neg, pos).
+
 % a formula with a connective at its root, and its subformulas
 connective('$true', []).
 connective('$false', []).
@@ -86,13 +103,19 @@ flip(~'$='(A, S, T), ~'$='(A, T, S)).
 number_vars([], N, N).
 number_vars(['$VAR'(N0)|Vs], N0, N) :- N1 is N0 + 1, number_vars(Vs, N1, N).
 
+% T is T0 with each argument mapped by P
+:- meta_predicate(map_arguments(2, ?, ?)).
+map_arguments(P, T0, T) :- T0 =.. [F|As0], maplist(P, As0, As), T =.. [F|As].
+
 % B is A with every occurrence of the term X replaced by S
 substitute(X, S, A, B) :- A == X, !, B = S.
 substitute(_, _, A, B) :- \+ compound(A), !, B = A.
-substitute(X, S, A, B) :-
-  A =.. [F|As],
-  maplist(substitute(X, S), As, Bs),
-  B =.. [F|Bs].
+substitute(X, S, A, B) :- map_arguments(substitute(X, S), A, B).
+
+% B is A with the terms Xs replaced by the terms Ts at once, so that none of Ts is substituted again
+substitute_all(Xs, Ts, A, B) :- foldl(substitute_fresh, Xs, Vs, A, B), Vs = Ts.
+
+substitute_fresh(X, V, A, B) :- substitute(X, V, A, B).
 
 % the term X occurs in T
 occurs(X, T) :- X == T, !.
@@ -137,9 +160,7 @@ opened(F0, Scope0, F) :-
 opened(F0, Scope, F) :-
   nonvar(F0),
   connective(F0, _), !,
-  F0 =.. [C|Gs0],
-  maplist(opened_in(Scope), Gs0, Gs),
-  F =.. [C|Gs].
+  map_arguments(opened_in(Scope), F0, F).
 opened(A0, Scope, A) :- renamed(Scope, A0, A).
 
 opened_in(Scope, F0, F) :- opened(F0, Scope, F).
@@ -153,7 +174,7 @@ open_binder(X:S0, V:S, Scope0, Scope) :-
 renamed(Scope, T, T) :- empty_assoc(Scope), !.
 renamed(_, T, T) :- \+ compound(T), !.
 renamed(Scope, T, V) :- T = '$BOUND'(_), !, ( get_assoc(T, Scope, V) -> true ; V = T ).
-renamed(Scope, T0, T) :- T0 =.. [F|As0], maplist(renamed(Scope), As0, As), T =.. [F|As].
+renamed(Scope, T0, T) :- map_arguments(renamed(Scope), T0, T).
 
 % the binder X of the body G0, in which H binders are nested, is named B: a variable is bound in a
 % fresh instance, a binder already named B (as in a canonical formula) is kept, and otherwise

@@ -27,11 +27,8 @@ load_statement(Flipping, annotated(Language, Name, Role, Formula0, Source0)) :-
   record_introduced(Source),
   record(step(Name, Conclusion, How)).
 
-% $false is the empty clause, and a clause-shaped cnf statement is a clause; variables are kept as
-% Prolog variables. Vampire prints clauses as fof (or tff) statements, so one is a clause only
-% if it is clause-shaped and either an input (back ends derive its clause type from its formula by
-% cases, for any ⊥) or derived by clausal reasoning; the conjecture, its negation, preprocessing and
-% definitions are formulas
+% $false is the empty clause; else a clause-shaped statement is a clause if it is cnf, an input, or
+% derived by clausal reasoning (Vampire prints clauses as fof too), and otherwise a formula
 conclusion(_, _, '$false', C) :- !, C = clause([], []).
 conclusion(Language, How, F, C) :-
   clausal(Language, How),
@@ -261,7 +258,7 @@ before_source(inference(Rule, _, [P|Ps]), Before) :-
 % flipping changes the sign of each, and a clause has no literal with its complement. Counting the signs
 % is not enough, as when one literal of each sign is flipped
 flipped_predicate(F0, F, P/N) :-
-  setof(P/N, S^A^( signed_atom(F0, S, A), functor(A, P, N) ), Ps),
+  setof(P/N, S^A^( predicate_atom(F0, S, A), functor(A, P, N) ), Ps),
   member(P/N, Ps),
   signed_literals(F0, P/N, Ls0),
   signed_literals(F, P/N, Ls),
@@ -271,18 +268,11 @@ signed_literals(F0, P/N, Ls) :-
   copy_term(F0, F),
   term_variables(F, Vs),
   number_vars(Vs, 0, _),
-  findall(S-A, ( signed_atom(F, S, A), functor(A, P, N) ), Ls1),
+  findall(S-A, ( predicate_atom(F, S, A), functor(A, P, N) ), Ls1),
   msort(Ls1, Ls).
 
-% a predicate atom A of a formula, positive (+) or negative (-)
-signed_atom(F, S, A) :- signed_atom(F, +, S, A).
-
-signed_atom(~F, S0, S, A) :- !, opposite(S0, S1), signed_atom(F, S1, S, A).
-signed_atom(F, S0, S, A) :- connective(F, Gs), !, member(G, Gs), signed_atom(G, S0, S, A).
-signed_atom(A, S, S, A) :- A \= (_ = _).
-
-opposite(+, -).
-opposite(-, +).
+% a predicate atom A of a formula (not an equation, which is not yet typed), and its sign S
+predicate_atom(F, S, A) :- signed_atom(F, pos, A, S), A \= (_ = _).
 
 % P_flipped(As, Xs) is defined as ~P(As, Xs), of the signature of P, with type parameters As, or of
 % individuals if P is untyped
@@ -339,9 +329,7 @@ flipped_formula(Ps, F0, F) :-
   F =.. [Q, B, G].
 flipped_formula(Ps, F0, F) :-
   connective(F0, _), !,
-  F0 =.. [C|Gs0],
-  maplist(flipped_formula(Ps), Gs0, Gs),
-  F =.. [C|Gs].
+  map_arguments(flipped_formula(Ps), F0, F).
 flipped_formula(Ps, A0, A) :-
   functor(A0, P, N),
   memberchk(P/N, Ps), !,

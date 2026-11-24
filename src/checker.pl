@@ -1,28 +1,12 @@
 /*
-Type checker back end: each proof term of the IR (see ir.pl) is checked against the type of its
-conclusion, in order, citing only steps already checked. Output is nothing; a step that fails
-to check is reported, and is a bug in the search.
+Type checker back end: each proof term of the IR (ir.pl) is checked against the type of its
+conclusion, citing only steps checked before it; a failure is a bug in reconstruction. Terms are
+checked against the signature, and the types of steps are taken to be well sorted.
 
-First-order terms are checked against the signature (signature.pl): instances are well sorted, and
-so are the sorts of eigenvariables and the motives of rewrites (of arrow sorts, see ir.pl). The types of steps are taken to be
-well sorted, as the prover gives them.
-
-Terms and their types are ground. The only Prolog variables bound in checking are those of fresh
-instances of steps and built-ins: quantifier binders, which are bound to ground terms
-(instantiation), and the parameters of a built-in, which unification binds: the result of its type
-with the type against which it is checked, if any, and then each premise with the type of its
-argument, in order, so that a type is checked against a pattern as well as a ground type.
-
-A head may be any term. A λ applied to arguments, a β-redex, is checked by binding its binders to
-them: an eigenvariable is substituted by its term, and a hypothesis takes the type of the λ's binder,
-against which its proof is checked, so no proof is substituted into another. Every binder, of a
-hypothesis or an eigenvariable, is fresh: it shadows none in scope.
-
-A proof of the formula F has type '$proof'(F), and a term a sort, so the two are disjoint. Proof
-types are folded (see ir.pl), and taken apart as needed. Their formulas are compared up to the
-names of their bound variables: these are named canonically (see logic.pl), in the types of steps
-and in the annotations of terms, and a quantified hypothesis is instantiated by substitution. The
-built-ins and expansion rules are typed by ir:head_type/2.
+Terms and types are ground, but for the Prolog variables of fresh instances of steps and built-ins,
+which instantiation and type inference bind. A β-redex is checked by binding: an eigenvariable is
+substituted by its term, and a hypothesis takes the type of its λ, against which its proof is
+checked. Every binder is fresh.
 */
 :- module(checker, [emit_checker/0]).
 :- use_module(library(lists)).
@@ -51,7 +35,7 @@ checked(Name, Steps, Steps1) :-
 
 % an unreconstructed step is accepted, as a partial proof, but not silently
 unchecked(Name, todo(Record, _)) :- !,
-  ( Record = esa(Rule, _) -> true ; functor(Record, Rule, _) ),
+  todo_rule(Record, Rule),
   warn(['warning: ', Name, ' (', Rule, ') is not checked']).
 unchecked(_, _).
 
@@ -120,14 +104,8 @@ argument_binders(Sk, Bs, Sort) :-
   maplist(variable, Xs),
   sort(Xs, Ys),
   same_length(Xs, Ys),
-  symbol(Sk, Ps, Args, Sort),
-  append(Ps, _, Xs),
-  findall('$tType', member(_, Ps), Ts),
-  append(Ts, Args, Sorts),
-  binder_sorts(Bs, Sorts).
-
-binder_sorts([], []).
-binder_sorts([_:S|Bs], [S0|Ss]) :- S == S0, binder_sorts(Bs, Ss).
+  symbol_binders(Sk, Xs, Bs1, Sort),
+  Bs1 == Bs.
 
 argument(X:S, Gamma, Gamma1) :- valid_sort(Gamma, S), put_assoc(X, Gamma, S, Gamma1).
 
@@ -138,10 +116,8 @@ conclusion_type(formula(_), T0, T) :- canonical_type(T0, T).
 % a proof type with its formula canonical
 canonical_type('$proof'(F0), '$proof'(F)) :- canonical(F0, F).
 
-% M : T, where M is ground, and T is ground but for the parameters of built-ins still to infer, which
-% unification binds (see type/4). Types are canonical (see logic.pl), so they are compared
-% syntactically, and annotations are made so
-% Gamma is an assoc mapping hypotheses to their proof types, and eigenvariables to their sorts
+% M : T, where T may have parameters of built-ins still to infer; Gamma maps hypotheses to their proof
+% types, and eigenvariables to their sorts
 check(Steps, Gamma, '$lam'(X, A, M), '$proof'(F0)) :- !,
   nonvar(F0),
   unfold(F0, F),
@@ -153,7 +129,7 @@ check(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
   check(Steps, Gamma1, M, T).
-check(Steps, Gamma, M, T) :- M = '$app'(_, _), !, spine(M, F, As), application(Steps, Gamma, F, As, T).
+check(Steps, Gamma, M, T) :- M = _ @ _, !, spine(M, F, As), application(Steps, Gamma, F, As, T).
 % a step or a built-in alone, whose parameters T may bind
 check(Steps, Gamma, F, T) :- atom(F), !, application(Steps, Gamma, F, [], T).
 check(Steps, Gamma, M, T) :-
@@ -221,18 +197,14 @@ type(Steps, Gamma, M0, T) :-
   redex(M0), !,
   reduced(Steps, Gamma, M0, Gamma1, M),
   type(Steps, Gamma1, M, T).
-type(Steps, Gamma, M, T) :- M = '$app'(_, _), !, spine(M, F, As), application(Steps, Gamma, F, As, T).
+type(Steps, Gamma, M, T) :- M = _ @ _, !, spine(M, F, As), application(Steps, Gamma, F, As, T).
 % a head alone: a hypothesis, a step or a built-in
 type(Steps, Gamma, F, T) :- application(Steps, Gamma, F, [], T).
 
-% F applied to the arguments As is of type T. The type of the head is a '!' for each term of As, which
-% instantiates its binder, and an => for each proof, whose premise is the proof's type: it is
-% '$proof'(A_1 => ... => A_n => R) for the n proofs, under the '!'s of the terms between them. A
-% built-in's is a fresh instance, whose parameters (see ir.pl) are bound by unification, first of R
-% with T (a variable if T is to be inferred), then of each A_i with the type of its proof, in order
-% (but for a built-in with a motive, whose premises come first, see motive_head/1).
-% So the parameters of '$refl' and '$dne' come from T, and those of '$sym' and the expansion rules
-% from T or the first proof
+% F applied to As is of type T: each term instantiates a '!' of the head's type, and each proof is
+% checked against its premise. A built-in's parameters are bound by unifying its result with T (a
+% variable if T is inferred), and then each premise with its proof's type, in order (but for a
+% built-in with a motive, motive_head/1)
 application(Steps, Gamma, F, As, T) :-
   head(Steps, Gamma, F, T0),
   arguments(Gamma, As, T0, Ps0, R0),
@@ -275,7 +247,7 @@ checked_premise(Steps, Gamma, M-A) :- check(Steps, Gamma, M, A).
 
 % β-reduction by binding: the λs of a redex M0 take its arguments in order, and M is the rest of its
 % body, applied to any arguments left over, in Gamma with the hypotheses bound
-redex(M) :- M = '$app'(_, _), spine(M, L, _), nonvar(L), L = '$lam'(_, _, _).
+redex(M) :- M = _ @ _, spine(M, L, _), nonvar(L), L = '$lam'(_, _, _).
 
 reduced(Steps, Gamma0, M0, Gamma, M) :-
   spine(M0, L, [W|As]), nonvar(L), L = '$lam'(X, A, B0), !,
@@ -306,10 +278,8 @@ head(Steps, _, Name, T) :-
   step(Name, Conclusion, _),
   step_type(Conclusion, T).
 
-% '!'(X:_, F) with U for X: X is a variable in a fresh instance, where instantiation is
-% unification, or U itself, an eigenvariable named after the binder of its clause, or else it is
-% canonical, and substituted. U is ground and has no bound variables (it is an eigenvariable, or
-% well sorted), so none is captured
+% '!'(X:_, F) instantiated by U: by unification in a fresh instance, as it is if X is U (an eigenvariable
+% of a clause), and otherwise by substitution for the canonical X, which captures nothing as U is ground
 instantiated(X, U, F, F) :- var(X), !, X = U.
 instantiated(X, U, F, F) :- X == U, !.
 instantiated('$BOUND'(H), U, F0, F) :- substitute('$BOUND'(H), U, F0, F).
@@ -326,8 +296,7 @@ sorted(Gamma, '$abs'(X:S, A), Arrow) :- !,
   canonical(A, A1),
   A1 == A,
   well_sorted(Gamma1, A).
-sorted(Gamma, '$VAR'(N), S) :- !, get_assoc('$VAR'(N), Gamma, S0), S0 == S.
-sorted(Gamma, '$BOUND'(H), S) :- !, get_assoc('$BOUND'(H), Gamma, S0), S0 == S.
+sorted(Gamma, X, S) :- ( X = '$VAR'(_) ; X = '$BOUND'(_) ), !, get_assoc(X, Gamma, S0), S0 == S.
 sorted(Gamma, F0, S) :- S == '$o', connective(F0, _), !, canonical(F0, F), well_sorted(Gamma, F).
 sorted(Gamma, T, S) :-
   ground(S),
@@ -354,9 +323,8 @@ binder('$BOUND'(H):S, Gamma, Gamma1) :-
   valid_sort(Gamma, S),
   put_assoc('$BOUND'(H), Gamma, S, Gamma1).
 
-% weak head normal form of a formula: negation is implication, and defined atoms (split symbols among them) are their
-% definitions, which a redex or annotation would otherwise unfold (optimise.pl removes some)
-% types are compared syntactically (T1 == T above), not up to unfolding: enough for clauses
+% weak head normal form of a formula: negation is implication, and a defined atom (a split, say) is its
+% definition, as a redex or annotation would otherwise state it (optimise.pl removes some)
 unfold(~A, (A => '$false')) :- !.
 unfold(A, T) :- defined_atom(A, F0), !, opened(F0, F1), canonical(F1, F), unfold(F, T).
 unfold(T, T).

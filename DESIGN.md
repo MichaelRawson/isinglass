@@ -1,134 +1,87 @@
 # Design
 
 Isinglass reads Vampire (and in future other ATPs') TSTP proofs (CNF, FOF, or TFF), reconstructs each inference as an intermediate representation, and emits the result through one of several back ends.
-Frontends, reconstruction and backends are kept separate, so that each prover and each output format can be treated separately.
-Reconstruction is done by backtracking _search_ over the space of possible instances of an inference like, say, "binary resolution".
+Front ends, reconstruction and back ends are kept separate, so that each prover and each output format can be treated separately.
+Reconstruction is backtracking _search_ over the possible instances of an inference like, say, "binary resolution".
 
-Overall: TSTP → frontend (e.g. 'Vampire') → ATP-agnostic proof → reconstruction → IR → backend (e.g. 'lambdapi')
+Overall: TSTP → front end (e.g. `vampire`) → ATP-agnostic proof → reconstruction → IR → back end (e.g. `lambdapi`)
 
-Usage: `./ising [--trace] [--optimise] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda` or `checker`. The script runs `main(Frontend, Backend)` in `src/main.pl` with SWI.
-With `--trace`, the name and tactic of each step are printed to stderr as its search starts (`main(Frontend, Backend, [trace])`), so a slow step is the last one printed.
-With `--optimise`, the IR is optimised before it is emitted (`[optimise]`, see below).
+Usage: `./ising [--trace] [--optimise] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda`, `agda_term`, `agda_file` or `checker`.
+The script runs `main(Frontend, Backend, Options)` in `src/main.pl` with SWI.
+`--trace` prints each step and its tactic to stderr as its search starts, so a slow step is the last one printed; `--optimise` optimises the IR before it is emitted.
 
 ## Design Decisions
 - Concise, reasonably-portable Prolog.
-- TSTP is read with `read/1`. TPTP operators are declared only while reading (`load.pl`), so they don't affect how the code is parsed.
-- Agnostic to ATP system, in principle
-- IR attempts to be logic-agnostic and constructive. Backends make every encoding decision.
+- TSTP is read with `read/1`; TPTP operators are declared only while reading (`load.pl`).
+- Agnostic to ATP system, in principle.
+- The IR attempts to be logic-agnostic and constructive. Back ends make every encoding decision.
 
 ## Internal Language (`ops.pl`, `load.pl`, `signature.pl`)
-- Rank-1 polymorphic first-order logic. Variables, terms and atoms are Prolog variables, terms.
-- Connectives `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, `'$true'`, `'$false'`.
-- Equality is typed: `'$='(A, S, T)`, where `A` is the sort of `S` and `T`. TPTP's `=` is implicitly polymorphic, so the front end gives each equation its sort once, at load time (`signature:typed/3`).
-- Quantifiers `'!'(X : Sort, F)` and `'?'(X : Sort, F)`, with one binder each, not a list: a group of binders as in TPTP, `! [X, Y] : F`, is read as `! [X] : ! [Y] : F` (`logic:quantify/4`, and `quantifier_prefix/4` to gather a chain back; `logic:quantifier/4` takes a quantifier apart). So quantifier rules are patterns of unification, and canonical names are the same either way. A clause's binders stay a list, `clause(Bs, Ls)`, and its type nests them.
-- Each binder has its own variable: `read/1` gives binders of the same name in one statement the same variable, so they are renamed apart at load time.
-- Where formulas are compared (reconstruction, checker), bound variables are named canonically: `'$BOUND'(H)`, with `H` the number of binders nested in its scope (`logic:canonical/2`).
-- Sorts are terms: e.g. `'$i'`, `'$o'`, type variables, and declared type constructors such as `list(A)`. The sort of sorts is `$tType` as in TFF1.
-- Sorts `A` are assumed inhabited with the polymorphic symbol `$inhabited(A)`. The implementation tries to avoid using this for the sake of constructive backends.
-- The signature is `symbol(Name, Params, Args, Sort)` (`db.pl`), with `Params` the sort variables, `Args` the domain and `Sort` the range.
-- Reading normalises `S != T` to `~ (S = T)`, `F <= G` to `G => F`, `F <~> G` to `~ (F <=> G)`, and `~|`, `~&` to a negated `|` or `&`. At some point this should perhaps be reported verbatim and subsequently normalised.
-- It is convenient to treat clauses specially.
-- Clauses are `clause(Bs, Literals)`: a list of binders `X : Sort`, and a list of literals `A` or `~A` over their variables. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause too.
-- Vampire prints clauses as `fof` too, so shape alone cannot tell a clause from a formula. `$false` is the empty clause. Otherwise a statement is a clause if it is clause-shaped and is either `cnf`, an input, or derived by clausal reasoning: `cnf_transformation`, a rule in the table below, or an unknown rule from clauses only. The conjecture, its negation, preprocessing and definitions are formulas.
-- Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so every lookup is a fresh instance and instantiation is unification.
-- When a step is reconstructed, its conclusion is made rigid, so the IR is ground: a clause by numbering its variables `'$VAR'(N)` in binder order, a formula by naming its bound variables canonically.
-- In search contexts, `X-T` is an entry (`X : T`); `X : Sort` is always a quantifier or clause binder.
-- Names: TPTP names statements apart from symbols (as SMT-LIB names assertions), so a step may share its name with a symbol (or be an integer). So the name of each statement and each parent is read as `'$step:Name'`, and the name of an input (`file(_, Name)`) as `'$input:Name'` (`load.pl`), and the step that a front end or tactic adds for the definition of a symbol `P` is `'$def:P'` (`utils:named/3`). These are atoms, apart from symbols and built-ins (no `$`-word or SMT-LIB symbol has a `:`), and from each other. Each back end prints them apart in its own way, and warnings print them bare.
+- Rank-1 polymorphic first-order logic. Variables, terms and atoms are Prolog variables and terms.
+- Connectives `~F`, `F | G`, `F & G`, `F => G`, `F <=> G`, `'$true'`, `'$false'`. Reading normalises `!=`, `<=`, `<~>`, `~|` and `~&` away.
+- Equality is typed, `'$='(A, S, T)` for `S, T` of sort `A`: the front end gives each equation its sort at load time (`signature:typed/3`).
+- Quantifiers have one binder each, `'!'(X : Sort, F)` and `'?'(X : Sort, F)`, so `! [X, Y] : F` is `! [X] : ! [Y] : F` and quantifier rules are patterns of unification. Each binder has its own variable: those that `read/1` shares are renamed apart at load time.
+- Where formulas are compared, bound variables are named canonically, `'$BOUND'(H)`, with `H` the number of binders nested in its scope (`logic:canonical/2`).
+- Sorts are terms (`'$i'`, `'$o'`, type variables, `list(A)`, ...), of sort `$tType` as in TFF1. Sorts are assumed inhabited by `'$inhabited'(S)`, which is avoided where possible for the sake of constructive back ends.
+- The signature is `symbol(Name, Params, Args, Sort)` (`db.pl`); a polymorphic symbol takes its type arguments first.
+- Clauses are `clause(Bs, Literals)`: binders `X : Sort` and literals `A` or `~A`. Vampire prints clauses as `fof` too, so a statement is a clause if it is clause-shaped and either `cnf`, an input, or derived by clausal reasoning; the conjecture, its negation, preprocessing and definitions are formulas. Vampire's AVATAR shape `(! [X] : C) | ~spl` is a clause.
+- Front-end steps (`step/3`) and AVATAR definitions (`split/2`) keep Prolog variables, so each lookup is a fresh instance and instantiation is unification. A reconstructed conclusion is made rigid: a clause's variables are numbered `'$VAR'(N)` in binder order, and a formula's bound variables are named canonically.
+- In search, `X-T` is an entry `X : T`; `X : Sort` is always a binder.
+- TPTP names statements apart from symbols, so statements are read as `'$step:Name'`, inputs as `'$input:Name'`, and the definition of a symbol `P` is the step `'$def:P'` (`utils:named/3`). Back ends print them apart; warnings print them bare.
 
 ## IR (`ir.pl`, `db.pl`)
-- Proofs are λ-terms, Curry–Howard style, in minimal logic with an abstract `⊥`.
-- This does not necessarily exclude non-Curry-Howard systems, e.g. the SMT-LIB backend just looks for groundings in the proof term.
-- Application is curried and binary, `$app(M, N)`, with no separation between first-order and proof arguments: `N` is a term if the type of `M` is `$proof(![X:S] : F)`, and a proof if it is `$proof(A => B)`, so the two may come in any order. Where types are known (checker, closing) the head's type says which; in ground IR, syntax does too (`ir:proof_argument/1`), but for a variable `$VAR(N)`, which the annotation of its λ settles. `ir:curried/3` builds an application of a head to a list of arguments, and `ir:spine/3` takes one apart.
-- Proof terms are built by `$app(M, N)` and `$lam(X, T, M)`, with variables `$VAR(N)`, both hypotheses and eigenvariables: named with `$`, as TPTP reserves such names, so they cannot clash with a problem's symbols.
-- A hypothesis and an eigenvariable are both a variable `$VAR(N)`, numbered apart in each term: the annotation of its λ, a proof type (or `'$inferred'`) or a sort, says which it is (`ir:proof_annotation/1`), and where it occurs, a head or a term.
-- A type is a sort, of terms, or `$proof(F)`, of the proofs of the formula `F`, so the two are disjoint, as `τ` and `π` in Lambdapi. `$proof` is folded, as `π`: a proof type is taken apart only as needed, `$proof(F => G)` as `$proof(F) → $proof(G)`, `$proof(~F)` as `$proof(F) → $proof($false)`, and `$proof(![X:S] : F)` as `Π X : S. $proof(F)`. So built-ins (`ir:head_type/2`), steps (`ir:step_type/2`) and λ annotations are typed by `$proof` of a formula, but the search's own hypotheses are formulas.
-- `clause(Bs, [L₀…Lₙ₋₁])` has type `$proof` of `![Bs] : ~L₀ => … => ~Lₙ₋₁ => $false` (that formula is `ir:clause_type/2`), i.e. `Π Bs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥`, where `¬F` is `F → ⊥`.
-- `formula(F)` has type `$proof(F)`.
-- Formulas are taken apart by expansion rules, as in a tableau: a built-in head applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`.
-- Built-ins and expansion rules are typed by one table, `ir:head_type/2`, of fresh instances whose Prolog variables are their parameters. A built-in takes no terms but for the motive of `$rewrite` (below): its parameters are inferred by first-order unification (quantifiers have one binder, and bound variables canonical names), with the type it is checked against, and then with the type of each argument in turn. So `$refl` and `$dne` are typed by the former, and `$sym` and the expansion rules by either. `$sym E` is `$app('$sym', E)`, `$refl` is just `'$refl'`, and `$dne`, which proves a formula step `F`, is `$app('$dne', λ h : ~F, …)`.
-- The α and β rules of the preprocessing tactics are read off the head types (`ir:rule_branches/3`): a rule's type after its first premise is a refutation of each branch, `H₁ => … => $false`, over the formulas the branch binds.
-- The hypotheses that an expansion rule binds are annotated `'$inferred'` rather than with their formulas, which follow from the rule's first argument: annotating the parts of a conjunction would make terms quadratic in its size. The checker and `close.pl` infer them; back ends that print binder types must too.
-- The rules for `?` and `~!` bind an eigenvariable, whose λ states its sort. `'$nex'` is a γ rule, which takes nothing apart: `~?[X] : F` has the one branch `![X] : ~F`, which a hypothesis instantiates by applying it to terms. It binds no eigenvariable, so a binder over types (`$tType`), a different kind of quantifier, has its own rule `'$nex_t'`. Neither is an α rule for the tactics, which instantiate them as they do `!`.
-- Clause-shaped `fof`/`tff` inputs are clauses, as for CNF problems.
-- The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed. The IR is therefore sound under any reading of `⊥`: classical falsity, or the conjecture of the A-translation.
-- A head may be any term, so terms need not be β-normal. A λ at a head is a β-redex, which binds its binders to the arguments: `$app($lam(X, F, N), M)` is a lemma `X : F` proved by `M` (there is no separate `let`), and back ends may print it as a `let`. The λ of a redex states the types of its hypotheses.
-- Rewriting is the built-in `'$rewrite' : Π (P : S > $o). S = T → P S → P T`: in `$rewrite (λ X:S. A) E M` the motive `A` is any formula context `A[X]` so that `E : S = T` rewrites `M : A[S]`, producing `A[T]`. The motive cannot be inferred (that would be higher-order unification), so it is an explicit term argument, `'$abs'(X:S, A)` (THF's `^[X:S] : A`), of the arrow sort `'$>'(S, '$o')` (THF's `S > $o`); its application `'$at'(P, T)` (THF's `@`) is β-reduced as soon as `P` is instantiated (`ir:applied_motives/2`). This is a restricted dependent type: arrow sorts and `'$at'` occur only in `ir:head_type/2`, never in a formula or the signature, so the logic stays first-order. `ir:rewrite_parts/4` takes a rewrite apart.
-- Clause splits: a split symbol is a predicate `definition` of no arguments, whose body is the type of its clause, so it unfolds to that type. The front end restates Vampire's `spl <=> C` as `spl <=> T` for the clause type `T` of `C`, and keeps `C` as `split/2` for the AVATAR tactics.
-- A hypothesis `H : ¬¬Split` is used as `H (λ d, d ts …)`; `H : ¬Split` is refuted by proving the definition, `H (λ xs hs, …)`, with eigenvariables `xs`.
-- Function definitions: `definition(F, Bs, T)` defines `F(Xs)`, for binders `Bs = Xs : Sorts`, as the term `T`. It is the prover's own step, whose conclusion is the unit clause `F(Xs) = T`, either way round: a conservative extension, so the step is an axiom. A defined function term unfolds to its term, by definition, as the back ends define the symbol.
-- Predicate definitions: `definition(P, Bs, F)` defines `P(Xs)` as the formula `F`, and its conclusion is `![Bs] : (P(Xs) <=> F)`. A defined predicate unfolds to its body: a formula is also of any type that differs from it by unfolding defined atoms and function terms (`ir:expanded/2`), as the back ends define the symbols. A body cites only definitions before it, so unfolding terminates.
-- Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)`, for binders `Bs = Xs : Sorts`, as Hilbert's choice `ε Y. T` of a δ formula `F`, `?[Y:S|Ys] : G` (`T` is `?[Ys] : G`). Provers Skolemise in negation normal form, so there is no choice for `~!`.
-  It is a step named `'$def:Sk'`, whose conclusion is its _choice axiom_ `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), so a proof opens a δ formula by applying it, like any other step. It is recorded just before the step that first uses it.
+- Proofs are λ-terms, Curry–Howard style, in minimal logic with an abstract `⊥`. A back end need not be Curry–Howard: SMT-LIB just reads groundings off the proof term.
+- Terms are built by application `M @ N` (curried, left-associative) and `'$lam'(X, T, M)`, over variables `'$VAR'(N)` (hypotheses and eigenvariables alike, told apart by the λ's annotation), steps and built-ins. An argument is a term or a proof as the head's type says (`ir:proof_argument/1` tells them apart syntactically in ground IR). A problem symbol `'@'/2` is refused at load time.
+- A type is a sort or `'$proof'(F)`, disjoint as `τ` and `π` in Lambdapi, and taken apart only as needed: `'$proof'(F => G)` is `'$proof'(F) → '$proof'(G)`, `~F` is `F => '$false'`, `'$proof'(![X:S] : F)` is `Π X : S. '$proof'(F)`.
+- `clause(Bs, [L₀…Lₙ₋₁])` has type `Π Bs. ¬L₀ → … → ¬Lₙ₋₁ → ⊥` (`ir:clause_type/2`); `formula(F)` has type `F`.
+- Formulas are taken apart by tableau expansion rules: a built-in applied to a proof of the formula and a refutation of each branch, e.g. `'$or' : F | G → (F → ⊥) → (G → ⊥) → ⊥`. One table, `ir:head_type/2`, types every built-in; their parameters are inferred by first-order unification with the expected type and the arguments' types. The preprocessing tactics read the rules' branches off it (`ir:rule_branches/3`).
+- Hypotheses bound by an expansion rule are annotated `'$inferred'`, as they follow from its first argument (annotations would be quadratic in a conjunction's size). The checker and `close.pl` infer them, as must back ends that print binder types.
+- The rules for `?` and `~!` bind an eigenvariable. `'$nex'` is a γ rule, turning `~?[X] : F` into `![X] : ~F`; over `$tType` it is `'$nex_t'`.
+- The hypothesis for a negative literal `~A` is `¬¬A`, so `¬¬`-elimination is never needed and the clausal IR is sound for any reading of `⊥`.
+- A head may be any term: `'$lam'(X, F, N) @ M` is a lemma `X : F` proved by `M` (back ends may print a `let`). Its λ states the hypothesis's type.
+- Rewriting is `'$rewrite' : Π (P : S > $o). S = T → P S → P T`, with an explicit motive `'$abs'(X:S, A)` (THF's `^[X:S] : A`), as inferring it would be higher-order unification; its application `'$at'(P, T)` is β-reduced as soon as `P` is known (`ir:applied_motives/2`). Arrow sorts and `'$at'` occur only in `ir:head_type/2`, so the logic stays first-order.
+- AVATAR splits: a split symbol is a predicate definition of no arguments whose body is its clause's type. A hypothesis `¬¬Split` is used as `H (λ d, d ts …)`, and `¬Split` is refuted by proving the definition, `H (λ xs hs, …)`.
+- Function definitions `definition(F, Bs, T)` conclude the unit clause `F(Xs) = T`, either way round; predicate definitions `definition(P, Bs, F)` conclude `![Bs] : (P(Xs) <=> F)`. Both are conservative extensions, so these steps are axioms, and back ends define the symbols. A formula is of any type that differs from it by unfolding definitions (`ir:expanded/2`); a body cites only earlier definitions, so unfolding terminates.
+- Skolem symbols: `skolem_def(Sk, Bs, F)` defines `Sk(Xs)` as Hilbert's choice of the δ formula `F = ?[Y:S] : T`. Its step `'$def:Sk'` concludes the choice axiom `![Bs] : (F => T[Sk(Xs)/Y])` (`ir:choice_axiom/4`), which opens `F` like any other step, and is recorded just before its first use.
 
 ## Classical Logic and Conjectures
-The IR does not pre-suppose classical logic, and large chunks of ATP proofs are intuitionistically valid, which may be surprising.
-Constructive backends use A-translation to produce a constructive proof (!).
-
-- Proof terms stay in minimal logic with an abstract ⊥. No DNE or excluded middle appears in the clausal IR, but may in steps between formulas.
-- Of the formula expansion rules, those for `~(F => G)`, `~(F <=> G)` and `~!` are not valid in minimal logic.
-- The choice axiom of a Skolem symbol needs only choice.
-- The other rules are valid for any `⊥`, so a step from a formula to a clause is often constructive.
-- The negated conjecture is a parameter, not an axiom. Its type is `G → ⊥`, and only the `conjecture` step discharges it.
-- A classical back end proves `G` by double-negation elimination.
-- An A-translation takes `⊥ := G` and the negated conjecture `nc := id`, so the theorem is `refutation id`.
-- If a conjecture does not appear in the proof (whether or not one was given), or its negation is not recognised, the IR ends at `$false`.
+- Large parts of ATP proofs are intuitionistically valid. Proof terms stay in minimal logic with an abstract `⊥`: the clausal IR has no DNE or excluded middle, though steps between formulas may.
+- The rules for `~(F => G)`, `~(F <=> G)` and `~!`, and `'$dne'`, are classical; Skolem choice axioms need only choice.
+- The negated conjecture is a hypothesis `G → ⊥`, discharged only by the `conjecture` step. A classical back end proves `G` by double-negation elimination; the A-translation takes `⊥ := G` and the negated conjecture to be the identity, so constructive back ends get a constructive proof.
+- If no conjecture appears in the proof, or its negation is not recognised, the IR ends at `$false`.
 
 ## Reconstruction (`reconstruct.pl`, `transform.pl`, `rup.pl`, `close.pl`)
-Reconstruction tries to build an IR term with the conclusion's type given that the step is e.g. "resolution".
+A tactic builds an IR term of the conclusion's type, given that the step is, say, resolution.
 
-- Conclusion variables and eigenvariables are numbered `'$VAR'(N)` _before_ search, so unification cannot instantiate them.
-- Closing (`close.pl`) runs after search: binders still Prolog variables (those of hypotheses) are numbered `$VAR(N)` in binder order, after the variables already numbered (`close:number_binders/1`), and it tries to fill term-level variables left unconstrained with a suitable inhabitant (else `'$inhabited'(S)`). It finds them by walking the arguments of each application against the type of its head (a step, a built-in, or a hypothesis, whose type is its λ's annotation, or else follows from the type expected there): a `!` makes its argument a variable of the binder's sort, but for a motive (of an arrow sort), which is substituted into the rest of the type at once.
-- RUP (`rup.pl`): ground reverse unit propagation as in a SAT solver, split out into a separate module.
-- Many rules are simply variants of a parent, up to instantiation, factoring, reflexivity, literal re-ordering, and symmetry of equality.
-- Resolution finds the pivot literal and then matches remaining literals in the same way. Unit-resulting resolution is the same, with a unit minor premise for each pivot (unit but for AVATAR split literals, which are in the conclusion). Extensionality resolution is binary resolution of an extensionality clause's `X = Y` with a disequation.
-- Paramodulation is similar: each literal is matched to a premise, or rewritten using one positive equation `A = B` from a premise. So is subsumption demodulation, whose conditional equation's other literals are in the conclusion.
-- AVATAR splitting matches the premise's literals to hypotheses and split definitions most constrained first too.
-- Equality factoring is the same, but the equation comes from a hypothesis for a conclusion literal `A != B`
-- The literals of a premise are matched most constrained first (first-fail): the literal with the fewest candidates, counting the hypotheses that refute it and the minors it could resolve with (a rewrite is not counted). Its bindings then constrain the rest. A literal with a single candidate is taken as soon as it is found, without counting the others, as most of a wide clause usually is: recounting every literal for each choice is quadratic in its width. In order, a wide clause of interchangeable literals is searched exponentially: in SYO613-1, `~eq(f(Xi), a0)` for 12 variables `Xi`, which only a chain of `~le(s(Xi), Xj)` after them tells apart. Matching is subsumption, NP-complete, so this is a heuristic.
-- Denial: derive `~A` from the negated conjecture `~A`, modulo symmetry.
-- Rewrites respect sorts: the walk knows the sort of each argument position from the signature, and rewrites only where it unifies with the equation's sort.
-- Definition unfolding replaces every occurrence of each defined symbol. Each definition is oriented which side is a pattern, backtracking if both are. Each literal is unfolded deterministically, innermost first. Its context is the literal around the occurrence, rebuilt from a zipper of frames.
-- Definition folding replaces each instance of the body of a function definition by the defined term. As defined terms unfold by definition, the conclusion's hypotheses refute the premise as they are, once the function terms of both are unfolded (`ir:terms_unfolded/2`; defined atoms are the same on both sides). So the proof has no rewrites, which matters as folded terms can be large: in SWV545-1.010, 885k nodes, with 59049 occurrences of one instance.
-- Steps by definition (`defined(Tactic)`): the defined atoms of the hypotheses whose symbols the step's cited definitions define are unfolded (others are as the parent states them), where their bodies are literals (a hypothesis `~~~C` becomes `~C`), and `Tactic` refutes the conclusion as if stated with the bodies: `variant` of the first parent, or `tautology`.
-- A ground tautology of equality (`tautology`, no premise) is closed by ground completion: the facts of its negative literals give equations, oriented by size and then the standard order and inter-reduced into rules, and each literal is normalised by rewrites. Then a fact is refuted by a hypothesis, or a positive equation is reflexive. Rigid variables are constants.
-- `first(Tactics)` is the first of `Tactics` that succeeds.
-- General splitting (`components`): as for an AVATAR split, the hypothesis `~~P(ts)` of the cited definition's symbol, as `~T` for the clause type `T` of the component (two redexes), is refuted by proving `T` with eigenvariables and hypotheses for its literals; then the conclusion is a variant of the parent.
-- A clausal step proves the definitions of its split literals first, whether or not it cites them (`sat_conversion` does not), so that back ends define them before use.
-- A failed tactic leaves the step as `todo`, with a warning. So does an unknown rule. A `todo` step only warns about a parent it cannot prove (e.g. the conjecture), as the proof is partial anyway.
+- Conclusion variables and eigenvariables are numbered before search, so unification cannot instantiate them.
+- Closing (`close.pl`) runs after search: remaining binders are numbered, and unconstrained term variables get a small inhabitant of their sort found by walking each application against its head's type (else `'$inhabited'(S)`).
+- Many rules are variants of a parent, up to instantiation, factoring, reflexivity, literal order, and symmetry of equality.
+- Resolution matches the major premise's literals to hypotheses or minor premises (units, in unit-resulting resolution). Paramodulation matches each literal or rewrites it by one equation of the other premise; equality factoring takes the equation from a hypothesis.
+- Literals are matched most constrained first (first-fail), taking a literal with one candidate at once. Matching is subsumption, NP-complete, so this is a heuristic: in order, a wide clause of interchangeable literals is searched exponentially (SYO613-1).
+- Rewrites respect sorts, from the signature's argument sorts.
+- Definition unfolding replaces each defined symbol innermost first, with its context rebuilt from a zipper of frames. Folding of function definitions needs no rewrites, as defined terms unfold by definition (`ir:terms_unfolded/2`): folded terms can be huge (SWV545-1.010).
+- `defined(Tactic)`: hypotheses' atoms of the cited definitions are unfolded where their bodies are literals, and `Tactic` refutes the conclusion as if stated with the bodies.
+- `tautology`: ground completion of the equations of the negative literals, then a fact is refuted by a hypothesis or a positive equation is reflexive.
+- `components` (general splitting) refutes the split hypothesis by proving the component clause, as for AVATAR, then the conclusion is a variant of the parent.
+- `first(Tactics)` is the first of `Tactics` that succeeds. A clausal step proves the definitions of its split literals first, so back ends define them before use.
+- A failed tactic or unknown rule leaves the step `todo`, with a warning; a `todo` step only warns about parents it cannot prove.
 
 ### Preprocessing (`normal.pl`, `transform.pl`)
-Transformation to normal form is an entailment from one parent, transformed structurally.
-A general tableau search for these blows up, as it must guess which of many parts to take apart next.
-Instead, each prover rule names the transformation it performs, and the tactic checks just that one, with no search.
+A general tableau search for preprocessing steps blows up, so each rule names its transformation, and the tactic checks just that one.
 
-- Each transformation has a _normal form_ (`normal:normal/3`), a ground key that forgets what the transformation may change: `base` (renaming, `~~`, `=>`, nesting of `&`/`|` and their units, operand order, equation orientation, vacuous quantifiers), `ennf` (and negation pushed to atoms, keeping `<=>`), `nnf` (and `<=>` expanded), `simplify` (and `$true`/`$false`), `pure(Ss)` (pure predicates replaced by `$true`/`$false`), `skolem(Ss)` (as `ennf`, with bound variables and terms of the Skolem symbols `Ss` all `'$skolem'`).
-- The keys are approximate, so that small implementation differences (reordering, renaming, flipped equations, vacuous quantifiers) do not matter.
-- A key is computed in one pass: reshaping gives each binder a fresh variable as it enters its scope (canonical names are distinct on a path), so renaming afterwards does not substitute through the scope of each binder, which is quadratic in the depth of nesting (LCL6xx's modal translations).
-- `transform(Mode)` fails at once unless the parent and conclusion have the same key.
-- The proof then takes the two apart in lockstep (`pair`), and the keys say which parts go together:
-  - literals close modulo symmetry, and a formula closes against its negation as it is, before either is taken apart (a chain of `<=>`, as in SYN007+1.014, splits into exponentially many branches);
-  - a δ formula's eigenvariables instantiate its γ counterpart, binder by binder, skipping vacuous ones, and conjuncts that are units of the key (e.g. a pure atom, `$true`) or `~~`, so that `?[X] : (p(X) & ?[Y] : q(X,Y))` opens as `?[X,Y] : q(X,Y)`;
-  - a binder is vacuous if its variable does not occur in the key, e.g. only in pure atoms; a γ variable so skipped is left to closing;
-  - if that fails, only as many δ binders are opened as the γ formula has, as a unit may come between its universals (`![X] : ($true & ![Y] : p(X,Y))`);
-  - otherwise the conjunctive side is expanded into a _pool_ of parts by key (noting which are δ formulas), and each branch of the other side is looked up in it, or split further. The parts that close by themselves are found once per pool, not for each branch, and a formula of a branch is looked up once, as it enters the branch: one without a counterpart is not looked up again while the others are taken apart. A disjunction is looked up only among δ formulas of the pool (whose vacuous binders hide a conjunction), and a part whose key is false (`~($true & $true)`) is refuted by itself.
-- In nnf the negation of an expanded `<=>` is a disjunction of conjunctions, so there both formulas are also compared the other way round.
-- Weakening steps:
-  - `pure`: the pure predicates are those of the parent that are not in the conclusion.
-  - `definition`: one `<=>` of the parent becomes the `=>` that makes the keys equal.
-- Definition folding (`transform(fold)`): the parent and the conclusion are unfolded throughout (by redexes that state the unfolded types), and are then the same, as in `base`.
-- Skolemisation (`transform(skolem)`) is an entailment once each Skolem symbol is defined by choice (see IR):
-  - the Skolem symbols are those of the conclusion that are `introduced(_, skolem)` and not in the parent;
-  - a δ formula of the parent is opened by the choice axiom of a Skolem term `sK(As)` in its counterpart, so the term is read off the conclusion, and no prover convention (e.g. argument order) is assumed. Its arguments must be distinct eigenvariables, including those of the δ formula, and the definitions of a symbol must agree;
-  - the keys forget Skolem terms, so lookups are ambiguous: each counterpart is tried, a disjunction is looked up too (its counterpart may be a `?` not yet opened), and a choice is pruned unless each atom with the bound variable is in the counterpart with the term in its place (`plausible`, where Skolem terms already chosen must match), as several `?` may be Skolemised at once. The branches of a split are closed smallest first, so a wrong counterpart fails on its smallest branch: otherwise `~(C & p(sK1))` against `?[X] : (D & p(X))`, with `sK0` for `X`, closes `C` against `D` first, and with it each `?` nested in them, again for each wrong counterpart of the levels around them (ITP009+2's twelve nested `?`);
-  - the prover's hint (`skolem_hint/2`) settles the choice where there is one: Vampire lists `skolemize(X, sK(Ys))` for each δ binder `X` of the parent, in preorder (left to right, outermost first, in negation normal form), so the front end records the δ formula that the choice of `sK` opens (`vampire:skolem_hints/1`). The names `X` and `Ys` would say the same, but `read/1` does not keep them, so this is a prover convention, checked only by the count of δ binders. Only the terms of the hinted symbol of a hinted δ formula are candidates, so a δ formula paired with the wrong counterpart fails at once, and its opening is not undone. The term is still read off the conclusion and checked. Without the hint, LCL670+1.005's chains of `r1(X, Y)` under nested `?` are searched exponentially;
-  - a `?` may come between the parent's universals, so a δ formula of the conclusion opens only as many eigenvariables as its counterpart has universals, and a clause conclusion instantiates the parent's universals around its Skolemised `?`;
-  - a type may be chosen too (a δ over `$tType`), as in TF1.
-- `clausify` reconstructs `cnf_transformation` of a formula: the clause's literals refute the parent, by one part of each conjunction and every branch of each disjunction, closing literals by unification.
-  Its only search is the choice of conjunct, pruned to those whose literals the clause's predicates and signs could refute (`fits`).
-- A clause conclusion whose variables are not the parent's outermost universal ones (Vampire's AVATAR shape `(! [X] : C) | ~p`) is refuted in the same way.
+- Each transformation has a ground _key_ (`normal:normal/3`) forgetting what it may change: `base` (renaming, `~~`, `=>`, nesting and units of `&`/`|`, operand order, equation orientation, vacuous quantifiers), `ennf` (negation pushed to atoms, but for `<=>`), `nnf` (and `<=>` expanded), `simplify` (`$true`/`$false`), `pure(Ss)`, `skolem(Ss)` (Skolem terms and bound variables blurred). Keys are approximate, so small implementation differences do not matter. A key is one pass: reshaping gives each binder a fresh variable as it enters scope, as renaming afterwards is quadratic in nesting depth (LCL6xx).
+- `transform(Mode)` fails at once unless parent and conclusion have the same key. It then takes them apart in lockstep (`pair`):
+  - literals close modulo symmetry, and a formula closes against its negation before either is taken apart (a chain of `<=>` splits exponentially, SYN007+1.014);
+  - δ eigenvariables instantiate the γ counterpart, skipping vacuous binders and conjuncts that are units of the key; failing that, only as many δ binders as the γ formula has are opened;
+  - otherwise the conjunctive side becomes a _pool_ of parts by key, in which each branch of the other is looked up, or split further. Self-closing parts are found once per pool, and each formula is looked up once as it enters a branch.
+  - in nnf both formulas are also compared the other way round.
+- Weakening: `pure` replaces the parent's pure predicates; `definition` weakens one `<=>` to `=>`.
+- `transform(fold)` unfolds both sides throughout, then compares as `base`.
+- Skolemisation (`transform(skolem)`) opens a δ formula by the choice axiom of a Skolem term read off the conclusion, so no prover convention is assumed. Keys forget Skolem terms, so counterparts are ambiguous: candidates are pruned by `plausible`, and branches closed smallest first, so a wrong counterpart fails early (ITP009+2). Vampire's `skolemize` hints settle the choice where given (`skolem_hint/2`, checked only by count), without which LCL670+1.005 is exponential. A type may be chosen too.
+- `clausify` refutes the parent by the clause's literals: one part of each conjunction, every branch of each disjunction. Its only search, the choice of conjunct, is pruned by the clause's predicates and signs (`fits`). A clause conclusion not over the parent's outermost universals (the AVATAR shape) is refuted the same way.
 
-## Frontends
-The job of a frontend is to load the proof of a given system in its own idiom, then match its inference rules to the existing ATP-generic 'tactics' that we know how to reconstruct.
+## Front Ends
+A front end loads a prover's proof and maps its rules to the ATP-generic tactics.
 
 ### Vampire (`vampire.pl`)
 | Vampire rules | Tactic |
@@ -141,11 +94,11 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | definition_folding of function definitions, in a clause | `fold` |
 | definition_folding of predicate definitions, in a formula | `transform(fold)` |
 | function_definition, avatar_definition (introduced) | `definition` |
-| predicate_definition_introduction, equality_proxy_definition: `P(Xs) <=> F`, or `~P(Xs)` among the disjuncts of `F` (introduced) | `transform(base)`, or `transform(definition)`, from `'$def:P'` |
-| inequality_splitting_name_introduction: `~P(T)` (introduced) | `defined(tautology)` from `'$def:P'`, where `P(X)` is `X != T` |
+| predicate_definition_introduction, equality_proxy_definition (introduced) | `transform(base)` or `transform(definition)`, from `'$def:P'` |
+| inequality_splitting_name_introduction (introduced) | `defined(tautology)` from `'$def:P'` |
 | equality_proxy_replacement, inequality_splitting, consistent_polarity_flipping | `defined(variant)` |
 | equality_proxy_axiom | `defined(tautology)` |
-| general_splitting_component_introduction: `![Xs] : (C <=> ~P(Xs))` (introduced) | `transform(nnf)` from `'$def:P'`, where `P(Xs)` is `~` the type of the clause `C` |
+| general_splitting_component_introduction (introduced) | `transform(nnf)` from `'$def:P'` |
 | general_splitting | `components` |
 | sat_conversion | `first([variant, avatar_split])` |
 | theory_tautology_sat_conflict (introduced) | `tautology` |
@@ -163,127 +116,89 @@ The job of a frontend is to load the proof of a given system in its own idiom, t
 | skolemize | `transform(skolem)` |
 | cnf_transformation of a formula | `clausify` |
 
-The conjecture becomes `conjecture`, `negated_conjecture` (`conjecture_negation` in later versions) becomes `negated_conjecture`, and any other rule becomes `todo`.
-Skolemisation (status `esa`) is an entailment once its symbols are defined by choice; so is a definition, an axiom of its fresh symbol. A predicate definition is printed as Vampire uses it, which may be one direction only, so the front end records the definition itself first, as the step `'$def:P'`, from which the printed one follows. Consistent polarity flipping replaces a predicate `P` by its negation, but keeps the name, so the front end renames it: every step after flipping states `P_flipped` for `P`, defined as `~P` (the step `'$def:P_flipped'`, which each flipping step cites), with the type parameters of `P` if it is polymorphic. The flipped predicates are those whose signed literals differ between a flipping step and its parent, with variables numbered in order: counting signs is not enough, as a clause may flip one literal of each sign. A step is before flipping if it is an input, an ancestor of a flipping step, or derived only from steps before flipping (e.g. the preprocessing of a formula whose clauses need no flipping), but for a flipping step; other steps without parents, such as AVATAR definitions, are after it. General splitting names a component `C` of a clause by `P(Xs)`, over the variables `Xs` it shares with the rest, so `P(Xs)` is defined as the negation of the type of the clause `C`, and the split clause states `~P(Xs)` for it. The binders of a printed definition are put in the order of its atom's arguments, as in `'$def:P'`, since the binders of a group commute.
-For `deny`, the front end skips (nil) preprocessing between the negated conjecture and its clause (e.g. `flattening`), and preprocessing of the negated conjecture of an atom is a denial too, so that these steps stay constructive.
-A clause-shaped conclusion of a preprocessing step is a clause, like any other, and a clause parent enters a preprocessing tactic by the type of its clause. Except: a Skolemised `(! [X] : C) | L` stays a formula, as the δ formula of its parent is under the disjunction too, and only formulas are paired part by part.
+- `negated_conjecture` (`conjecture_negation` in later versions) becomes `negated_conjecture`, and any other rule `todo`.
+- A predicate definition is printed as Vampire uses it, perhaps one way only, so the front end first records the definition itself, `'$def:P'`, from which the printed one follows. Binders are put in the order of the atom's arguments.
+- An AVATAR split `spl <=> C` is restated as `spl <=> T` for the clause type `T` of `C`, kept as `split/2` for the AVATAR tactics.
+- General splitting names a component `C` by `P(Xs)`, over the variables it shares with the rest, so `P(Xs)` is defined as `~` the type of `C`.
+- Consistent polarity flipping replaces `P` by its negation but keeps the name, so steps after it state `P_flipped`, defined as `~P`. The flipped predicates are those whose signed literals differ between a flipping step and its parent. A step is before flipping if it is an input, an ancestor of a flipping step, or derived only from such steps.
+- For `deny`, preprocessing of the negated conjecture of an atom is skipped, so these steps stay constructive.
+- A Skolemised `(! [X] : C) | L` stays a formula, as its parent's δ formula is under the disjunction too.
 
 ## Optimisation (`optimise.pl`)
-An optional pass between reconstruction and the back end makes proofs smaller, as their statements dominate the size of the output (e.g. SYN837-1's 28-binder clauses, with tiny proofs). The result is ordinary IR, so back ends are unchanged.
-- A clausal step (not a step between formulas) is inlined where it is cited if every citation is a full application in the term of a clausal step, and copying it costs less than stating it: `Uses × (Size − Skeleton) < Size + size of its clause`. `Size` is that of its term under the λs of its binders, which inlining removes, with what it inlines in turn. `Skeleton` is the size of a citation applied to the step's binders, which the arguments replace, if each binder occurs at most once in the term (so no argument is copied), else 0. So a step that forwards to another (`λ x h, f x h`) costs nothing.
-- A step that proves an equation `S = T` whose sides are the same once defined terms are unfolded is proved by `λ xs h, h refl`, whatever it cites, and is always inlined.
-- Then a function definition is inlined where copying its body costs less than stating it, as for a step: `Uses × (Size − 1) < Size + 2`, where `Uses` counts its occurrences in the optimised IR (in another definition, only in its body) and `Size` is that of its body with the definitions before it inlined (a body cites only those). Its symbol is substituted throughout and dropped from the signature, and its step becomes `T = T`, proved by `refl`, so the steps are optimised again, and it is inlined where it is cited. Uses are counted in the IR, with the annotations that some back ends (Agda) do not print.
-- Steps that the last refutation and the conjecture no longer cite are dropped, but for definitions, which define their symbols. A step may be proved without being cited, by a step that names it as a parent but does not need it (e.g. definition folding).
-- Each remaining term is normalised in one top-down pass, in an environment from the names of the original term to their values, the same for either kind of variable: a normal value (a fresh binder, or the term of an eigenvariable), or a closure, the proof of a hypothesis, normalised where it is used. So an inlined step is a β-redex reduced by binding, and the pass is linear, even for long chains of steps cited once.
-- A hypothesis argument of a β-redex is substituted if it is cheap (a hypothesis or constant applied to terms only) or used once, anywhere, as any term may be a head (a substituted application at a head takes the arguments there after its own); otherwise it stays a redex. Unused arguments are dropped.
-- A value may be substituted even where the checker infers its type (the equation of a rewrite, the first argument of `sym` or an expansion rule), though its binder's type may unfold the value's: that changes only function terms, or a defined atom at the top, which the checker unfolds there.
-- η for hypotheses: `λ h, F … h` is `F …`, where `F` is a hypothesis or a step (not a rule or built-in); eigenvariable λs are kept: SMT-LIB reads the eigenvariables of a split definition's proof off them, and lambdapi a type rule (`ex_t`, `nall_t`) off the sort of its λ.
-- `sym (sym E)` is `E`, `sym refl` is `refl`, `sym` of a rewrite of an equation `L = R` is the rewrite of `sym` of its proof by `R = L` (so `sym` is pushed down to the hypotheses), and a rewrite whose motive does not mention its variable, or by `refl`, is its proof.
-- Fresh binders are Prolog variables while normalising, numbered at the end as in closing; the binders of a step's own λs keep their names, as its type mentions its eigenvariables.
-- An inlined step is not checked separately by SMT-LIB, but as part of the step that cites it.
+An optional pass makes proofs smaller, as statements dominate the output (SYN837-1's 28-binder clauses, with tiny proofs). The result is ordinary IR.
+- A clausal step cited only by full applications in clausal steps is inlined if `Uses × (Size − Skeleton) < Size + size of its clause`, where `Skeleton` is the size of a citation, saved if no argument is copied. A step forwarding to another costs nothing.
+- A step proving `S = T`, with `S` and `T` the same once defined terms are unfolded, is proved by `refl` and always inlined.
+- A function definition is inlined likewise, `Uses × (Size − 1) < Size + 2`; its symbol is dropped, its step becomes `T = T`, and the steps are optimised again.
+- Steps no longer cited by the last refutation or the conjecture are dropped, but for definitions.
+- Each term is normalised in one top-down pass, binding names to values or closures, so it is linear even for long chains of steps cited once. A hypothesis argument is substituted if cheap or used once, dropped if unused, else kept as a redex; η-reduction for hypotheses; `sym` is pushed down to the hypotheses; a trivial rewrite is its proof. Eigenvariable λs are kept: SMT-LIB reads split eigenvariables off them, and lambdapi type rules.
+- An inlined step is checked by SMT-LIB as part of the step that cites it.
 
-## Backends
+## Back Ends
 
 ### Checker (`checker.pl`)
-An independent-ish type checker of each ground, annotated term against the type of its conclusion.
-- First-order terms are checked against the signature.
-- The formulas of proof types are kept canonical, so they are compared syntactically, or failing that up to `~F` being `F => $false` and a defined atom (such as a split) its definition (after η, `optimise.pl`), or up to unfolding: first defined function terms and quantifier-free predicates, only where the two differ, then every definition throughout, and a quantified hypothesis is instantiated by substitution.
-- An application is typed by its head (`ir:head_type/2` for a built-in), whose type is taken apart by its arguments in order: a `!` is instantiated by a term, of the sort of its binder, and an `=>` has a proof as its premise. Checking is against a type that may be a pattern, with the parameters of built-ins: the result of the head's type is unified with the type it is checked against (a fresh variable if its type is inferred), and then each argument is checked against its premise in order, so its type, if inferred, binds the parameters left (as it is, or failing that with a defined atom at its top unfolded). A built-in with a motive (`$rewrite`) is the exception: its result, `A[X:=T]`, is a substitution, which unification cannot match up to unfolding, so its premises are checked first (its equation against `S = T`, a pattern), and the result, then ground, is compared with the expected type. Ground types are compared up to unfolding, as above. A type that is still not ground is rejected.
-- A β-redex is checked by binding, its λs taking its arguments in order, without substituting one proof into another: an eigenvariable λ takes its term, which is substituted into the body, and a hypothesis λ takes a proof, checked against the λ's type, which the hypothesis then has. A head that is an application is typed as any other term.
-- The sort of each eigenvariable is well formed, and a motive `'$abs'(X:S, A)` is of the arrow sort `S > $o` of its binder, with `A` a well-sorted formula for `X : S`.
-- A λ is checked against `Π X : T. U`, the unfolding of `$proof` of a `!` or `=>`, by one rule for both kinds of binder: its annotation is `T` (or `'$inferred'`), and its binder is fresh, not already in scope.
-- The `conjecture` step `G` must cite a refutation of `$false`, and a checked `negated_conjecture` step `~G`.
-- A Skolem symbol is defined once, by a well-sorted `?` formula of its arguments only (distinct eigenvariables of the sorts of its signature), and its step is exactly its choice axiom.
-- A function symbol is defined once, by a well-sorted term of its arguments only, citing only symbols defined before it, and its step is exactly the equation of its definition, either way round. So is a predicate, by a well-sorted formula, and its step is exactly `![Bs] : (P(Xs) <=> F)`.
-- A term that fails to check is a reconstruction bug: the step is reported and the run fails.
-- A `todo` step is accepted, as part of a partial proof, but warned about: `warning: name (rule) is not checked`.
-- Other back ends do not run the checker.
+An independent-ish type checker of each ground, annotated term against its conclusion's type.
+- Terms are checked against the signature; sorts of eigenvariables and motives are well formed.
+- Formulas are compared syntactically, or failing that up to `~F` being `F => $false` and unfolding of definitions (first only where the two differ, then throughout).
+- An application is typed by its head, whose type its arguments take apart in order. The result is unified with the expected type first, then each argument checked against its premise; `'$rewrite'`'s result is a substitution, so its premises are checked first. A type still not ground is rejected.
+- A β-redex is checked by binding, without substituting one proof into another. Every binder is fresh.
+- The `conjecture` step must cite a refutation and a checked `negated_conjecture`. Skolem symbols, functions and predicates are each defined once, by a well-sorted body of their arguments only (citing only earlier definitions), and their steps are exactly their axioms.
+- A term that fails to check is a reconstruction bug: the step is reported and the run fails. A `todo` step is accepted, with a warning.
 
 ### Lambdapi (`lambdapi.pl`)
-Uses the `Stdlib` encoding of first-order logic.:
-- Input symbols are printed `{|f¹|}`, or `{|f/n¹|}` for a name overloaded by arity.
-- Inputs are declared as `{|name²|}` with their original formula.
-- Steps are `{|name³|}` and definitions `{|P⁴|}`, apart from symbols, inputs, and the prelude.
-- A clause is stated as its IR type with framework-level `Π`/`→`; for `~A` that is `π (¬ ¬ A)`.
-- Proof terms are printed directly, with `'$sym'` and `'$refl'` as Stdlib's `eq_sym` and `eq_refl _`, whose arguments lambdapi infers, `'$dne'` as `¬¬ₑ F` with the formula `F` of its step, which lambdapi cannot infer from `π F` as `π` reduces, and `'$rewrite'` as `rw`, with its motive `'$abs'(X:S, A)` printed as `(λ (x : τ S), A)` (`rewrite` is a lambdapi keyword), where `rw` is defined by `ind_eq`.
-- Sorts are terms of `Set` (`Stdlib.Set`): `'$i'` is `ι`, a type constructor is declared `Set → Set`, and a polymorphic symbol `Π (x0 : Set), ...`. `'$inhabited'(S)` is `el S`.
-- Type quantification: Stdlib's `` `∀ `` ranges over the elements of a `Set`, not over `Set`, so our prelude adds a binder `∀ₜ : (Set → Prop) → Prop` with `π (∀ₜ p) ↪ Π a : Set, π (p a)`.
-- `∃ₜ` is declared with its introduction and elimination rules.
-- The expansion rules are lemmas of the prelude (`and_e`, `nall_e`, ...), proved from Stdlib; the classical ones use `Stdlib.Classic`. Rules over type variables are separate lemmas: `ex_t` and `nall_t`, chosen by the sort of the eigenvariable, and `nex_t` for `'$nex_t'`.
-- Skolem symbols are declared with the signature (as `symbol`, so they may be given a rule). A `skolem_def` gives the rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`), so that `sK xs` unfolds, and proves its choice axiom by `εᵢ`.
-- A function `definition` gives the rule `sF ↪ λ xs, T`, so that its equation is proved by `refl` (stated only if a step cites it); a predicate's gives `sP ↪ λ xs, F`, so its definition is proved by `∧ᵢ (λ h, h) (λ h, h)`. A split symbol is such a predicate, its body a clause type.
-  A type is chosen by `εₜ : (Set → Prop) → Set`, which Stdlib lacks, so it is postulated with its introduction rule `εₜᵢ`, like `∃ₜ`.
-- Canonical bound variables are printed `yN`, and variables (hypotheses and eigenvariables) `xN`.
-- Type annotations are used where this was shown to improve checking performance, although it should not really be necessary.
+Uses the `Stdlib` encoding of first-order logic.
+- Input symbols are `{|f¹|}` (`{|f/n¹|}` if overloaded by arity), inputs `{|name²|}`, steps `{|name³|}`, definitions `{|P⁴|}`.
+- A clause is stated with framework-level `Π`/`→`. `'$sym'`, `'$refl'` are `eq_sym`, `eq_refl _`; `'$dne'` is `¬¬ₑ F` with its formula explicit, as `π` reduces; `'$rewrite'` is `rw` (`rewrite` is a keyword), defined by `ind_eq`.
+- Sorts are terms of `Set`; `'$inhabited'(S)` is `el S`. The prelude adds `∀ₜ`, `∃ₜ` over `Set` and `εₜ`, and the expansion rules as lemmas (classical ones from `Stdlib.Classic`), with `_t` variants over types.
+- Skolem symbols get a rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`); function and predicate definitions are rules too, so their axioms hold by `refl` or `∧ᵢ`.
+- Some binder annotations are printed only because they speed up checking.
 
 ### Agda (`agda.pl`)
 For a hammer: a term to fill a hole, constructive by the A-translation.
-- The output is `Proof.refutation bridge ... bridge`, then `where` and a module `Proof {R : Set} (leaf : type) ...` with one definition per clausal step.
-- `R` is the IR's `⊥`. Agda infers it to be the goal, so the goal is never printed; `~F` is `F → R`.
-- The leaves are the input clauses and negated conjecture, parameters of the module. The negated conjecture `G → R` is the identity.
-- We expect one conjecture, a ground atom (or none: then the term has any type). Inputs are clauses.
-- Sequent reading: the Agda term of an input clause is assumed to have type `∀ xs → A₁ → … → Aₙ → B₁ ⊎ … ⊎ Bₘ` (`⊥` if `m = 0`) for its negative literals `~Aᵢ` and positive literals `Bⱼ`, in order.
-- Input clauses are transformed to the usual clause type in continuation-passing style.
-- Names are printed verbatim: the hammer names symbols, sorts and inputs after their Agda terms, whether its problem went to the prover as TPTP or SMT-LIB. Only the prover's own names are escaped to Agda identifiers, one to one: ASCII letters and digits are kept (but a leading digit), `_` between them is `-` (e.g. `spl0_1` is `spl0-1`, as `_` marks an argument place), and any other character is `·HH·`, its code in hex.
-- Steps are escaped bare names, apart from the hammer's (which names every input, and does not redefine `refl` and the like). A definition step of `P` is `Pᵈᵉᶠ`, which no escaped name has.
-- Our own names (variables `xN`, `hN`, …, `R`, the module `Proof`, steps and definitions) are in the scope of the names printed verbatim, so they are decorated, for the whole proof, by as few primes `′` as make none of them a name printed verbatim (`agda:decorate/0`): usually none, but a hammer's symbol `x0` would otherwise be captured by `λ x0`.
-- Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong` and `subst`, with their terms left for Agda to infer; for clausal transformation `⊥-elim` and `[_,_]′`.
-- A rewrite of an equation is a path of `trans` and `cong`; going back along a side inverts the rewrite's equation with `sym` pushed down to its hypotheses, as the optimiser does.
-- `'$inhabited'(S)` is a hole `{! !}`, as is a clause-typed `todo` step. Formula steps and Skolem definitions are not printed.
-- A function `definition` is printed as an Agda definition of its symbol in the module (so `agda_file` does not postulate it), and its equation is proved by `refl` (stated only if a step cites it). So is a predicate, whose definition step is a formula and is not printed; a body that Agda cannot state (of `&`, `|`, `<=>` or `?`) is a hole. A split symbol is such a predicate, whose body, a clause type, Agda can state.
-- A step between formulas (`ir:formula_step/1`) is a hole too: its parent is a formula, and some of its rules are classical. The hammer's inputs are clauses, so it has none.
-- Everything is in `Set`: no universe levels, so no split definitions over type variables.
-- `agda_term` prints the same proof as one expression, `(λ {R : Set} (leaf : type) ... → let steps in refutation) bridge ...`, for a caller that can check an expression but not declare a module (Agda's reflection, `checkFromStringTC`). The steps are printed as in the module, whose indentation is also that of the `let` block.
-- `agda_file` is a second entry point for testing: a module that postulates the signature and the input clauses, with every name escaped (symbols marked `′`, inputs `″`), so that names from TPTP or SMT-LIB problems are distinct Agda identifiers.
+- Output is `Proof.refutation bridge ... bridge where module Proof {R : Set} (leaf : type) ...`, one definition per clausal step. `R` is the IR's `⊥`, which Agda infers to be the goal; `~F` is `F → R`. The negated conjecture `G → R` is the identity.
+- We expect one conjecture, a ground atom (or none), and input clauses. An input's Agda term is assumed to have type `∀ xs → A₁ → … → Aₙ → B₁ ⊎ … ⊎ Bₘ` for its negative literals `~Aᵢ` and positive `Bⱼ`, bridged in continuation-passing style.
+- Names from the hammer are printed verbatim; the prover's own are escaped one to one (`spl0_1` is `spl0-1`, other characters `·HH·`), a definition of `P` is `Pᵈᵉᶠ`, and our own names are decorated with as few primes as avoid capture (`agda:decorate/0`).
+- Assumed in scope: `_≡_`, `refl`, `sym`, `trans`, `cong`, `subst`, `⊥-elim`, `[_,_]′`. A rewrite of an equation is a path of `trans` and `cong`.
+- Holes `{! !}`: `'$inhabited'(S)`, `todo` steps, steps between formulas (some are classical), and predicate bodies Agda cannot state. Everything is in `Set`.
+- `agda_term` prints the same proof as one expression, for Agda's reflection (`checkFromStringTC`); `agda_file` postulates the signature and inputs, with every name escaped, for testing.
 
 ### SMT-LIB (`smtlib.pl`)
-In the manner of "Ground Truth" (Voronkov et al), ground premises of each step in such a way that in combination with the negated conclusion it produces an unsatisfiable SMT instance.
-Produces an SMT-LIB script with one `push`/`check-sat`/`pop` per step.
-- Each `check-sat` is preceded by `(set-info :status unsat)`.
-- Only the instantiations of premises are read from the proof term. Propositional/theory reasoning (including equality) is left to the SMT solver.
-- Sorts are sorts, declared with their arity (`(declare-sort |t.list| 1)`), but polymorphic symbols are _monomorphised_: each instance used in a check is declared in its scope.
-- SMT-LIB `declare-sort-parameter` could support polymorphism but is not yet supported by mainstream SMT solvers.
-- Some inferences are not checkable by nature, e.g. definition introduction, conjecture negation, etc.
-- Skolem symbols are uninterpreted, and their definitions are not checked (Skolemisation is a step between formulas). Nor are definitions: monomorphic functions and predicates are defined in the header by `define-fun` (but split symbols of clauses with binders, which stay uninterpreted, their bodies quantified: a check asserts the instance of the definition it uses, read off the hypotheses of its type), as proofs unfold them by definition, after the instances of polymorphic symbols in their bodies (which no check declares again), and each instance of a polymorphic one in its check, by its body at the instance's types (after the instances in that body).
-- Symbols are namespaced as `|t.name|`, because cvc5 rejects clashes such as `exists` even when quoted.
-- A general split's component `C`, of clause type `T`, proved for eigenvariables refuting `~T` (or `P(ts)`, its defined predicate), is asserted as `C => T`, sound by Skolemisation as for AVATAR.
-- `todo` steps are not checked: the solver echoes `warning: name (rule) is not checked` instead.
-- Steps are never SMT-LIB symbols, only text in an `echo`: a step by its bare name, a definition as `P (definition)`, with `"` doubled.
-- Neither are steps between formulas (`ir:formula_step/1`): a formula with `?` under `!` has no ground instance to assert. Asserting the parent and the negated conclusion with their quantifiers would check them, but not in the manner of "Ground Truth".
+In the manner of "Ground Truth" (Voronkov et al.): each step's ground premise instances and its negated conclusion, read off the proof term, form an unsatisfiable instance, one `push`/`check-sat`/`pop` per step, each with `(set-info :status unsat)`. Propositional and theory reasoning is left to the solver.
+- Sorts are declared with their arity; polymorphic symbols are monomorphised per check (solvers lack `declare-sort-parameter`). Symbols are `|t.name|`, as cvc5 rejects clashes such as `exists` even when quoted.
+- Not checked: `todo` steps (echoing a warning), steps between formulas (no ground instances), Skolem definitions and other definitions. Monomorphic definitions are `define-fun`s in the header, but splits with binders, asserted where used.
+- A general split's component is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 
 ## Files (`src/`)
 | File | Role |
 |---|---|
-| `main.pl` | `main(Frontend, Backend)`: loads every module, dispatches on both, and exits with a status |
+| `main.pl` | `main(Frontend, Backend, Options)`: loads every module, dispatches, exits with a status |
 | `ops.pl` | Operators of the internal syntax |
 | `load.pl` | `read_tstp/1`: `read/1` with TPTP operators, then normalisation |
-| `db.pl` | The shared database: `step/3`, `symbol/4`, `introduced/2`, `ir_step/3`, `split/2`, `skolem_hint/2`, and `record/1` to add to them |
-| `logic.pl` | Formulas and clauses: `formula_clause`, `clause_formula`, `binder_variables`, `complement`, `flip`, `number_vars`, `substitute`, `occurs`, `canonical` |
-| `vampire.pl` | Vampire front end: clause or formula, rule table, inputs, the conjecture, AVATAR and predicate definitions, renaming flipped predicates; unknown rules become `todo` |
-| `signature.pl` | The signature: symbol instances and term sorts, typing equations, default sorts for undeclared symbols (any front end); `overloaded/1` |
-| `reconstruct.pl` | Proof search and the tactics |
-| `matching.pl` | Refuting a literal or formula by a hypothesis, shared by the tactics |
-| `normal.pl` | Normal forms of formulas for each preprocessing transformation, as keys |
-| `transform.pl` | The tactics for steps between formulas: preprocessing (`transform`) and clausification (`clausify`) |
+| `db.pl` | The shared database, and `record/1` to add to it |
+| `logic.pl` | Formulas and clauses |
+| `signature.pl` | Symbol instances and sorts, typing equations, default sorts |
+| `vampire.pl` | Vampire front end |
+| `reconstruct.pl` | Proof search and the clausal tactics |
+| `matching.pl` | Refuting a literal by a hypothesis, shared by the tactics |
+| `normal.pl` | Keys of formulas for preprocessing |
+| `transform.pl` | Tactics for steps between formulas |
 | `rup.pl` | Reverse unit propagation |
 | `close.pl` | Closing terms after search |
 | `optimise.pl` | Optional inlining and simplification of the IR |
-| `ir.pl` | IR documentation; `clause_type/2`, `step_type/2`, `head_type/2`, `formula_step/1`, `reference/2` |
+| `ir.pl` | The IR, and the types of steps and built-ins |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
 | `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
-| `printing.pl` | Shared printing: `out/1` and the `atom`, `number`, `codes` DCGs |
-| `utils.pl` | Portable helpers: `each/2`, `warn/1`, `named/3` (names of steps, definitions and inputs), `final/2`, `range/3`, `list//1` |
+| `printing.pl` | Shared printing DCGs |
+| `utils.pl` | Portable helpers |
 
 ## Known Issues
-- Backend scaling: for some backends (lambdapi, Agda) some large (e.g. `HWV057`, `SWV424-1.200`) or otherwise-tricky proofs time out or run out of memory. Not our problem, will be reported upstream if relevant.
+- Back-end scaling: Lambdapi and Agda time out or run out of memory on some large proofs (`HWV057`, `SWV424-1.200`). Not our problem; report upstream if relevant.
 - Our lambdapi printer builds its output in memory, and overflows the stack on SWV545-1.010's 885k-node terms.
-- One failure at `read/1`: SYN986+1.004 blows the stack with its deep `succ` terms, but checks with `ulimit -s unlimited`.
-- Some slowness during reconstruction in places, under investigation - e.g. `PUZ135_1`'s self-superposition.
-- cvc5 exits 0 on `unknown` (`:status unsat` only catches `sat`), so `scripts/checksmt` would not notice a timeout.
+- SYN986+1.004 blows the stack in `read/1` with its deep `succ` terms, but checks with `ulimit -s unlimited`.
+- Some slowness during reconstruction, e.g. `PUZ135_1`'s self-superposition.
+- cvc5 exits 0 on `unknown`, so `scripts/checksmt` would not notice a timeout.
+- Scryer and Trealla no longer run isinglass (last ported in 979736d).
 
 ## Testing
-To test: produce a corpus of TSTP proofs in `solutions/` if not already.
-The scripts in `scripts/` each take one file and are run from the top level, e.g. `scripts/genlp solutions/PUZ001+1`.
-Use `gen*` to produce transformed proofs via `ising` (or just check the corpus with `check`).
-Finally, use `check*` to check the resulting proofs.
-All should produce noisy output on failure and play well with GNU parallel.
+Produce a corpus of TSTP proofs in `solutions/` if not already there.
+The scripts in `scripts/` each take one file and are run from the top level, e.g. `scripts/genlp solutions/PUZ001+1`: `gen*` produce proofs via `ising` (or `check` just checks the corpus), and `check*` check the results.
+All produce noisy output on failure and play well with GNU parallel.

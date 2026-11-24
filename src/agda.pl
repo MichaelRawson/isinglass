@@ -185,7 +185,7 @@ emitted(Cited, step(Name, clause(Cs, Ls), definition(Symbol, Bs, Body))) --> !,
   { binder_variables(Bs, Xs), binder_variables(Cs, Ys), length(Ys, K), append(Ys, ['$VAR'(K)], Zs) },
   definition(symbol(Symbol), symbol_type(Symbol), defined(Xs, Body)),
   (   { get_assoc(Name, Cited, _) }
-  ->  definition(name(Name), conclusion(clause(Cs, Ls)), defined(Zs, '$app'('$VAR'(K), '$refl')))
+  ->  definition(name(Name), conclusion(clause(Cs, Ls)), defined(Zs, '$VAR'(K) @ '$refl'))
   ;   []
   ).
 % ...and a predicate by its body, where Agda can state it (formulas of clauses), else a hole
@@ -219,7 +219,7 @@ stated(~F) :- !, stated(F).
 stated('$false') :- !.
 stated(F) :- \+ connective(F, _).
 
-body(M) --> { M = '$app'(_, _) }, !, proof(M).
+body(M) --> { M = _ @ _ }, !, proof(M).
 body(formula(F)) --> !, type(F).
 body(T) --> term(T).
 
@@ -228,8 +228,7 @@ symbol_type(S) -->
   { symbol(S, Ps, Args, Sort), number_vars(Ps, 0, _) },
   foldl(type_parameter, Ps), foldl(argument_sort, Args), sort(Sort).
 
-todo(esa(Rule, _)) --> !, "{! ", atom(Rule), " !}".
-todo(Record) --> { functor(Record, Rule, _) }, "{! ", atom(Rule), " !}".
+todo(Record) --> { todo_rule(Record, Rule) }, "{! ", atom(Rule), " !}".
 
 conclusion(clause(Bs, Ls)) --> { clause_type(clause(Bs, Ls), T) }, type(T).
 conclusion(formula(F)) --> type(F).
@@ -241,15 +240,15 @@ conclusion(formula(F)) --> type(F).
 % proof terms are printed bare, and parenthesised by operand//1 where they are arguments
 proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
 % a redex of one hypothesis is a let
-proof('$app'('$lam'(X, '$proof'(F), N), M)) --> !,
+proof('$lam'(X, '$proof'(F), N) @ M) --> !,
   "let ", variable(X), " : ", type(F), " ; ", variable(X), " = ", proof(M), " in ", proof(N).
 proof(R) --> { rewrite(R, X, A, E, M) }, !, rewritten(A, X, E, M).
 % a rewrite applied to more arguments is a head
-proof(M) --> { M = '$app'(_, _), spine(M, F, As), F == '$rewrite', length(Rw, 3), append(Rw, [_|_], As) }, !,
+proof(M) --> { M = _ @ _, spine(M, F, As), F == '$rewrite', length(Rw, 3), append(Rw, [_|_], As) }, !,
   { append(Rw, Rest, As), curried(F, Rw, R) },
   "(", proof(R), ")", foldl(spaced_argument, Rest).
 % an argument is a proof or a first-order term
-proof(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, head(F), foldl(spaced_argument, As).
+proof(M) --> { M = _ @ _, spine(M, F, As) }, !, head(F), foldl(spaced_argument, As).
 proof(X) --> head(X).
 
 % consecutive λs are merged
@@ -317,9 +316,9 @@ inverse(cong(X, S, P), cong(X, S, Q)) :- inverse(P, Q).
 
 % sym E, with sym pushed down to the hypotheses: through a rewrite of an equation L = R, which is a
 % rewrite of sym of its proof by R = L, to cancel against sym
-inverted('$app'('$sym', E), E) :- !.
+inverted('$sym' @ E, E) :- !.
 inverted(Rw0, Rw) :- rewrite(Rw0, X, '$='(A, L, R), E, M0), !, inverted(M0, M), rewrite(Rw, X, '$='(A, R, L), E, M).
-inverted(E, '$app'('$sym', E)).
+inverted(E, '$sym' @ E).
 
 % the steps of a path, flat: a step whose proof is a rewrite of an equation is its own path
 present([], []).
@@ -333,7 +332,7 @@ step_path(eq(E), Ps) :- equation_path(E, Ps).
 equation_path(R, [P1, proof(M), Q]) :-
   rewrite(R, X, '$='(_, S, T), E, M),
   side(X, S, E, P), side(X, T, E, Q), inverse(P, P1).
-equation_path('$app'('$sym', E), Ps) :-
+equation_path('$sym' @ E, Ps) :-
   rewrite(E, _, '$='(_, _, _), _, _),
   inverted(E, E1),
   equation_path(E1, Ps).

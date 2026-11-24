@@ -1,43 +1,25 @@
 /*
-An optional pass over the IR (see ir.pl), between reconstruction and the back end, that makes proofs
-smaller: some clausal steps are inlined where they are cited, so their statements are not printed,
-and obvious redundancies are simplified away. The result is ordinary IR, so every back end (and the
-checker) reads it as before.
+An optional pass that makes the IR smaller, as statements dominate the output; the result is
+ordinary IR. A clausal step cited only by full applications in clausal steps is inlined if copying
+it costs less than stating it, Uses × (Size − Skeleton) < Size + size of its clause (see plan/4); a
+step proving S = T, where S and T are the same once defined terms are unfolded, is proved by refl.
 
-A step is inlined if it is a clause proved by a term, not a step between formulas, and is cited only
-by full applications (all its terms and hypotheses) in the proof terms of clausal steps (not between
-formulas), and its term (with what it inlines, under the λs of its binders) is small enough that
-copying it where it is cited costs less than stating it: each use grows by Size - Skeleton, where the
-skeleton is the citation itself, applied to the step's binders, if each binder occurs at most once in
-the term (so no argument is copied; else it is 0), and inlining saves the term and its clause, so
-Uses * (Size - Skeleton) < Size + size of the clause. A step that just forwards to another
-(λ x h. f x h) costs nothing.
-A step that proves an equation S = T whose sides are the same once defined terms are unfolded is
-proved by λ xs h. h refl instead (whatever it cites), and is always inlined, as K refl is no larger
-than the citation it replaces.
-
-Each remaining proof term is normalised in one pass, top-down, in an environment that maps the names
-bound in the original term to their values: an eigenvariable to a term, a hypothesis to a fresh
-binder, or to a closure c(M, Env), a term to be normalised where it is used. So an inlined step is a
-β-redex that is reduced by binding its binders, and a substituted hypothesis is normalised once, at
-its single use, which keeps the pass linear. Then
-
-  - β: an inlined step, or a λ at the head of an application (a redex, or substituted there), binds
-    its binders to the arguments; a hypothesis argument is dropped if unused, and substituted if
-    cheap (a hypothesis or constant, applied to terms only) or used once (anywhere, as any term
-    may be a head, where its arguments come before those of the application), else it stays a redex;
-  - η: λ h, F ... h → F ..., for a hypothesis h, where F is a hypothesis or a step;
-  - sym (sym E) → E, sym refl → refl, and sym of a rewrite of an equation L = R is the rewrite of
-    sym of its proof, by R = L, so that sym is pushed down to the hypotheses;
-  - a rewrite whose motive does not mention its variable, or by reflexivity, is its proof.
-
-Fresh binders are Prolog variables, numbered at the end in binder order (close:number_binders/1), after
-the eigenvariables of a clause's own binders, which keep their names, as its type mentions them. A λ binds a hypothesis or an eigenvariable as its annotation says.
+Each remaining term is normalised in one top-down pass, in an environment from names to values: a
+term or a fresh binder, v(T), or a closure c(M, Env), normalised where it is used, so the pass is
+linear. It reduces
+  - β: a hypothesis argument is dropped if unused, substituted if cheap or used once, else kept;
+  - η: λ h, F ... h → F ..., for a hypothesis or step F;
+  - sym (sym E) → E, sym refl → refl, and sym (rewrite (λ X. L = R) E M) → rewrite (λ X. R = L) E
+    (sym M), so that sym is pushed down to the hypotheses;
+  - rewrite (λ X. A) E M → M, if A does not mention X or E is refl.
+Fresh binders are Prolog variables, numbered at the end (close:number_binders/1); a step's own
+binders keep their names, as its type mentions them.
 */
 :- module(optimise, [optimise/0]).
 :- use_module(library(lists)).
 :- use_module(library(assoc)).
 :- use_module(utils).
+:- use_module(ops).
 :- use_module(logic).
 :- use_module(ir).
 :- use_module(db).
@@ -138,16 +120,11 @@ inlined_term(Inlined, T0, T) :-
   T0 =.. [_|As0],
   maplist(inlined_term(Inlined), As0, As),
   binder_variables(Bs, Xs),
-  foldl(abstracted, Xs, Vs, Body, T),
-  Vs = As.
+  substitute_all(Xs, As, Body, T).
 inlined_term(Inlined, T0, T) :-
   compound(T0), !,
-  T0 =.. [F|As0],
-  maplist(inlined_term(Inlined), As0, As),
-  T =.. [F|As].
+  map_arguments(inlined_term(Inlined), T0, T).
 inlined_term(_, T, T).
-
-abstracted(X, V, T0, T) :- substitute(X, V, T0, T).
 
 % an inlined definition's step states T = T, and is proved by refl
 restated(Inlined, Conclusion0, definition(F, Bs, _), Conclusion, proof(M)) :-
@@ -186,12 +163,10 @@ full(Name, As) :- ir_step(Name, clause(Bs, Ls), _), length(Bs, M), length(Ls, N)
 
 % the steps cited in a proof term, with their arguments (a first-order term cites none)
 cited('$lam'(_, _, M), Name, As) :- !, cited(M, Name, As).
-cited(M, Name, As) :- M = '$app'(_, _), !,
+cited(M, Name, As) :- M = _ @ _, !,
   spine(M, F, As0),
-  ( step_name(F), Name = F, As = As0 ; compound(F), cited(F, Name, As) ; member(A, As0), cited(A, Name, As) ).
-cited(F, F, []) :- step_name(F).
-
-step_name(F) :- atom(F), ir_step(F, _, _), !.
+  ( named_step(F), Name = F, As = As0 ; compound(F), cited(F, Name, As) ; member(A, As0), cited(A, Name, As) ).
+cited(F, F, []) :- named_step(F).
 
 % Inlined maps each inlined step to its size, with the steps it inlines: those for which copying
 % costs less than stating them
@@ -249,7 +224,7 @@ reflexivity(clause(_, [L])) :- terms_unfolded(L, '$='(_, S, T)), S == T.
 
 reflexive_term(clause(Bs, [L]), M) :-
   length(Bs, N),
-  lams(Bs, '$lam'('$VAR'(N), '$proof'(~L), '$app'('$VAR'(N), '$refl')), M).
+  lams(Bs, '$lam'('$VAR'(N), '$proof'(~L), '$VAR'(N) @ '$refl'), M).
 
 lams([], M, M).
 lams([X:S|Bs], M0, '$lam'(X, S, M)) :- lams(Bs, M0, M).
@@ -265,13 +240,6 @@ inlined_size(Inlined, M, Size) :-
 
 spine_body('$lam'(_, _, M), B) :- !, spine_body(M, B).
 spine_body(M, M).
-
-% the tag of a proof type is not counted
-term_size('$proof'(F), N) :- !, term_size(F, N).
-term_size(T, N) :- compound(T), !, T =.. [_|Ts], foldl(add_size, Ts, 1, N).
-term_size(_, 1).
-
-add_size(T, N0, N) :- term_size(T, K), N is N0 + K.
 
 /********************************************************************************
  * normalisation
@@ -311,7 +279,7 @@ substituted(Env, '$abs'(X:S0, A0), '$abs'(Y:S, A)) :- !,
   substituted(Env, S0, S),
   bind(Env, X, v(Y), Env1),
   substituted(Env1, A0, A).
-substituted(Env, T0, T) :- compound(T0), !, T0 =.. [F|As0], maplist(substituted(Env), As0, As), T =.. [F|As].
+substituted(Env, T0, T) :- compound(T0), !, map_arguments(substituted(Env), T0, T).
 substituted(_, T, T).
 
 normal(Env, '$lam'(X, A, M0), M) :- !,
@@ -319,7 +287,7 @@ normal(Env, '$lam'(X, A, M0), M) :- !,
   bind(Env, X, v(Y), Env1),
   normal(Env1, M0, M1),
   ( proof_annotation(A) -> eta(Y, A1, M1, M) ; M = '$lam'(Y, A1, M1) ).
-normal(Env, M0, M) :- M0 = '$app'(_, _), !,
+normal(Env, M0, M) :- M0 = _ @ _, !,
   spine(M0, F, As),
   arguments(Env, As, Cs),
   applied(Env, F, Cs, M).
@@ -359,7 +327,7 @@ applied(_, F, Cs, M) :-
   built(F, Ms, M).
 
 % normal terms may be hypotheses, which are variables, so they are matched with care
-built('$sym', [E0], E) :- nonvar(E0), E0 = '$app'(Sym, E), Sym == '$sym', !.
+built('$sym', [E0], E) :- nonvar(E0), E0 = Sym @ E, Sym == '$sym', !.
 built('$sym', [E], E) :- E == '$refl', !.
 built('$sym', [E0], M) :-
   rewrite_parts(E0, Motive0, E, M0), nonvar(Motive0), Motive0 = '$abs'(X, '$='(A, L, R)), !,
@@ -372,7 +340,7 @@ built(F, Ms, M) :- curried(F, Ms, M).
 % the term M0 of a substituted hypothesis, at the head of an application, whose arguments, if it is
 % an application, come before Cs
 applied_term(Env, M0, [], M) :- !, normal(Env, M0, M).
-applied_term(Env, M0, Cs, M) :- M0 = '$app'(_, _), !,
+applied_term(Env, M0, Cs, M) :- M0 = _ @ _, !,
   spine(M0, G, As),
   arguments(Env, As, Cs0),
   append(Cs0, Cs, Cs1),
@@ -393,7 +361,7 @@ reduced(Env, '$lam'(X, A, M0), [C|Cs], M) :- !,
       forced(C, V),
       bind(Env, X, v(Y), Env1),
       reduced(Env1, M0, Cs, N),
-      M = '$app'('$lam'(Y, A1, N), V)
+      M = '$lam'(Y, A1, N) @ V
   ).
 reduced(Env, M0, Cs, M) :- applied_term(Env, M0, Cs, M).
 
@@ -406,7 +374,7 @@ substitutable(_, _, 1).
 % a hypothesis or a constant (not an inlined step), applied to terms only (or to variables that are
 % not closures), so copying it is cheap
 cheap(Env, F) :- F = '$VAR'(_), !, binding(Env, F, V), ( V = c(V0, Env0) -> cheap(Env0, V0) ; true ).
-cheap(Env, M) :- M = '$app'(_, _), !,
+cheap(Env, M) :- M = _ @ _, !,
   spine(M, F, As),
   maplist(cheap_argument(Env), As),
   cheap(Env, F).
@@ -419,7 +387,7 @@ cheap_argument(_, T) :- \+ proof_argument(T).
 % depends on its arguments
 eta(Y, _, M0, M) :-
   nonvar(M0),
-  M0 = '$app'(G, X),
+  M0 = G @ X,
   X == Y,
   spine(G, F, _),
   ( hypothesis(F) ; atom(F), \+ head_type(F, _) ),
@@ -439,7 +407,7 @@ hypothesis_uses(M, Uses) :-
   foldl(add_use, Sorted, Empty, Uses).
 
 uses('$lam'(_, _, M)) --> !, uses(M).
-uses('$app'(M, N)) --> !, uses(M), uses(N).
+uses(M @ N) --> !, uses(M), uses(N).
 uses(F) --> ( { F = '$VAR'(_) } -> [F] ; [] ).
 
 add_use(X, Uses0, Uses) :-

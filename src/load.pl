@@ -128,10 +128,8 @@ normalise('~|'(G, H), F) :- !, F = ~((G1 | H1)), normalise(G, G1), normalise(H, 
 normalise('~&'(G, H), F) :- !, F = ~((G1 & H1)), normalise(G, G1), normalise(H, H1).
 normalise(A0, A) :- term(A0, A).
 
-% a quantifier's binders Xs and body G, with its variables renamed apart (each binder is then a
-% quantifier of its own, logic:quantify/4): read/1 gives binders of the
-% same name in one statement the same variable, but each binder must have its own, as instantiation
-% is unification
+% a quantifier's binders Xs and body G, renamed apart: read/1 gives binders of the same name in one
+% statement the same variable, but instantiation is unification
 quantified(Xs, G, Bs, H) :-
   term_variables(Xs-G, Vs),
   copy_term(Vs-Xs-G, Ws-Ys-G1),
@@ -148,8 +146,10 @@ kept(_, V, V).
 binder(B, X:S) :- nonvar(B), B = (X : T), !, term(T, S).
 binder(X, X:'$i').
 
-% a term (or sort), with $-words as symbols: '$'(f(X)) is '$f'(X)
+% a term (or sort), with $-words as symbols: '$'(f(X)) is '$f'(X); a symbol '@'/2 would be read as
+% the application of a proof (ops.pl), so it is refused
 term(V, T) :- var(V), !, T = V.
+term(_ @ _, _) :- !, throw(reserved_symbol('@'/2)).
 term('$'(T0), T) :- !, T0 =.. [F0|As0], atom_concat('$', F0, F), terms(As0, As), T =.. [F|As].
 term(T0, T) :- T0 =.. [F|As0], terms(As0, As), T =.. [F|As].
 

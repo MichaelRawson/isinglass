@@ -172,10 +172,7 @@ proof_step(proof(M), Name, Conclusion) -->
   header(Name), assumption(Name), conclusion(Conclusion), " ≔ ", discharge(Name), proved(Conclusion, M), ";\n".
 
 proof_step(todo(Record, _), Name, Conclusion) -->
-  header(Name), assumption(Name), conclusion(Conclusion), " ≔ begin admit end; // TODO ", rule(Record), "\n".
-
-rule(esa(Rule, _)) --> !, atom(Rule).
-rule(Record) --> { functor(Record, Rule, _) }, atom(Rule).
+  header(Name), assumption(Name), conclusion(Conclusion), " ≔ begin admit end; // TODO ", { todo_rule(Record, Rule) }, atom(Rule), "\n".
 
 header(Name) --> "opaque symbol ", name(Name), " : ".
 
@@ -191,7 +188,7 @@ conclusion(formula(F)) --> "π ", formula(F).
 
 % '$dne' proves a formula step, whose formula it takes explicitly, as lambdapi cannot unify π p with a
 % formula that π reduces
-proved(formula(F), '$app'('$dne', M)) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
+proved(formula(F), '$dne' @ M) --> !, "¬¬ₑ ", formula(F), " ", operand(M).
 proved(_, M) --> proof(M).
 
 % step statements use framework-level Π and →, rather than `∀ and ⇒ which must be rewritten
@@ -201,7 +198,7 @@ pis([]) --> [].
 pis([X:S|Bs]) --> "Π (", term(X), " : ", sort(S), "), ", pis(Bs).
 
 arrows_to([]) --> "π ⊥".
-arrows_to([L|Ls]) --> "π ", hypothesis_type(L), " → ", arrows_to(Ls).
+arrows_to([L|Ls]) --> "π ", formula(~L), " → ", arrows_to(Ls).
 
 abstraction([]) --> [].
 abstraction([X|Xs]) --> "λ", variables([X|Xs]), ", ".
@@ -246,24 +243,24 @@ name(Name) --> { named(definition, Symbol, Name) }, "{|", atom(Symbol), "⁴|}".
 
 % proof terms are printed bare: they occur as binder bodies, which extend rightwards,
 % and are parenthesised by operand//1 where they are arguments
-proof('$lam'(X, _, M)) --> !, "λ ", variable(X), binders(M).
+proof('$lam'(X, _, M)) --> !, "λ ", term(X), binders(M).
 % a redex of one hypothesis is a let
-proof('$app'('$lam'(X, '$proof'(F), N), M)) --> !,
-  "let ", variable(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
+proof('$lam'(X, '$proof'(F), N) @ M) --> !,
+  "let ", term(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
 % the eigenvariable of a δ rule may be a type
-proof('$app'('$app'(Rule, M), L)) --> { nonvar(L), L = '$lam'(_, S, _), S == '$tType', type_rule(Rule, Codes) }, !,
+proof(Rule @ M @ L) --> { nonvar(L), L = '$lam'(_, S, _), S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(L).
 % an argument is a proof or a first-order term
-proof(M) --> { M = '$app'(_, _), spine(M, F, As) }, !, head(F), arguments(As).
+proof(M) --> { M = _ @ _, spine(M, F, As) }, !, head(F), arguments(As).
 proof(X) --> head(X).
 
 % consecutive λs are merged
-binders('$lam'(X, _, M)) --> !, " ", variable(X), binders(M).
+binders('$lam'(X, _, M)) --> !, " ", term(X), binders(M).
 binders(M) --> ", ", proof(M).
 
 % lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
 % (without, inference can be very slow, e.g. PUZ017-1)
-value('$lam'(X, T, M)) --> !, "λ (", variable(X), " : ", annotation(T), ")", binders(M).
+value('$lam'(X, T, M)) --> !, "λ (", term(X), " : ", annotation(T), ")", binders(M).
 
 value(M) --> proof(M).
 
@@ -299,8 +296,6 @@ rule_symbol('$nex_t', "nex_t").
 type_rule('$ex', "ex_t").
 type_rule('$nall', "nall_t").
 
-variable(X) --> term(X).
-
 arguments([]) --> [].
 arguments([A|As]) --> " ", argument(A), arguments(As).
 
@@ -315,7 +310,7 @@ operand(X) --> head(X).
 % the hypotheses of an input's bridge, by the index of their literals
 hypothesis(I) --> "h", number(I).
 
-compound_term(M) :- ( M = '$app'(_, _) ; M = '$lam'(_, _, _) ), !.
+compound_term(M) :- ( M = _ @ _ ; M = '$lam'(_, _, _) ), !.
 
 /********************************************************************************
  * formulas and terms
@@ -366,11 +361,6 @@ binder(Q, X:S) --> "`", quantifier_symbol(Q, S), " (", term(X), " : ", sort(S), 
 
 quantifier_symbol(Q, '$tType') --> !, codes(Q), "ₜ".
 quantifier_symbol(Q, _) --> codes(Q).
-
-% a clause as a top-level formula: `∀ xs, H_0 ⇒ ... ⇒ ⊥
-
-% the type of hypothesis refuting literal L, as an argument of π
-hypothesis_type(L) --> formula(~L).
 
 term(T) --> term(101, T).
 

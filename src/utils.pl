@@ -2,7 +2,7 @@
 Portable helpers that Prolog systems provide differently, or not at all. Names avoid clashing with
 built-in and library predicates, since a module cannot choose a definition per system (no :- if).
 */
-:- module(utils, [each/2, warn/1, final/2, range/3, list//1, named/3, step_name/2, definition_name/2]).
+:- module(utils, [each/2, warn/1, final/2, range/3, named/3, step_name/2, definition_name/2]).
 
 % forall/2, which is built in to SWI and Trealla, but in library(iso_ext) in Scryer
 :- meta_predicate(each(0, 0)).
@@ -38,7 +38,3 @@ final([_|Xs], X) :- final(Xs, X).
 % the integers Low, Low + 1, ..., High - 1 (empty if Low >= High)
 range(Low, High, []) :- Low >= High, !.
 range(Low, High, [Low|Ns]) :- Next is Low + 1, range(Next, High, Ns).
-
-% the elements of a list, in a grammar body: a variable body needs library(dcgs) in Scryer
-list([]) --> [].
-list([X|Xs]) --> [X], list(Xs).
