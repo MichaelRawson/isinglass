@@ -164,10 +164,8 @@ deny(_, [H-(~(~A))], [Negated], H @ M) :-
 denied(G, Negated, A, Negated) :- unify_with_occurs_check(G, A).
 denied(G, Negated, A, M) :- flip(G, F), unify_with_occurs_check(F, A), flipped(A, Negated, M).
 
-% resolution: literals of the major premise are in the conclusion, or refuted by an instance of a minor.
-% In binary resolution only positive literals are, which is complete, as either premise may be the
-% major, and avoids an exponential search on wide negative clauses; with several minors, they are
-% units (unit-resulting resolution, but for split literals)
+% resolution: literals of the major premise are in the conclusion, or refuted by an instance of a minor;
+% with several minors, they are units (unit-resulting resolution, but for split literals)
 resolve(_, Hs, Premises, M) :-
   select(Major, Premises, Minors),
   premise(Major, Ts, Ks),
@@ -178,7 +176,7 @@ resolve_literal(Hs, _, K, M) :- matches(Hs, K, M).
 resolve_literal(Hs, Minors, K, '$lam'(X, '$proof'(K), M)) :-
   member(Minor, Minors),
   premise(Minor, Ts, Ls),
-  ( K \= ~_ ; Minors = [_, _|_], unit(Ls) ),
+  ( Minors = [_] -> true ; unit(Ls) ),
   first_fail(matches([X-K|Hs]), matches_count([X-K|Hs]), Ls, Ms),
   instance(Minor, Ts, Ms, M).
 

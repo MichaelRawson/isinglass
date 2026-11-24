@@ -267,52 +267,45 @@ parts([X-F|Hs], Ps, M, M1) :-
   ).
 
 % the branch X : F is closed against the pool: a part of the pool closes by itself, or else the
-% branch does (closed/5)
+% branch does (closed/4)
 close(_, _, Pool, M) :- member(_-X-F, Pool), closes(F, X, M), !.
 % ...or a part of the pool is false by its key, as is ~($true & $true), and is refuted by itself
-close(Ctx, _, Pool, M) :- member(keys('$true', _, _)-X-F, Pool), closed(Ctx, [X-F], [], [], M), !.
-close(Ctx, H, Pool, M) :- closed(Ctx, [H], [], Pool, M).
+close(Ctx, _, Pool, M) :- member(keys('$true', _, _)-X-F, Pool), closed(Ctx, [X-F], [], M), !.
+close(Ctx, H, Pool, M) :- closed(Ctx, [H], Pool, M).
 
-% the branch New and Old is closed: one of the New formulas closes by itself, or has a counterpart in
-% the pool, or else one of the branch is taken apart. The Old ones have neither, and as the pool stays
-% the same while the branch is taken apart, they are not looked up again: so each key is computed
-% once. A disjunction is looked up only if its counterpart is a δ formula, whose binders are vacuous
-% (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts are in the pool already.
-% In Skolemisation, it may be a ? of the parent, not yet opened, and as keys forget terms, each
-% counterpart is tried, and then the other ways to close the branch
-closed(_, New, _, _, M) :- member(X-F, New), closes(F, X, M), !.
-closed(Ctx, New, _, Pool, M) :-
+% the Branch is closed: one of its formulas closes by itself, or has a counterpart in the pool, or
+% else one of them is taken apart. A disjunction is looked up only if its counterpart is a δ formula,
+% whose binders are vacuous (~![X] : (b => c) for b => c): otherwise it is a conjunction, whose parts
+% are in the pool already. In Skolemisation, it may be a ? of the parent, not yet opened, and as keys
+% forget terms, each counterpart is tried, and then the other ways to close the branch
+closed(_, Branch, _, M) :- member(X-F, Branch), closes(F, X, M), !.
+closed(Ctx, Branch, Pool, M) :-
   Ctx = ctx(skolem(Ss), _, _),
-  member(X-F, New),
+  member(X-F, Branch),
   normal(skolem(Ss), F, K),
   member(keys(K, _, _)-Y-G, Pool),
   pair(Ctx, X-F, Y-G, M), !.
-closed(Ctx, New, _, Pool, M) :-
+closed(Ctx, Branch, Pool, M) :-
   Ctx = ctx(Mode, _, _),
   Mode \= skolem(_),
-  member(X-F, New),
+  member(X-F, Branch),
   lookup_pool(Mode, F, Pool, Pool1),
   counterpart(Mode, F, Pool1, Y-G), !,
   pair(Ctx, X-F, Y-G, M).
-closed(Ctx, New, Old, Pool, M) :-
-  append(New, Old, Branch),
-  taken_apart(Ctx, Branch, Pool, M).
+closed(Ctx, Branch, Pool, M) :- taken_apart(Ctx, Branch, Pool, M).
 
-% a formula of the branch is expanded, opened or split, and its parts are new. The opening of a δ
-% formula whose term is the prover's choice (Hinted) is not undone, as the order in which δ formulas
-% of a branch are opened does not matter, and backtracking over it would try them in every order when
-% a branch does not close
+% a formula of the branch is expanded, opened or split, its parts replacing it
 taken_apart(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   expansion(F, X, Es, M, M1), !,
-  closed(Ctx, Es, Rest, Pool, M1).
+  append(Es, Rest, Branch1),
+  closed(Ctx, Branch1, Pool, M1).
 taken_apart(Ctx, Branch, Pool, M) :-
   Ctx = ctx(skolem(_), _, _),
   findall(G, member(_-_-G, Pool), Gs),
   select(X-F, Branch, Rest),
-  skolemised(Ctx, X-F, Gs, H, Hinted, M, M1),
-  ( Hinted == true -> ! ; true ),
-  closed(Ctx, [H], Rest, Pool, M1), !.
+  skolemised(Ctx, X-F, Gs, H, M, M1),
+  closed(Ctx, [H|Rest], Pool, M1), !.
 taken_apart(Ctx, Branch, Pool, M) :-
   select(X-F, Branch, Rest),
   split(X-F, Branches0, M), !,
@@ -330,7 +323,8 @@ delta_entry(keys(_, _, delta)-_-_).
 
 close_branches(_, [], _, _).
 close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
-  closed(Ctx, Es, Rest, Pool, M),
+  append(Es, Rest, Branch),
+  closed(Ctx, Branch, Pool, M),
   close_branches(Ctx, Branches, Rest, Pool).
 
 /********************************************************************************
@@ -340,20 +334,16 @@ close_branches(Ctx, [Es-M|Branches], Rest, Pool) :-
 % the δ formula X : F is opened by the choice of a Skolem term sK(As), of a symbol Ss, in the
 % formulas Gs, as Y : T[sK(As)/B]. Its arguments As are distinct eigenvariables, among them those of
 % F, and sK is not in F, whose choice it is; its definition agrees with any other in Defs
-skolemised(Ctx, H0, Gs, H, M, M1) :- skolemised(Ctx, H0, Gs, H, _, M, M1).
-
-% ...and Hinted is true if the term is the prover's choice
-skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$lam'(Y, '$proof'(T1), M) @ N, M) :-
+skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, '$lam'(Y, '$proof'(T1), M) @ N, M) :-
   delta(F, '$ex', B:_, T),
   ground(F),
   eigenvariables_in(F, Vs, []),
-  candidates(Ss, F, B, T, Gs, Hinted, Us),
+  candidates(Ss, F, B, T, Gs, Us),
   member(Term, Us),
   Term =.. [Sk|As],
   distinct_eigenvariables(As),
   each_member(Vs, As),
   \+ ( subterm(F, U), functor(U, Sk, _) ),
-  ( Hinted == true -> true ; plausible(Ss, B, T, Term, Gs) ),
   defined(Defs, Sk, As, F),
   substitute(B, Term, T, T1),
   definition_name(Sk, Name),
@@ -361,42 +351,17 @@ skolemised(ctx(skolem(Ss), _, Defs), X-F, Gs, Y-T1, Hinted, '$lam'(Y, '$proof'(T
   curried(Name, Args, N).
 
 % the candidate Skolem terms Us for the δ formula F, ? B : T, in the formulas Gs: if the prover hints
-% at its choice of symbol (db.pl), only its terms, so a wrong counterpart fails at once (LCL670+1.005:
-% chains of r1(X, Y) under nested ?); else, or for a vacuous B, each term of the symbols Ss, which must
-% then be plausible (Hinted is false)
-candidates(_, F, B, T, Gs, true, Us) :-
+% at its choice of symbol (db.pl), only its terms, so a wrong counterpart fails at once (LCL652+1.015:
+% chains of r1(X, Y) under nested ?); else, or for a vacuous B, each term of the symbols Ss
+candidates(_, F, B, T, Gs, Us) :-
   occurs(B, T),
   findall(Sk, ( skolem_hint(Sk, D), D = F ), Hints),
   Hints = [_|_], !,
   findall(U, ( subterm(Gs, U), functor(U, Sk, _), memberchk(Sk, Hints) ), Us0),
   sort(Us0, Us).
-candidates(Ss, _, _, _, Gs, false, Us) :-
+candidates(Ss, _, _, _, Gs, Us) :-
   findall(U, ( subterm(Gs, U), functor(U, Sk, _), get_assoc(Sk, Ss, _) ), Us0),
   sort(Us0, Us).
-
-% Term might be chosen for B in T: each atom of T in which B occurs is an atom of Gs with Term in
-% its place, up to other Skolem terms, variables, and the orientation of equations. This
-% prunes the choices early, as several ? may be Skolemised at once. Skolem terms already chosen,
-% which are in T, are kept: so X1 = f(X0), with sK0 chosen for X0, is sK0's sK1 = f(sK0) only
-plausible(Ss, B, T, Term, Gs) :-
-  findall(S, ( subterm(T, U), functor(U, S, _), get_assoc(S, Ss, _) ), Chosen0),
-  sort(Chosen0, Chosen),
-  Open = Ss-Chosen,
-  findall(K, ( signed_atom(T, pos, A, _), occurs(B, A), substitute(B, '$chosen', A, A1), blur(Open, A1, K) ), Ks0),
-  sort(Ks0, Ks),
-  findall(K, ( member(G, Gs), signed_atom(G, pos, A, _), occurs(Term, A), substitute(Term, '$chosen', A, A1), blur(Open, A1, K) ), Ls0),
-  sort(Ls0, Ls),
-  each_atom(Ks, Ls).
-
-each_atom([], _).
-each_atom([K|Ks], Ls) :- ( memberchk(K, Ls) -> true ; flip(K, K1), memberchk(K1, Ls) ), each_atom(Ks, Ls).
-
-% variables (bound, or eigenvariables) and terms of the Skolem symbols Ss but not Chosen are '$skolem'
-blur(_, '$BOUND'(_), '$skolem') :- !.
-blur(_, '$VAR'(_), '$skolem') :- !.
-blur(Ss-Chosen, T, '$skolem') :- functor(T, F, _), get_assoc(F, Ss, _), \+ memberchk(F, Chosen), !.
-blur(_, T, T) :- \+ compound(T), !.
-blur(Ss, T0, T) :- map_arguments(blur(Ss), T0, T).
 
 distinct_eigenvariables([]).
 distinct_eigenvariables([A|As]) :- nonvar(A), A = '$VAR'(_), \+ memberchk(A, As), distinct_eigenvariables(As).
@@ -433,47 +398,24 @@ clausify(_, Hs, [Parent], '$lam'(X, '$proof'(F), M) @ Parent) :-
   parent_formula(Parent, F),
   refuted(X-F, Hs, M).
 
-refuted(H, Hs, M) :-
-  findall(S-N/K, ( member(_-(~L), Hs), signed_atom(L, pos, A, S), functor(A, N, K) ), Sig0),
-  sort(Sig0, Sig),
-  refute(H, Hs, Sig, M).
-
-% X : F is refuted by the hypotheses Hs, for literals of the signs and predicates Sig
-refute(X-F, _, _, M) :- closes(F, X, M), !.
-refute(X-F, Hs, _, M) :- literal(F), !, matches(Hs, F, R), applied(R, X, M).
-refute(H, Hs, Sig, M) :- universals(H, [_|_], H1, M, M1), !, refute(H1, Hs, Sig, M1).
-refute(X-F, Hs, Sig, M) :-
+% X : F is refuted by the hypotheses Hs
+refuted(X-F, _, M) :- closes(F, X, M), !.
+refuted(X-F, Hs, M) :- literal(F), !, matches(Hs, F, R), applied(R, X, M).
+refuted(H, Hs, M) :- universals(H, [_|_], H1, M, M1), !, refuted(H1, Hs, M1).
+refuted(X-F, Hs, M) :-
   expansion(F, X, Es, M, M1), !,
-  refute_one(Es, Hs, Sig, M1).
-refute(H, Hs, Sig, M) :-
+  refute_one(Es, Hs, M1).
+refuted(H, Hs, M) :-
   split(H, Branches, M),
-  refute_branches(Branches, Hs, Sig).
+  refute_branches(Branches, Hs).
 
-% one of the parts Ps is refuted: the last needs no check, as the others are tried first
-refute_one(Ps, Hs, Sig, M) :-
-  append(_, [X-F|Rest], Ps),
-  ( Rest == [] -> true ; fits(F, Sig) ),
-  refute(X-F, Hs, Sig, M).
+% one of the parts Ps is refuted
+refute_one(Ps, Hs, M) :- member(P, Ps), refuted(P, Hs, M).
 
-refute_branches([], _, _).
-refute_branches([Es-M|Branches], Hs, Sig) :-
-  refute_one(Es, Hs, Sig, M),
-  refute_branches(Branches, Hs, Sig).
-
-% F might be refuted by literals of the signs and predicates Sig: a literal is, a conjunction if one
-% of its parts is, and a disjunction if each branch is
-fits('$false', _) :- !.
-fits(~'$true', _) :- !.
-fits(~'$='(_, _, _), _) :- !.
-fits(F, Sig) :- literal(F), !, signed_atom(F, pos, A, S), functor(A, N, K), memberchk(S-N/K, Sig).
-fits('!'(_, F), Sig) :- !, fits(F, Sig).
-fits(~'?'(_, F), Sig) :- !, fits(~F, Sig).
-fits(~(~F), Sig) :- !, fits(F, Sig).
-fits(F, Sig) :- alpha(F, _, Ts), !, member(T, Ts), fits(T, Sig), !.
-fits(F, Sig) :-
-  beta(F, _, Ts1, Ts2),
-  ( member(T, Ts1), fits(T, Sig) -> true ),
-  ( member(U, Ts2), fits(U, Sig) -> true ).
+refute_branches([], _).
+refute_branches([Es-M|Branches], Hs) :-
+  refute_one(Es, Hs, M),
+  refute_branches(Branches, Hs).
 
 /********************************************************************************
  * the expansion rules (see ir.pl)

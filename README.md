@@ -17,7 +17,7 @@ Backends like `lambdapi` then need only project out the parts they need from the
 Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in the TSTP language.
 
 ## Frontend (ATP systems)
-- [Vampire](https://github.com/vprover/vampire/) (`vampire`), including most but not all (see Bugs) of its many options. Due to necessary bugfixes, this relies on a very recent Vampire.
+- [Vampire](https://github.com/vprover/vampire/) (`vampire`), including most but not all (see Bugs) of its many options. Due to necessary bugfixes, this relies on a very recent Vampire (5.1.2).
 
 ## Backends
 - A built-in proof checker, (`checker`).
@@ -44,7 +44,6 @@ produces a complete lambdapi script from the supplied Vampire proof of `PUZ001+1
 ## Bugs, Limitations and Extensions
 Isinglass is at an early stage of development.
 Items that are still missing that I would like at some point:
-- support for Vampire's NewCNF (but this might require some hacking on the Vampire side)
 - arithmetic and theories (including datatypes)
 - other ATP systems
 - the internal formula language rewrites unusual TSTP operators to a more standard form, e.g. `~(p | q)` for `p ~| q` at load time, which it technically shouldn't

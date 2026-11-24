@@ -69,16 +69,16 @@ A tactic builds an IR term of the conclusion's type, given that the step is, say
 ### Preprocessing (`normal.pl`, `transform.pl`)
 A general tableau search for preprocessing steps blows up, so each rule names its transformation, and the tactic checks just that one.
 
-- Each transformation has a ground _key_ (`normal:normal/3`) forgetting what it may change: `base` (renaming, `~~`, `=>`, nesting and units of `&`/`|`, operand order, equation orientation, vacuous quantifiers), `ennf` (negation pushed to atoms, but for `<=>`), `nnf` (and `<=>` expanded), `simplify` (`$true`/`$false`), `pure(Ss)`, `skolem(Ss)` (Skolem terms and bound variables blurred). Keys are approximate, so small implementation differences do not matter. A key is one pass: reshaping gives each binder a fresh variable as it enters scope, as renaming afterwards is quadratic in nesting depth (LCL6xx).
+- Each transformation has a ground _key_ (`normal:normal/3`) forgetting what it may change: `base` (renaming, `~~`, `=>`, nesting and units of `&`/`|`, operand order, equation orientation, vacuous quantifiers), `ennf` (negation pushed to atoms, but for `<=>`), `nnf` (and `<=>` expanded), `simplify` (`$true`/`$false`), `pure(Ss)`, `skolem(Ss)` (Skolem terms and bound variables blurred). Keys are approximate, so small implementation differences do not matter.
 - `transform(Mode)` fails at once unless parent and conclusion have the same key. It then takes them apart in lockstep (`pair`):
   - literals close modulo symmetry, and a formula closes against its negation before either is taken apart (a chain of `<=>` splits exponentially, SYN007+1.014);
   - δ eigenvariables instantiate the γ counterpart, skipping vacuous binders and conjuncts that are units of the key; failing that, only as many δ binders as the γ formula has are opened;
-  - otherwise the conjunctive side becomes a _pool_ of parts by key, in which each branch of the other is looked up, or split further. Self-closing parts are found once per pool, and each formula is looked up once as it enters a branch.
+  - otherwise the conjunctive side becomes a _pool_ of parts by key, in which each branch of the other is looked up, or split further. Self-closing parts are found once per pool.
   - in nnf both formulas are also compared the other way round.
 - Weakening: `pure` replaces the parent's pure predicates; `definition` weakens one `<=>` to `=>`.
 - `transform(fold)` unfolds both sides throughout, then compares as `base`.
-- Skolemisation (`transform(skolem)`) opens a δ formula by the choice axiom of a Skolem term read off the conclusion, so no prover convention is assumed. Keys forget Skolem terms, so counterparts are ambiguous: candidates are pruned by `plausible`, and branches closed smallest first, so a wrong counterpart fails early (ITP009+2). Vampire's `skolemize` hints settle the choice where given (`skolem_hint/2`, checked only by count), without which LCL670+1.005 is exponential. A type may be chosen too.
-- `clausify` refutes the parent by the clause's literals: one part of each conjunction, every branch of each disjunction. Its only search, the choice of conjunct, is pruned by the clause's predicates and signs (`fits`). A clause conclusion not over the parent's outermost universals (the AVATAR shape) is refuted the same way.
+- Skolemisation (`transform(skolem)`) opens a δ formula by the choice axiom of a Skolem term read off the conclusion, so no prover convention is assumed. Keys forget Skolem terms, so counterparts are ambiguous: branches are closed smallest first, so a wrong counterpart fails early (ITP009+2). Vampire's `skolemize` hints settle the choice where given (`skolem_hint/2`, checked only by count), without which LCL652+1.015 is exponential. A type may be chosen too.
+- `clausify` refutes the parent by the clause's literals: one part of each conjunction, every branch of each disjunction. Its only search is the choice of conjunct. A clause conclusion not over the parent's outermost universals (the AVATAR shape) is refuted the same way.
 
 ## Front Ends
 A front end loads a prover's proof and maps its rules to the ATP-generic tactics.
@@ -138,7 +138,7 @@ An optional pass makes proofs smaller, as statements dominate the output (SYN837
 ### Checker (`checker.pl`)
 An independent-ish type checker of each ground, annotated term against its conclusion's type.
 - Terms are checked against the signature; sorts of eigenvariables and motives are well formed.
-- Formulas are compared syntactically, or failing that up to `~F` being `F => $false` and unfolding of definitions (first only where the two differ, then throughout).
+- Formulas are compared syntactically, or failing that up to `~F` being `F => $false` and unfolding of definitions.
 - An application is typed by its head, whose type its arguments take apart in order. The result is unified with the expected type first, then each argument checked against its premise; `'$rewrite'`'s result is a substitution, so its premises are checked first. A type still not ground is rejected.
 - A β-redex is checked by binding, without substituting one proof into another. Every binder is fresh.
 - The `conjecture` step must cite a refutation and a checked `negated_conjecture`. Skolem symbols, functions and predicates are each defined once, by a well-sorted body of their arguments only (citing only earlier definitions), and their steps are exactly their axioms.
@@ -150,7 +150,6 @@ Uses the `Stdlib` encoding of first-order logic.
 - A clause is stated with framework-level `Π`/`→`. `'$sym'`, `'$refl'` are `eq_sym`, `eq_refl _`; `'$dne'` is `¬¬ₑ F` with its formula explicit, as `π` reduces; `'$rewrite'` is `rw` (`rewrite` is a keyword), defined by `ind_eq`.
 - Sorts are terms of `Set`; `'$inhabited'(S)` is `el S`. The prelude adds `∀ₜ`, `∃ₜ` over `Set` and `εₜ`, and the expansion rules as lemmas (classical ones from `Stdlib.Classic`), with `_t` variants over types.
 - Skolem symbols get a rule `sK ↪ λ xs, ε (λ y, T)` (`Stdlib.Epsilon`); function and predicate definitions are rules too, so their axioms hold by `refl` or `∧ᵢ`.
-- Some binder annotations are printed only because they speed up checking.
 
 ### Agda (`agda.pl`)
 For a hammer: a term to fill a hole, constructive by the A-translation.

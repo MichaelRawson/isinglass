@@ -28,12 +28,9 @@ sorted and without duplicates.
 :- use_module(logic).
 
 % the formula is first reshaped, then its bound variables are named again (as binders may have gone),
-% and then its operands are ordered. Reshaping gives each binder a fresh variable as it goes, by the
-% names of the binders in Scope (which are distinct on a path, see logic:opened/2), so that naming
-% them again is not a pass over the scope of each
+% and then its operands are ordered
 normal(Mode, F, K) :-
-  empty_assoc(Scope),
-  shape(Mode, Scope, F, F1),
+  shape(Mode, F, F1),
   canonical(F1, F2),
   key(F2, K).
 
@@ -44,33 +41,32 @@ pushes(skolem(_)).
 simplifies(simplify).
 simplifies(pure(_)).
 
-shape(_, _, '$true', '$true') :- !.
-shape(_, _, '$false', '$false') :- !.
-shape(Mode, Scope, ~F, K) :- !, negated(Mode, Scope, F, K).
-shape(Mode, Scope, (F & G), K) :- !,
-  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), conjunction(Mode, A, B, K).
-shape(Mode, Scope, (F | G), K) :- !,
-  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), disjunction(Mode, A, B, K).
-shape(Mode, Scope, (F => G), K) :- !, shape(Mode, Scope, (~F | G), K).
-shape(nnf, Scope, (F <=> G), K) :- !, shape(nnf, Scope, ((~F | G) & (F | ~G)), K).
-shape(Mode, Scope, (F <=> G), K) :- !,
-  shape(Mode, Scope, F, A), shape(Mode, Scope, G, B), equivalence(Mode, A, B, K).
-shape(skolem(Ss), Scope, F, K) :- quantifier(F, _, B, G), !,
-  blurred_binder(B, G, G1), shape(skolem(Ss), Scope, G1, K).
-shape(Mode, Scope0, F, K) :-
-  quantifier(F, Q, B0, G), !,
-  open_binder(B0, X:S, Scope0, Scope),
-  shape(Mode, Scope, G, K0),
+shape(_, '$true', '$true') :- !.
+shape(_, '$false', '$false') :- !.
+shape(Mode, ~F, K) :- !, negated(Mode, F, K).
+shape(Mode, (F & G), K) :- !,
+  shape(Mode, F, A), shape(Mode, G, B), conjunction(Mode, A, B, K).
+shape(Mode, (F | G), K) :- !,
+  shape(Mode, F, A), shape(Mode, G, B), disjunction(Mode, A, B, K).
+shape(Mode, (F => G), K) :- !, shape(Mode, (~F | G), K).
+shape(nnf, (F <=> G), K) :- !, shape(nnf, ((~F | G) & (F | ~G)), K).
+shape(Mode, (F <=> G), K) :- !,
+  shape(Mode, F, A), shape(Mode, G, B), equivalence(Mode, A, B, K).
+shape(skolem(Ss), F, K) :- quantifier(F, _, B, G), !,
+  blurred_binder(B, G, G1), shape(skolem(Ss), G1, K).
+shape(Mode, F, K) :-
+  quantifier(F, Q, X:S, G), !,
+  shape(Mode, G, K0),
   ( occurs(X, K0) -> K =.. [Q, X:S, K0] ; K = K0 ).
-shape(pure(Ss), _, A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
-shape(skolem(Ss), _, A, K) :- !, blurred(Ss, A, K).
-shape(_, Scope, A0, A) :- renamed(Scope, A0, A).
+shape(pure(Ss), A, V) :- functor(A, N, Arity), memberchk(N/Arity-V, Ss), !.
+shape(skolem(Ss), A, K) :- !, blurred(Ss, A, K).
+shape(_, A, A).
 
 % the shape of ~F
-negated(Mode, Scope, ~F, K) :- !, shape(Mode, Scope, F, K).
-negated(nnf, Scope, (F <=> G), K) :- !, shape(nnf, Scope, ((F | G) & (~F | ~G)), K).
-negated(Mode, Scope, F, K) :- pushes(Mode), pushed(F, G), !, shape(Mode, Scope, G, K).
-negated(Mode, Scope, F, K) :- shape(Mode, Scope, F, A), negation(Mode, A, K).
+negated(Mode, ~F, K) :- !, shape(Mode, F, K).
+negated(nnf, (F <=> G), K) :- !, shape(nnf, ((F | G) & (~F | ~G)), K).
+negated(Mode, F, K) :- pushes(Mode), pushed(F, G), !, shape(Mode, G, K).
+negated(Mode, F, K) :- shape(Mode, F, A), negation(Mode, A, K).
 
 pushed('$true', '$false').
 pushed('$false', '$true').

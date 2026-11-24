@@ -19,8 +19,6 @@
   subterm/2,
   canonical/2,
   opened/2,
-  open_binder/4,
-  renamed/3,
   connective/2,
   map_arguments/3
 ]).

@@ -165,32 +165,12 @@ formula_matches(F1, F) :- ground(F), expanded(F, U), U = F1, ground(F1).
 
 % types are the same, or the same once defined predicates and function terms are unfolded (see ir.pl)
 convertible(T1, T) :- T1 == T, !.
-convertible(T1, T) :- unfolding(T1, T), !.
 convertible(T1, T) :- expanded(T1, U), expanded(T, U1), U == U1, !.
 % ~F is F => '$false', and a split symbol its definition, at any arrow (as after η-reduction, optimise.pl)
 convertible(T1, T) :-
   unfold(T1, (A1 => B1)), unfold(T, (A => B)), !,
   convertible(A, A1),
   convertible(B1, B).
-
-% T1 and T are the same, but for defined terms and atoms, which are unfolded only where they differ:
-% function bodies, and the predicate bodies unfolded here, have no binders, so none captures a variable
-unfolding(T1, T) :- T1 == T, !.
-unfolding(T1, T) :-
-  compound(T1), compound(T),
-  T1 =.. [F|Us1], T =.. [F|Us],
-  same_length(Us1, Us), !,
-  maplist(unfolding, Us1, Us).
-unfolding(T1, T) :- unfolds(T1, U), !, unfolding(U, T).
-unfolding(T1, T) :- unfolds(T, U), unfolding(T1, U).
-
-unfolds(T, U) :- defined_term(T, U), !.
-unfolds(A, F) :-
-  compound(A),
-  functor(A, P, _),
-  ir_step(_, formula(_), definition(P, _, Body)),
-  \+ ( subterm(Body, Q), functor(Q, B, 2), ( B == '!' ; B == '?' ) ), !,
-  defined_atom(A, F).
 
 % the type T of M, inferred: ground but for the parameters of a built-in that nothing has bound
 type(Steps, Gamma, M0, T) :-

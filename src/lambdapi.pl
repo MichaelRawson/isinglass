@@ -246,7 +246,7 @@ name(Name) --> { named(definition, Symbol, Name) }, "{|", atom(Symbol), "⁴|}".
 proof('$lam'(X, _, M)) --> !, "λ ", term(X), binders(M).
 % a redex of one hypothesis is a let
 proof('$lam'(X, '$proof'(F), N) @ M) --> !,
-  "let ", term(X), " : π ", formula(F), " ≔ ", value(M), " in ", proof(N).
+  "let ", term(X), " : π ", formula(F), " ≔ ", proof(M), " in ", proof(N).
 % the eigenvariable of a δ rule may be a type
 proof(Rule @ M @ L) --> { nonvar(L), L = '$lam'(_, S, _), S == '$tType', type_rule(Rule, Codes) }, !,
   codes(Codes), " ", operand(M), " ", operand(L).
@@ -257,16 +257,6 @@ proof(X) --> head(X).
 % consecutive λs are merged
 binders('$lam'(X, _, M)) --> !, " ", term(X), binders(M).
 binders(M) --> ", ", proof(M).
-
-% lambdapi does not use the type of a let to elaborate its value, so a λ value's binder is annotated
-% (without, inference can be very slow, e.g. PUZ017-1)
-value('$lam'(X, T, M)) --> !, "λ (", term(X), " : ", annotation(T), ")", binders(M).
-
-value(M) --> proof(M).
-
-% an eigenvariable has a sort, and a hypothesis a proof type
-annotation('$proof'(F)) --> !, "π ", formula(F).
-annotation(S) --> sort(S).
 
 % a head is a built-in, a hypothesis or a step, or a term
 head(M) --> { compound_term(M) }, !, "(", proof(M), ")".
