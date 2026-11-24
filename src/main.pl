@@ -38,8 +38,9 @@ against the working directory, but finds a module that is already loaded.
 main(Frontend, Backend) :- main(Frontend, Backend, []).
 
 % Options: trace prints the name and tactic of each step to stderr as its search starts,
-% optimise inlines and simplifies the IR before it is emitted (optimise.pl), and implicits(Kinds)
-% gives Agda type arguments of these kinds (agda.pl)
+% optimise inlines and simplifies the IR before it is emitted (optimise.pl), implicits(Kinds)
+% gives Agda type arguments of these kinds, and complete fails rather than print an Agda proof
+% with holes (agda.pl)
 main(Frontend, Backend, Options) :-
   recorded_options(Options),
   (   catch(run(Frontend, Backend), Error, ( warn(['error: ', Error]), fail ))

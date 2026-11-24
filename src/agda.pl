@@ -66,11 +66,40 @@ on proofs whose names were not chosen for Agda: there, every name is mangled.
 % mangled: names are made Agda identifiers, apart from each other and from ours, for testing
 :- dynamic(mangled/0).
 
-emit_agda :- retractall(mangled), decorate, out(fragment).
+emit_agda :- retractall(mangled), complete, decorate, out(fragment).
 
-emit_agda_term :- retractall(mangled), decorate, out(expression).
+emit_agda_term :- retractall(mangled), complete, decorate, out(expression).
 
-emit_agda_file :- retractall(mangled), assertz(mangled), decorate, out(file).
+emit_agda_file :- retractall(mangled), assertz(mangled), complete, decorate, out(file).
+
+/*
+A part of the proof that Agda cannot be given is a hole {! … !}, to be filled by hand. With the option
+complete (--complete), for a caller that cannot fill holes, a proof that would have holes is not
+printed: the back end stops with an error, naming what they would stand for (an error, not a
+failure, which would retry the reconstruction).
+*/
+complete :- \+ option(complete), !.
+complete :-
+  findall(Hole, hole(Hole), Holes0),
+  sort(Holes0, Holes),
+  (   Holes == []
+  ->  true
+  ;   atomic_list_concat(Holes, ', ', Listed),
+      atomic_list_concat(['the proof would have holes, for ', Listed], Message),
+      throw(Message)
+  ).
+
+% what a hole would stand for: a step that is not reconstructed, by its rule (or formula_step, for a
+% step between formulas), a predicate whose body Agda cannot state, or a term that closing could not
+% find (inhabited)
+hole(Rule) :- ir_step(Name, C, J), proved(step(Name, C, J), _, _, todo(Record)), todo_rule(Record, Rule).
+hole(Hole) :-
+  ir_step(_, formula(_), definition(Symbol, _, Body)), \+ stated(Body),
+  atomic_list_concat(['the definition of ', Symbol], Hole).
+hole(inhabited) :- ir_step(Name, C, J), proved(step(Name, C, J), _, _, proof(M)), inhabited(M).
+
+inhabited('$inhabited'(_)) :- !.
+inhabited(T) :- compound(T), T =.. [_|Ts], member(S, Ts), inhabited(S), !.
 
 /*
 Our own names (variables, R, the module Proof, steps and definitions) are in the scope of the names
