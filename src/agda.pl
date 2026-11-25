@@ -246,11 +246,21 @@ emitted(_, Step) --> { proved(Step, Name, Type, Body) }, !, definition(Name, Typ
 emitted(_, _) --> [].
 
 % the name, type and body of a step of the proof; a step between formulas is classical, so it is left
-% as a hole
-proved(step(Name, clause(Bs, Ls), proof(_)), name(Name), conclusion(clause(Bs, Ls)), todo(formula_step)) :-
-  formula_step(Name), !.
+% as a hole, but for one that only restates the clause of its parent (as flattening restates a hammer's
+% input clause, ~ P(x) | ... as ~P(x) | ...), which is its parent
+proved(step(Name, clause(Bs, Ls), proof(_)), name(Name), conclusion(clause(Bs, Ls)), Body) :-
+  formula_step(Name), !,
+  (   step(Name, _, tactic(_, [Parent])),
+      ir_step(Parent, clause(Bs0, Ls0), _),
+      same_clause(clause(Bs0, Ls0), clause(Bs, Ls))
+  ->  Body = proof(Parent)
+  ;   Body = todo(formula_step)
+  ).
 proved(step(Name, clause(Bs, Ls), proof(M)), name(Name), conclusion(clause(Bs, Ls)), proof(M)).
 proved(step(Name, clause(Bs, Ls), todo(Record, _)), name(Name), conclusion(clause(Bs, Ls)), todo(Record)).
+
+% two clauses of the same type, up to the names of their variables
+same_clause(C0, C) :- clause_type(C0, T0), clause_type(C, T), canonical(T0, F), canonical(T, F).
 
 % in an expression, a step is bound by letp, the application of a definition that Agda does not unfold
 bound(Step) --> { proved(Step, Name, Type, Body) }, !,
