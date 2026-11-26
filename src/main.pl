@@ -33,6 +33,7 @@ against the working directory, but finds a module that is already loaded.
 :- use_module(smtlib).
 :- use_module(checker).
 :- use_module(agda).
+:- use_module(micromath).
 
 % exit with status 1 on failure or error: the top levels of the systems differ
 main(Frontend, Backend) :- main(Frontend, Backend, []).
@@ -82,4 +83,5 @@ backend(smtlib, emit_smtlib) :- !.
 backend(checker, emit_checker) :- !.
 backend(agda, emit_agda) :- !.
 backend(agda_file, emit_agda_file) :- !.
+backend(micromath, emit_micromath) :- !.
 backend(Backend, _) :- warn(['error: unknown backend ', Backend]), halt(1).

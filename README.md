@@ -24,7 +24,7 @@ Isinglass is currently intended for first-order ATP proofs, i.e. up to TFF1 in t
 - [lambdapi](https://lambdapi.readthedocs.io/en/latest/), (`lambdapi`)
 - SMT-LIB for checking by SMT solvers, in the style of [Ground Truth](https://rawsons.uk/michael/papers/CADE-2025.pdf) (`smtlib`).
 - constructive Agda (`agda`, one expression, supporting only clausal proofs)
-- [Micromath](https://git.olsak.net/mirek/Micromath/src/branch/main#micromath), minimal formal system.
+- [Micromath](https://git.olsak.net/mirek/Micromath/src/branch/main#micromath), minimal formal system (`micromath`, the IR as data for Micromath's own replay and checker).
 
 ## Usage
 Isinglass is written in Prolog, for very good reasons.
