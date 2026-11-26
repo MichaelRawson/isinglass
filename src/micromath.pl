@@ -64,7 +64,7 @@ emitted(Term) :- write_canonical(Term), write('.'), nl.
 % and a rewrite is rewrite(X:S, F, Equation, Proof). The parameters of $sym, $refl and $dne are
 % left for the reader to infer, as here.
 lowered(ir_step(Name, Conclusion, Justification), ir_step(Name1, Conclusion1, Justification1)) :-
-  nb_setval(mm_hypotheses, 0),
+  nb_setval(um_hypotheses, 0),
   plain_name(Name, Name1),
   lower_conclusion(Conclusion, Justification, Conclusion1),
   lower_justification(Justification, Justification1).
@@ -105,7 +105,7 @@ merged_binders(Q, Term, [Binder|Binders], Body) :-
   merged_binders(Q, Inner, Binders, Body).
 merged_binders(_, Body, [], Body).
 
-next_hypothesis(N) :- nb_getval(mm_hypotheses, N), N1 is N + 1, nb_setval(mm_hypotheses, N1).
+next_hypothesis(N) :- nb_getval(um_hypotheses, N), N1 is N + 1, nb_setval(um_hypotheses, N1).
 
 % Env: list of Index-Kind for the variables '$VAR'(Index), Kind being hyp(N) or object.
 lower_proof('$lam'('$VAR'(V), Annotation, Body), Env, Lowered) :- !,
@@ -135,6 +135,12 @@ lower_application('$lam'('$VAR'(V), Annotation, Body), [Value|Rest], Env, Lowere
   applied(Rest, Body, Applied),
   lower_proof(Applied, [V-hyp(N)|Env], Body1),
   Lowered = let(h(N), Formula1, Value1, Body1).
+lower_application('$rewrite', [Motive, Equation, Proof|Rest], Env, Lowered) :- Rest = [_|_], !,
+  % the rewritten fact is a function that is applied at once, as optimised; the reader infers its type
+  lower_application('$rewrite', [Motive, Equation, Proof], Env, Rewritten),
+  next_hypothesis(N),
+  lower_proofs(Rest, Env, Rest1),
+  Lowered = let(h(N), '$inferred', Rewritten, app(h(N), [], Rest1)).
 lower_application('$rewrite', [Motive, Equation, Proof], Env, rewrite(Binder, Formula1, Equation1, Proof1)) :- !,
   Motive = '$abs'(Binder, Formula), lower_term(Formula, Formula1),
   lower_proof(Equation, Env, Equation1), lower_proof(Proof, Env, Proof1).
@@ -143,12 +149,32 @@ lower_application('$nex', [Premise, '$lam'('$VAR'(V), Annotation, Body)], Env, L
   lower_proof(Premise, Env, Premise1),
   next_hypothesis(N),
   lower_proof(Body, [V-hyp(N)|Env], Body1),
-  collapsed_nex(h(N), [], Body1, Collapsed),
+  collapsed_nex(h(N), [], Body1, Body2),
+  inlined_nex(h(N), Body2, Collapsed),
   Lowered = app('$nex', [], [Premise1, lam(h(N), Type, Collapsed)]).
-lower_application(Head, Args, Env, app(Head1, Terms, Proofs1)) :-
-  (   Head = '$VAR'(V) -> memberchk(V-hyp(N), Env), Head1 = h(N) ; atomic(Head), plain_name(Head, Head1) ),
-  leading_terms(Args, Env, Terms, Proofs),
-  lower_proofs(Proofs, Env, Proofs1).
+lower_application(Head, Args, Env, Lowered) :-
+  (   Head = '$VAR'(V) -> memberchk(V-hyp(N), Env), Head1 = h(N)
+  ;   Head = h(_) -> Head1 = Head
+  ;   atomic(Head), plain_name(Head, Head1)
+  ),
+  leading_terms(Args, Env, Terms, Args1),
+  leading_proofs(Args1, Env, Proofs, Rest),
+  lower_proofs(Proofs, Env, Proofs1),
+  (   Head1 = h(_), Terms = [_|_], Proofs1 = [_|_]
+  ->  % a hypothesis is applied to its terms first, then to its proofs
+      next_hypothesis(N0),
+      Application = let(h(N0), '$inferred', app(Head1, Terms, []), app(h(N0), [], Proofs1))
+  ;   Application = app(Head1, Terms, Proofs1)
+  ),
+  (   Rest == [] -> Lowered = Application
+  ;   % a term after a proof, as the optimised IR inlines a lemma: bind the part so far, its type inferred
+      next_hypothesis(N1),
+      lower_application(h(N1), Rest, Env, Tail),
+      Lowered = let(h(N1), '$inferred', Application, Tail)
+  ).
+
+leading_proofs([A|As], Env, [A|Ps], Rest) :- \+ is_term(A, Env), !, leading_proofs(As, Env, Ps, Rest).
+leading_proofs(Rest, _, [], Rest).
 
 lower_proofs([], _, []).
 lower_proofs([P|Ps], Env, [L|Ls]) :- lower_proof(P, Env, L), lower_proofs(Ps, Env, Ls).
@@ -187,3 +213,18 @@ substituted(Term, From, To, Out) :- compound(Term), !,
 substituted(Term, _, _, Term).
 substituted_list([], _, _, []).
 substituted_list([A|As], From, To, [B|Bs]) :- substituted(A, From, To, B), substituted_list(As, From, To, Bs).
+
+% Optimised, the next $nex of a chain takes its premise inline: $nex (P x) (\Q. B), not through a let.
+inlined_nex(P, app('$nex', [], [app(P, Xs, []), lam(Q, _, Body)]), Collapsed) :- !,
+  reheaded(Body, Q, P, Xs, Body1),
+  inlined_nex(P, Body1, Collapsed).
+inlined_nex(_, Term, Term).
+
+reheaded(h(N), h(N), P, Xs, app(P, Xs, [])) :- !.
+reheaded(app(h(N), Ys, Ps), h(N), P, Xs, app(P, Zs, Ps1)) :- !,
+  append(Xs, Ys, Zs), reheaded_list(Ps, h(N), P, Xs, Ps1).
+reheaded(Term, Q, P, Xs, Out) :- compound(Term), !,
+  Term =.. [F|Args], reheaded_list(Args, Q, P, Xs, Args1), Out =.. [F|Args1].
+reheaded(Term, _, _, _, Term).
+reheaded_list([], _, _, _, []).
+reheaded_list([A|As], Q, P, Xs, [B|Bs]) :- reheaded(A, Q, P, Xs, B), reheaded_list(As, Q, P, Xs, Bs).
