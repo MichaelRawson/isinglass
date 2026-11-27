@@ -107,7 +107,7 @@ A front end loads a prover's proof and maps its rules to the ATP-generic tactics
 | avatar_split_clause | `avatar_split` |
 | avatar_component_clause | `avatar_component` |
 | rat | `rup` |
-| cnf_transformation of a clause | `variant` |
+| cnf_transformation, or any preprocessing rule below, of a clause into a clause | `variant` |
 | cnf_transformation of the negated conjecture, an atom | `deny` |
 | rectify, flattening | `transform(base)` |
 | ennf_transformation | `transform(ennf)` |

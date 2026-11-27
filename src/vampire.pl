@@ -96,6 +96,12 @@ how(_, inference(Rule, _, [Parent]), F, tactic(resolve, [Parent, Lemma])) :-
   formula_clause(F, clause(_, Ks)),
   constructor_literal(Polarity, Ls, Ks, Constructor, I),
   lemma(Polarity, Constructor, I, Lemma), !.
+% preprocessing of a clause into a clause (flattening or rectifying an input) only restates it, so it
+% is a variant, and stays constructive, rather than a step between formulas
+how(_, inference(Rule, _, [Parent]), F, tactic(variant, [Parent])) :-
+  tactic(Rule, transform(_)),
+  step(Parent, clause(_, _), _),
+  formula_clause(F, _), !.
 how(_, inference(Rule, _, Parents), _, How) :-
   tactic(Rule, Tactic), !,
   How = tactic(Tactic, Parents).
