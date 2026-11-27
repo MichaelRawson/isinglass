@@ -6,7 +6,7 @@ Reconstruction is backtracking _search_ over the possible instances of an infere
 
 Overall: TSTP → front end (e.g. `vampire`) → ATP-agnostic proof → reconstruction → IR → back end (e.g. `lambdapi`)
 
-Usage: `./ising [--trace] [--optimise] [--implicits=Kinds] [--complete] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda`, `agda_file` or `checker`.
+Usage: `./ising [--trace] [--optimise] [--implicits=Kinds] [--complete] Frontend Backend < proof.p`, where `Frontend` is `vampire` and `Backend` is `lambdapi`, `smtlib`, `agda`, `agda_file`, `micromath` or `checker`.
 The script runs `main(Frontend, Backend, Options)` in `src/main.pl` with SWI.
 `--trace` prints each step and its tactic to stderr as its search starts, so a slow step is the last one printed; `--optimise` optimises the IR before it is emitted.
 `--implicits=eq,letp` (either) makes the Agda back ends give further type arguments: `eq`, the sort of `_≡_` in types; `letp`, the result `R` of `letp` (`agda`).
@@ -171,6 +171,12 @@ In the manner of "Ground Truth" (Voronkov et al.): each step's ground premise in
 - Not checked: `todo` steps (echoing a warning), steps between formulas (no ground instances), Skolem definitions and other definitions. Monomorphic definitions are `define-fun`s in the header, but splits with binders, asserted where used.
 - A general split's component is asserted as `C => T`, sound by Skolemisation as for AVATAR.
 
+### Micromath (`micromath.pl`)
+The IR, lowered to a stable shape, as versioned canonical Prolog data (`micromath_ir(1)`, then the signature, the steps and `end(Refutation)`), for Micromath's TPTP replay, which reads it in C and proves the original problem in its own kernel: Micromath makes every encoding decision, and treats the proof as an untrusted certificate.
+- The proof is checked first (`checker.pl`); a `todo` step is an error, as a partial proof cannot be replayed.
+- The format is an interface, so it does not follow the IR: `micromath.pl` lowers it to the shape of the earlier IR. Quantifiers carry binder lists of directly nested binders, hypotheses are `h(N)`, an application is `app(Head, Terms, Proofs)`, a lemma redex is `let(H, F, M, N)`, `$rewrite` is `rewrite(X : S, F, Equation, Proof)`, and a `$nex` chain is one `$nex` of the whole block. The parameters of `$sym`, `$refl` and `$dne` are left out for the reader to infer, and steps, inputs and definitions lose their `$step:`, `$input:` and `$def:` prefixes. A change to the shape of the format is a new version.
+- `--optimise` is supported: the lowering binds inlined proofs that the format cannot take as arguments (a rewritten fact, or a step applied to a term after a proof) by a `let` whose type is inferred, `$inferred`, and the reader infers it.
+
 ## Files (`src/`)
 | File | Role |
 |---|---|
@@ -190,7 +196,7 @@ In the manner of "Ground Truth" (Voronkov et al.): each step's ground premise in
 | `optimise.pl` | Optional inlining and simplification of the IR |
 | `ir.pl` | The IR, and the types of steps and built-ins |
 | `checker.pl` | Type-checker back end (not `check`, which clashes with SWI's `library(check)`) |
-| `lambdapi.pl`, `smtlib.pl`, `agda.pl` | Back ends |
+| `lambdapi.pl`, `smtlib.pl`, `agda.pl`, `micromath.pl` | Back ends |
 | `printing.pl` | Shared printing DCGs |
 | `utils.pl` | Portable helpers |
 
